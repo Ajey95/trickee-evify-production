@@ -3,9 +3,8 @@ services:
     name: trickee-backend
     runtime: docker
     plan: free
-    rootDir: production/backend
-    dockerfilePath: Dockerfile
-    dockerContext: .
+    dockerfilePath: production/backend/Dockerfile
+    dockerContext: production/backend
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
