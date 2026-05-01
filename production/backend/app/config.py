@@ -41,7 +41,11 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origin_list(self) -> list[str]:
-        return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+        production_origins = [
+            "https://trickee-evify-live.vercel.app",
+        ]
+        return list(dict.fromkeys([*origins, *production_origins]))
 
     @property
     def model_path(self) -> Path:
