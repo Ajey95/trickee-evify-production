@@ -9,7 +9,7 @@
 
 The current system is built as a deployable MVP/demo architecture:
 
-- **Frontend:** Next.js 14 App Router application in `production/Trickee frontend`
+- **Frontend:** Next.js 14 App Router application in `production/trickee-frontend`
 - **Backend:** FastAPI application in `production/backend`
 - **Database:** Supabase Postgres
 - **Auth:** Firebase Auth on frontend, mapped to Trickee backend users through backend JWT

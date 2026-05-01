@@ -5,7 +5,7 @@ Next.js 14 dashboard for the Trickee EV Intelligence Platform.
 ## Local Setup
 
 ```powershell
-cd "C:\Users\srija\Downloads\Trickee\Trickee\production\Trickee frontend"
+cd production/trickee-frontend
 Copy-Item .env.example .env.local
 npm install
 npm run dev

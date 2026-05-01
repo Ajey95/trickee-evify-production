@@ -65,7 +65,7 @@ Backend is deploy-ready, but still needs Render project/API access and productio
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   └── README.md
-│   └── Trickee frontend/
+│   └── trickee-frontend/
 │       ├── app/
 │       ├── components/
 │       ├── lib/
@@ -89,7 +89,7 @@ Important docs:
 - `production/backend/README.md`  
   Backend setup, endpoints, deployment, and smoke testing.
 
-- `production/Trickee frontend/README.md`  
+- `production/trickee-frontend/README.md`  
   Frontend setup and integration notes.
 
 ---
@@ -352,7 +352,7 @@ Expected current result:
 From:
 
 ```powershell
-cd "production/Trickee frontend"
+cd production/trickee-frontend
 ```
 
 Install:
@@ -472,7 +472,7 @@ This repo includes examples only:
 
 - `production/backend/.env.example`
 - `production/backend/.env.production.example`
-- `production/Trickee frontend/.env.example`
+- `production/trickee-frontend/.env.example`
 
 ---
 
