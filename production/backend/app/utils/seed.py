@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import desc
 
+from app.config import get_settings
 from app.database import Base, SessionLocal, engine
 from app.models import Driver, Fleet, Telemetry, User, Vehicle
 from app.services.auth import hash_password
@@ -13,6 +14,11 @@ from app.services.physics import compute_derived_fields
 
 
 def seed() -> None:
+    settings = get_settings()
+    if not settings.demo_seed:
+        print("DEMO_SEED is false. Skipping demo seed.")
+        return
+
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
