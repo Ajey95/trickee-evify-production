@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --bg-primary: #0d1117;
+  --bg-card: #161b22;
+  --bg-border: #30363d;
+  --accent-teal: #00b4d8;
+  --accent-magenta: #ff00ff;
+  --accent-green: #3fb950;
+  --accent-amber: #d29922;
+  --accent-red: #f85149;
+  --text-primary: #e6edf3;
+  --text-dim: #8b949e;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 14px;
+}
+
+@layer components {
+  .page-title {
+    @apply text-[24px] font-bold text-text-primary mb-6;
+  }
+  
+  .section-title {
+    @apply text-[18px] font-semibold text-text-primary mb-4;
+  }
+  
+  .kpi-value {
+    @apply text-[36px] font-bold font-mono tracking-tight;
+  }
+  
+  .kpi-label {
+    @apply text-[12px] font-medium uppercase text-text-dim;
+  }
+  
+  .glass-card {
+    @apply bg-bg-card border border-bg-border rounded-xl p-6 shadow-xl;
+  }
+  
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5;
+  }
+}
+
+/* Custom scrollbar for dark mode */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}

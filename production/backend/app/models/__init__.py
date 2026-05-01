@@ -1,0 +1,33 @@
+from app.models.entities import (
+    Alert,
+    ChargingDecisionRecord,
+    DevicePushToken,
+    Driver,
+    DriverBehaviorSnapshot,
+    Fleet,
+    NudgeEvent,
+    OrderAssignmentDecision,
+    Prediction,
+    Telemetry,
+    Trip,
+    User,
+    Vehicle,
+    WaitEvent,
+)
+
+__all__ = [
+    "Alert",
+    "ChargingDecisionRecord",
+    "DevicePushToken",
+    "Driver",
+    "DriverBehaviorSnapshot",
+    "Fleet",
+    "NudgeEvent",
+    "OrderAssignmentDecision",
+    "Prediction",
+    "Telemetry",
+    "Trip",
+    "User",
+    "Vehicle",
+    "WaitEvent",
+]

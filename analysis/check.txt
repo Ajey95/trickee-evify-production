@@ -1,0 +1,2 @@
+always check whetehr prd is updated with other docs latest indo or any staled info in there.
+like check with currentstatenroadmap.md and other docs. if any staled info is there then update it and make sure it is consistent with other docs.

@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: trickee-backend
+    runtime: docker
+    plan: free
+    rootDir: production/backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: MODEL_DIR
+        value: models_ml
+      - key: DEMO_SEED
+        value: "false"
+      - key: FIREBASE_AUTH_ENABLED
+        value: "true"
+      - key: FIREBASE_FCM_ENABLED
+        value: "true"
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: EXTERNAL_API_TIMEOUT_SECONDS
+        value: "6"
+      - key: NOTIFICATION_PROVIDER
+        value: dashboard

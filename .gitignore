@@ -1,0 +1,31 @@
+﻿# Local secrets
+.env
+.env.*
+!.env.example
+!.env.production.example
+.env.local
+.vercel/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+
+# Node / Next
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+
+# Logs
+*.log
+endpoint_smoke_report.json
+
+# Secrets
+*firebase-adminsdk*.json
+service-account*.json
+
+# OS
+.DS_Store
+Thumbs.db
