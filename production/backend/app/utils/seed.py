@@ -18,6 +18,10 @@ def seed() -> None:
     if not settings.demo_seed:
         print("DEMO_SEED is false. Skipping demo seed.")
         return
+    if not (settings.demo_admin_password and settings.demo_fleet_password and settings.demo_driver_password):
+        raise RuntimeError(
+            "DEMO_SEED requires DEMO_ADMIN_PASSWORD, DEMO_FLEET_PASSWORD, and DEMO_DRIVER_PASSWORD."
+        )
 
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -48,10 +52,10 @@ def seed() -> None:
         db.flush()
 
         users = [
-            User(email="admin@trickee.ai", password_hash=hash_password("Trickee@2026"), full_name="Arjun Mehta", role="trickee_admin"),
-            User(email="fleet@evify.in", password_hash=hash_password("Evify@2026"), full_name="Rajesh Kumar", role="fleet_operator", fleet_id=fleet.id),
-            User(email="driver1@evify.in", password_hash=hash_password("Driver@2026"), full_name="Ravi Shah", role="driver", fleet_id=fleet.id, driver_id=drivers[0].id),
-            User(email="driver2@evify.in", password_hash=hash_password("Driver@2026"), full_name="Priya Nair", role="driver", fleet_id=fleet.id, driver_id=drivers[1].id),
+            User(email="admin@trickee.ai", password_hash=hash_password(settings.demo_admin_password), full_name="Arjun Mehta", role="trickee_admin"),
+            User(email="fleet@evify.in", password_hash=hash_password(settings.demo_fleet_password), full_name="Rajesh Kumar", role="fleet_operator", fleet_id=fleet.id),
+            User(email="driver1@evify.in", password_hash=hash_password(settings.demo_driver_password), full_name="Ravi Shah", role="driver", fleet_id=fleet.id, driver_id=drivers[0].id),
+            User(email="driver2@evify.in", password_hash=hash_password(settings.demo_driver_password), full_name="Priya Nair", role="driver", fleet_id=fleet.id, driver_id=drivers[1].id),
         ]
         db.add_all(users)
 

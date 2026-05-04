@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
     allowed_origins: str = "http://localhost:3000"
     model_dir: str = "models_ml"
-    demo_seed: bool = True
+    demo_seed: bool = False
+    demo_admin_password: str | None = None
+    demo_fleet_password: str | None = None
+    demo_driver_password: str | None = None
     openweather_api_key: str | None = None
     google_maps_api_key: str | None = None
     google_places_api_key: str | None = None
@@ -25,6 +28,8 @@ class Settings(BaseSettings):
     firebase_service_account_json: str | None = None
     firebase_auth_enabled: bool = False
     firebase_fcm_enabled: bool = False
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.1-8b-instant"
 
     model_config = SettingsConfigDict(
         env_file=".env",

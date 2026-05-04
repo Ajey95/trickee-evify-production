@@ -8,6 +8,7 @@ import {
   LayoutDashboard, 
   BatteryCharging, 
   User, 
+  Map,
   Route, 
   BarChart3, 
   Bell, 
@@ -26,8 +27,10 @@ const sidebarItems = [
   { icon: LayoutDashboard, label: "Fleet Overview", href: "/fleet", roles: ["trickee_admin", "fleet_operator"] },
   { icon: BatteryCharging, label: "AI Predictions", href: "/fleet", activePrefix: "/vehicle", roles: ["trickee_admin", "fleet_operator"] },
   { icon: User, label: "My Profile", href: "/driver", roles: ["driver", "trickee_admin"] },
+  { icon: Map, label: "Live Map", href: "/map", roles: ["driver", "trickee_admin", "fleet_operator"] },
   { icon: Route, label: "Route Intel", href: "/routes", roles: ["trickee_admin", "fleet_operator", "driver"] },
   { icon: BarChart3, label: "Scorecards", href: "/scorecards", roles: ["trickee_admin", "fleet_operator"] },
+  { icon: BarChart3, label: "Report Charts", href: "/reports", roles: ["trickee_admin", "fleet_operator"] },
   { icon: Bell, label: "Alerts", href: "/alerts", roles: ["trickee_admin", "fleet_operator", "driver"] },
   { icon: Settings2, label: "Model Metrics", href: "/admin", roles: ["trickee_admin"] },
 ];

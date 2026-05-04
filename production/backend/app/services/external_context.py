@@ -16,9 +16,14 @@ class ExternalContextService:
 
     def weather(self, lat: float, lng: float) -> dict[str, Any]:
         if not self.settings.openweather_api_key:
+            ambient_temp = round(30.0 + max(0.0, (lat - 21.0) * 2.0), 1)
             return {
                 "source": "fallback",
-                "ambient_temp_c": round(30.0 + max(0.0, (lat - 21.0) * 2.0), 1),
+                "ambient_temp_c": ambient_temp,
+                "rain_mm_1h": 0.0,
+                "humidity_pct": None,
+                "wind_speed_mps": None,
+                "heatwave_severity": "high" if ambient_temp >= 38 else "medium" if ambient_temp >= 34 else "low",
                 "description": "No OpenWeather key configured",
             }
 
@@ -32,10 +37,28 @@ class ExternalContextService:
             return {
                 "source": "openweather",
                 "ambient_temp_c": data.get("main", {}).get("temp"),
+                "rain_mm_1h": data.get("rain", {}).get("1h", 0.0),
+                "humidity_pct": data.get("main", {}).get("humidity"),
+                "wind_speed_mps": data.get("wind", {}).get("speed"),
+                "heatwave_severity": (
+                    "high"
+                    if (data.get("main", {}).get("temp") or 0) >= 38
+                    else "medium"
+                    if (data.get("main", {}).get("temp") or 0) >= 34
+                    else "low"
+                ),
                 "description": data.get("weather", [{}])[0].get("description"),
             }
         except Exception as exc:
-            return {"source": "fallback", "ambient_temp_c": 31.0, "description": f"weather_error:{exc}"}
+            return {
+                "source": "fallback",
+                "ambient_temp_c": 31.0,
+                "rain_mm_1h": 0.0,
+                "humidity_pct": None,
+                "wind_speed_mps": None,
+                "heatwave_severity": "low",
+                "description": f"weather_error:{exc}",
+            }
 
     def elevation_delta(self, origin: dict[str, float], destination: dict[str, float] | None = None) -> dict[str, Any]:
         if not destination:
@@ -70,6 +93,9 @@ class ExternalContextService:
                 "duration_min": round(duration_min, 1),
                 "duration_traffic_min": round(duration_min * 1.18, 1),
                 "traffic_index": 0.85,
+                "eta_delay_min": round(duration_min * 0.18, 1),
+                "incident_closure": False,
+                "stop_start_probability": 0.62,
             }
 
         params = {
@@ -95,6 +121,9 @@ class ExternalContextService:
                 "duration_min": round(duration_s / 60.0, 1),
                 "duration_traffic_min": round(traffic_s / 60.0, 1),
                 "traffic_index": round(traffic_index, 3),
+                "eta_delay_min": round(max(traffic_s - duration_s, 0) / 60.0, 1),
+                "incident_closure": False,
+                "stop_start_probability": round(1.0 - traffic_index, 3),
             }
         except Exception as exc:
             distance_km = haversine_km(origin["lat"], origin["lng"], destination["lat"], destination["lng"])
@@ -104,6 +133,9 @@ class ExternalContextService:
                 "duration_min": round(fallback_travel_minutes(distance_km), 1),
                 "duration_traffic_min": round(fallback_travel_minutes(distance_km) * 1.18, 1),
                 "traffic_index": 0.85,
+                "eta_delay_min": round(fallback_travel_minutes(distance_km) * 0.18, 1),
+                "incident_closure": False,
+                "stop_start_probability": 0.62,
                 "error": str(exc),
             }
 

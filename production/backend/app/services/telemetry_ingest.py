@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import Driver, Fleet, Telemetry, User, Vehicle
 from app.services.alert_service import maybe_create_charging_alert
 from app.services.evify_adapter import normalize_evify_payload
+from app.services.live_driver_profile import record_soc_rise_charging_event
 from app.services.physics import compute_derived_fields
 from app.services.trip_inference import update_inferred_trip
 from app.services.wait_classifier import update_wait_event
@@ -95,6 +96,8 @@ def ingest_evify_payload(
     db.flush()
     update_inferred_trip(db, row)
     update_wait_event(db, row)
+    if commit:
+        record_soc_rise_charging_event(db, row, prev)
 
     alert = maybe_create_charging_alert(db, row)
     if commit:

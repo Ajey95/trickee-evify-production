@@ -16,9 +16,11 @@ export const Topbar = () => {
   // Get page title from pathname
   const getPageTitle = (path: string) => {
     if (path === "/fleet") return "Fleet Overview";
+    if (path === "/map") return "Live Fleet Map";
     if (path.startsWith("/vehicle")) return "AI Predictive Analysis";
     if (path === "/driver") return "Driver Profile";
     if (path === "/routes") return "Route Intelligence";
+    if (path === "/reports") return "Visual Report Charts";
     if (path === "/scorecards") return "Performance Scorecards";
     if (path === "/alerts") return "Real-time Alerts";
     if (path === "/admin") return "Model Performance Metrics";

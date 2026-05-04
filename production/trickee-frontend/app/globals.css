@@ -1,3 +1,5 @@
+@import "leaflet/dist/leaflet.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -15,6 +17,32 @@
   --accent-red: #f85149;
   --text-primary: #e6edf3;
   --text-dim: #8b949e;
+}
+
+.leaflet-container {
+  background: #101722;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+.leaflet-control-attribution {
+  background: rgba(13, 17, 23, 0.78) !important;
+  color: #8b949e !important;
+  border-radius: 6px 0 0 0;
+}
+
+.leaflet-control-attribution a {
+  color: #00b4d8 !important;
+}
+
+.leaflet-control-zoom a {
+  background: #161b22 !important;
+  color: #e6edf3 !important;
+  border-color: #30363d !important;
+}
+
+.trickee-map-label {
+  width: auto !important;
+  height: auto !important;
 }
 
 body {
