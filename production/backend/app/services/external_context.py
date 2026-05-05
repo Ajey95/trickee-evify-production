@@ -14,14 +14,42 @@ _CACHE_LAT_LNG_PRECISION = 3
 # Charger locations are essentially static; 20-minute TTL is more than sufficient.
 _CHARGER_CACHE_TTL_SECONDS = 1200
 
+# Weather varies at city scale (~11 km); 1 decimal place ≈ 11 km grid.  10-minute TTL.
+_WEATHER_CACHE_PRECISION = 1
+_WEATHER_CACHE_TTL_SECONDS = 600
+
+# Traffic directions change on a ~5-minute cadence; same grid as chargers (~111 m).
+_DIRECTIONS_CACHE_PRECISION = 3
+_DIRECTIONS_CACHE_TTL_SECONDS = 300
+
+# Terrain elevation is static; cache for 24 hours.
+_ELEVATION_CACHE_PRECISION = 3
+_ELEVATION_CACHE_TTL_SECONDS = 86400
+
 
 class ExternalContextService:
     def __init__(self) -> None:
         self.settings = get_settings()
         # {(lat_key, lng_key, radius_m): (timestamp, result)}
         self._charger_cache: dict[tuple[float, float, int], tuple[float, list[dict[str, Any]]]] = {}
+        # {(lat_key, lng_key): (timestamp, result)}
+        self._weather_cache: dict[tuple[float, float], tuple[float, dict[str, Any]]] = {}
+        # {(o_lat, o_lng, d_lat, d_lng): (timestamp, result)}
+        self._directions_cache: dict[tuple[float, float, float, float], tuple[float, dict[str, Any]]] = {}
+        # {(o_lat, o_lng, d_lat, d_lng): (timestamp, result)}
+        self._elevation_cache: dict[tuple[float, float, float, float], tuple[float, dict[str, Any]]] = {}
 
     def weather(self, lat: float, lng: float) -> dict[str, Any]:
+        cache_key = (round(lat, _WEATHER_CACHE_PRECISION), round(lng, _WEATHER_CACHE_PRECISION))
+        cached_at, cached_result = self._weather_cache.get(cache_key, (0.0, None))
+        if cached_result is not None and time.monotonic() - cached_at < _WEATHER_CACHE_TTL_SECONDS:
+            return cached_result
+
+        result = self._fetch_weather(lat, lng)
+        self._weather_cache[cache_key] = (time.monotonic(), result)
+        return result
+
+    def _fetch_weather(self, lat: float, lng: float) -> dict[str, Any]:
         if not self.settings.openweather_api_key:
             ambient_temp = round(30.0 + max(0.0, (lat - 21.0) * 2.0), 1)
             return {
@@ -70,8 +98,23 @@ class ExternalContextService:
     def elevation_delta(self, origin: dict[str, float], destination: dict[str, float] | None = None) -> dict[str, Any]:
         if not destination:
             return {"source": "fallback", "elevation_delta_m": 0.0, "grade_pct": 0.0}
+
+        cache_key = (
+            round(origin["lat"], _ELEVATION_CACHE_PRECISION),
+            round(origin["lng"], _ELEVATION_CACHE_PRECISION),
+            round(destination["lat"], _ELEVATION_CACHE_PRECISION),
+            round(destination["lng"], _ELEVATION_CACHE_PRECISION),
+        )
+        cached_at, cached_result = self._elevation_cache.get(cache_key, (0.0, None))
+        if cached_result is not None and time.monotonic() - cached_at < _ELEVATION_CACHE_TTL_SECONDS:
+            return cached_result
+
+        result = self._fetch_elevation(origin, destination)
+        self._elevation_cache[cache_key] = (time.monotonic(), result)
+        return result
+
+    def _fetch_elevation(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
         if not self.settings.google_maps_api_key:
-            return {"source": "fallback", "elevation_delta_m": 0.0, "grade_pct": 0.0}
 
         locations = f"{origin['lat']},{origin['lng']}|{destination['lat']},{destination['lng']}"
         params = {"locations": locations, "key": self.settings.google_maps_api_key}
