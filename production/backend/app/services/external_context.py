@@ -147,6 +147,9 @@ class ExternalContextService:
             }
 
     def nearest_chargers(self, lat: float, lng: float, radius_m: int = 500) -> list[dict[str, Any]]:
+        # Cache key buckets coordinates to _CACHE_LAT_LNG_PRECISION decimal places (~111 m grid).
+        # radius_m is included so callers using different radii get independent cache entries;
+        # in practice the codebase uses 300 m, 500 m, 750 m, and 1200 m.
         cache_key = (
             round(lat, _CACHE_LAT_LNG_PRECISION),
             round(lng, _CACHE_LAT_LNG_PRECISION),
