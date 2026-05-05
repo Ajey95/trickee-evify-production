@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, BatteryCharging, Clock, MapPin, RefreshCcw, TriangleAlert } from "lucide-react";
 import { LiveMapPanel } from "@/components/map/LiveMapPanel";
 import { RoleGuard } from "@/components/layout/RoleGuard";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { api } from "@/lib/api";
+import { useDriverLocationWS } from "@/hooks/useDriverLocationWS";
 
 export default function LiveMapPage() {
   const [mapData, setMapData] = useState<any | null>(null);
@@ -23,7 +24,35 @@ export default function LiveMapPage() {
     return selectedDriverId ? rows.filter((row: any) => row.driver_id === selectedDriverId) : rows;
   }, [mapData, selectedDriverId]);
 
-  const loadMap = React.useCallback(async () => {
+  // ── WebSocket live updates ────────────────────────────────────────────────
+  const { data: wsMapData, connected: wsConnected } = useDriverLocationWS(selectedDriverId || undefined);
+
+  // Propagate incoming WS snapshots to local state.
+  useEffect(() => {
+    if (!wsMapData) return;
+    setMapData(wsMapData);
+    setLastSync(new Date());
+    setError("");
+    setIsLoading(false);
+  }, [wsMapData]);
+
+  // Fallback: when WebSocket is not connected, poll the REST endpoint every 5 s
+  // so the map stays reasonably fresh even if WS is unavailable.
+  useEffect(() => {
+    if (wsConnected) return;
+    const interval = setInterval(async () => {
+      const result = await api.intelligence.liveMap(selectedDriverId || undefined);
+      if (result.success) {
+        setMapData(result.data);
+        setLastSync(new Date());
+        setError("");
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [wsConnected, selectedDriverId]);
+
+  // ── Manual / initial load (also refreshes fleet summary) ─────────────────
+  const loadMap = useCallback(async () => {
     setIsLoading(true);
     const [mapResult, fleetResult] = await Promise.all([
       api.intelligence.liveMap(selectedDriverId || undefined),
@@ -44,18 +73,10 @@ export default function LiveMapPage() {
     setIsLoading(false);
   }, [selectedDriverId]);
 
+  // Run once on mount (and when selectedDriverId changes) to populate the page
+  // immediately, before the WebSocket delivers its first push.
   useEffect(() => {
-    let active = true;
-    async function run() {
-      if (!active) return;
-      await loadMap();
-    }
-    run();
-    const interval = setInterval(run, 30000);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
+    loadMap();
   }, [loadMap]);
 
   return (
@@ -120,7 +141,7 @@ export default function LiveMapPage() {
               <Spinner size="lg" />
             </div>
           ) : (
-            <LiveMapPanel data={mapData} selectedDriverId={selectedDriverId || undefined} />
+            <LiveMapPanel data={mapData} selectedDriverId={selectedDriverId || undefined} wsConnected={wsConnected} />
           )}
         </Card>
 
@@ -170,6 +191,12 @@ export default function LiveMapPage() {
               <CardTitle className="text-base">Sync Status</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Connection</p>
+                <p className={`text-sm font-semibold ${wsConnected ? "text-accent-green" : "text-accent-amber"}`}>
+                  {wsConnected ? "● WebSocket live" : "○ REST polling (5 s)"}
+                </p>
+              </div>
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Last frontend refresh</p>
                 <p className="text-sm text-text-primary">{lastSync ? lastSync.toLocaleTimeString() : "Waiting"}</p>

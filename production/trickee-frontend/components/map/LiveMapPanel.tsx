@@ -39,6 +39,7 @@ type LiveMapData = {
 type LiveMapPanelProps = {
   data: LiveMapData | null;
   selectedDriverId?: string;
+  wsConnected?: boolean;
   className?: string;
 };
 
@@ -91,7 +92,12 @@ function riskColor(risk?: string) {
   return "#00b4d8";
 }
 
-export function LiveMapPanel({ data, selectedDriverId, className = "" }: LiveMapPanelProps) {
+function vehicleIconHtml(point: VehiclePoint) {
+  const color = riskColor(point.risk_level);
+  return `<div style="display:flex;align-items:center;gap:6px;background:${color};color:#0d1117;border:2px solid #0d1117;border-radius:999px;padding:7px 9px;font-weight:800;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35);"><span>${point.driver_code}</span><span>${Number(point.soc).toFixed(0)}%</span></div>`;
+}
+
+export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = "" }: LiveMapPanelProps) {
   const leafletRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<"leaflet" | "fallback">("fallback");
   const [visible, setVisible] = React.useState<Record<LayerKey, boolean>>({
@@ -101,6 +107,18 @@ export function LiveMapPanel({ data, selectedDriverId, className = "" }: LiveMap
     stops: true,
   });
 
+  // ── Leaflet imperative refs ──────────────────────────────────────────────
+  // Storing Leaflet module and map instance across renders so we never
+  // recreate the map – only update it.
+  const lModRef = React.useRef<typeof import("leaflet") | null>(null);
+  const mapObjRef = React.useRef<any>(null);
+  // Per-driver Leaflet Marker instances for smooth in-place updates.
+  const vehicleMarkersRef = React.useRef<Map<string, any>>(new Map());
+  // Static layers cleared and re-added on each data change (they don't move).
+  const staticLayersRef = React.useRef<any[]>([]);
+  // Whether we've already fitted the map bounds on the first data load.
+  const hasInitFit = React.useRef(false);
+
   const vehicles = React.useMemo(() => {
     const rows = data?.vehicle_points || [];
     return selectedDriverId ? rows.filter((row) => row.driver_id === selectedDriverId) : rows;
@@ -109,107 +127,142 @@ export function LiveMapPanel({ data, selectedDriverId, className = "" }: LiveMap
   const points = React.useMemo(() => allCoordinates({ ...data, vehicle_points: vehicles }), [data, vehicles]);
   const bounds = React.useMemo(() => boundsFor(points), [points]);
 
+  // ── Effect 1: initialise Leaflet map once on mount ────────────────────────
   React.useEffect(() => {
-    if (!leafletRef.current || !data) return;
+    if (!leafletRef.current) return;
     let cancelled = false;
-    let cleanup: (() => void) | undefined;
 
     import("leaflet")
-      .then((leaflet) => {
-        if (cancelled || !leafletRef.current) return;
+      .then((L) => {
+        if (cancelled || !leafletRef.current || mapObjRef.current) return;
         setMode("leaflet");
-        const center = points[0] || { lat: 21.17, lng: 72.83 };
-        const map = leaflet.map(leafletRef.current, {
-          center: [center.lat, center.lng],
-          zoom: points.length > 1 ? 12 : 13,
+
+        const map = L.map(leafletRef.current, {
+          center: [21.17, 72.83],
+          zoom: 12,
           zoomControl: true,
           attributionControl: true,
           preferCanvas: true,
         });
 
-        leaflet
-          .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            maxZoom: 19,
-          })
-          .addTo(map);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          maxZoom: 19,
+        }).addTo(map);
 
-        if (points.length > 1) {
-          map.fitBounds(
-            leaflet.latLngBounds(points.map((point) => [point.lat, point.lng] as [number, number])),
-            { padding: [42, 42] }
-          );
-        }
-
-        if (visible.vehicles) {
-          vehicles.forEach((point) => {
-            const color = riskColor(point.risk_level);
-            leaflet
-              .marker([point.lat, point.lng], {
-                title: `${point.driver_code} - ${Number(point.soc).toFixed(1)}% SOC`,
-                icon: leaflet.divIcon({
-                  className: "trickee-map-label",
-                  html: `<div style="display:flex;align-items:center;gap:6px;background:${color};color:#0d1117;border:2px solid #0d1117;border-radius:999px;padding:7px 9px;font-weight:800;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35);"><span>${point.driver_code}</span><span>${Number(point.soc).toFixed(0)}%</span></div>`,
-                }),
-              })
-              .addTo(map);
-          });
-        }
-
-        if (visible.chargers) {
-          (data.charger_points || []).forEach((point) => {
-            leaflet
-              .circleMarker([point.lat, point.lng], {
-                radius: 9,
-                color: "#0d1117",
-                weight: 2,
-                fillColor: "#3fb950",
-                fillOpacity: 0.95,
-              })
-              .bindTooltip(point.name)
-              .addTo(map);
-          });
-        }
-
-        if (visible.lowSoc) {
-          (data.low_soc_zones || []).forEach((zone) => {
-            leaflet
-              .circle([zone.center.lat, zone.center.lng], {
-                radius: Math.min(420, 90 + zone.sample_count * 8),
-                color: "#f85149",
-                fillColor: "#f85149",
-                fillOpacity: 0.2,
-                weight: 1,
-              })
-              .bindTooltip(`Low SOC zone - ${zone.sample_count} samples`)
-              .addTo(map);
-          });
-        }
-
-        if (visible.stops) {
-          (data.frequent_stop_zones || []).forEach((zone) => {
-            leaflet
-              .circle([zone.center.lat, zone.center.lng], {
-                radius: Math.min(360, 70 + zone.sample_count * 6),
-                color: "#d29922",
-                fillColor: "#d29922",
-                fillOpacity: 0.16,
-                weight: 1,
-              })
-              .bindTooltip(`Stop zone - ${zone.sample_count} samples`)
-              .addTo(map);
-          });
-        }
-
-        cleanup = () => map.remove();
+        lModRef.current = L;
+        mapObjRef.current = map;
       })
       .catch(() => setMode("fallback"));
 
     return () => {
       cancelled = true;
-      cleanup?.();
+      staticLayersRef.current = [];
+      vehicleMarkersRef.current.clear();
+      hasInitFit.current = false;
+      if (mapObjRef.current) {
+        mapObjRef.current.remove();
+        mapObjRef.current = null;
+      }
+      lModRef.current = null;
+      setMode("fallback");
     };
-  }, [data, points, vehicles, visible]);
+  }, []); // run once
+
+  // ── Effect 2: sync map layers whenever data or visibility changes ─────────
+  React.useEffect(() => {
+    const L = lModRef.current;
+    const map = mapObjRef.current;
+    if (!L || !map || !data) return;
+
+    // Fit bounds on the first real data load only.
+    if (!hasInitFit.current && points.length > 1) {
+      map.fitBounds(
+        L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])),
+        { padding: [42, 42] }
+      );
+      hasInitFit.current = true;
+    }
+
+    // ── Vehicle markers: update in place, create/remove as needed ──────────
+    const activeDriverIds = new Set<string>();
+    if (visible.vehicles) {
+      for (const point of vehicles) {
+        activeDriverIds.add(point.driver_id);
+        const ll: [number, number] = [point.lat, point.lng];
+        const existing = vehicleMarkersRef.current.get(point.driver_id);
+        if (existing) {
+          // Smoothly move the pin to its new position.
+          existing.setLatLng(ll);
+          existing.setIcon(
+            L.divIcon({ className: "trickee-map-label", html: vehicleIconHtml(point) })
+          );
+        } else {
+          const marker = L.marker(ll, {
+            title: `${point.driver_code} - ${Number(point.soc).toFixed(1)}% SOC`,
+            icon: L.divIcon({ className: "trickee-map-label", html: vehicleIconHtml(point) }),
+          }).addTo(map);
+          vehicleMarkersRef.current.set(point.driver_id, marker);
+        }
+      }
+    }
+    // Remove markers for drivers no longer in the dataset or when layer is hidden.
+    vehicleMarkersRef.current.forEach((marker, id) => {
+      if (!activeDriverIds.has(id)) {
+        marker.remove();
+        vehicleMarkersRef.current.delete(id);
+      }
+    });
+
+    // ── Static layers: remove previous, re-add fresh ────────────────────────
+    for (const layer of staticLayersRef.current) layer.remove();
+    staticLayersRef.current = [];
+
+    if (visible.chargers) {
+      for (const point of data.charger_points || []) {
+        const layer = L.circleMarker([point.lat, point.lng], {
+          radius: 9,
+          color: "#0d1117",
+          weight: 2,
+          fillColor: "#3fb950",
+          fillOpacity: 0.95,
+        })
+          .bindTooltip(point.name)
+          .addTo(map);
+        staticLayersRef.current.push(layer);
+      }
+    }
+
+    if (visible.lowSoc) {
+      for (const zone of data.low_soc_zones || []) {
+        const layer = L.circle([zone.center.lat, zone.center.lng], {
+          radius: Math.min(420, 90 + zone.sample_count * 8),
+          color: "#f85149",
+          fillColor: "#f85149",
+          fillOpacity: 0.2,
+          weight: 1,
+        })
+          .bindTooltip(`Low SOC zone - ${zone.sample_count} samples`)
+          .addTo(map);
+        staticLayersRef.current.push(layer);
+      }
+    }
+
+    if (visible.stops) {
+      for (const zone of data.frequent_stop_zones || []) {
+        const layer = L.circle([zone.center.lat, zone.center.lng], {
+          radius: Math.min(360, 70 + zone.sample_count * 6),
+          color: "#d29922",
+          fillColor: "#d29922",
+          fillOpacity: 0.16,
+          weight: 1,
+        })
+          .bindTooltip(`Stop zone - ${zone.sample_count} samples`)
+          .addTo(map);
+        staticLayersRef.current.push(layer);
+      }
+    }
+  }, [data, vehicles, visible, points]);
 
   const toggle = (key: LayerKey) => {
     setVisible((current) => ({ ...current, [key]: !current[key] }));
@@ -235,9 +288,17 @@ export function LiveMapPanel({ data, selectedDriverId, className = "" }: LiveMap
             </button>
           ))}
         </div>
-        <Badge variant={mode === "leaflet" ? "success" : "info"}>
-          {mode === "leaflet" ? "OpenStreetMap" : "Projected live map"}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {wsConnected && (
+            <Badge variant="success">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />
+              LIVE
+            </Badge>
+          )}
+          <Badge variant={mode === "leaflet" ? "success" : "info"}>
+            {mode === "leaflet" ? "OpenStreetMap" : "Projected live map"}
+          </Badge>
+        </div>
       </div>
 
       <div className="relative min-h-[560px] overflow-hidden rounded-lg border border-bg-border bg-[#101722]">

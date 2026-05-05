@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, alerts, auth, drivers, intelligence, predictions, routes, telemetry, vehicles
+from app.routers import admin, alerts, auth, drivers, intelligence, predictions, routes, telemetry, vehicles, ws
 from app.services.ai_engine import FEATURE_COLS, SEQ_LEN, ai_engine
 
 settings = get_settings()
@@ -26,6 +26,9 @@ app.include_router(predictions.router, prefix=settings.api_prefix)
 app.include_router(routes.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
+# WebSocket router is registered without the /api/v1 prefix so the
+# endpoint lives at  wss://<host>/ws/live-map  (no version segment).
+app.include_router(ws.router)
 
 
 @app.get("/health")
