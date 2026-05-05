@@ -9,10 +9,17 @@ from app.config import get_settings
 from app.services.alert_service import CHARGERS
 from app.services.geo import fallback_travel_minutes, haversine_km
 
+# Resolution for cache key bucketing: ~111 m per 0.001 degree.
+_CACHE_LAT_LNG_PRECISION = 3
+# Charger locations are essentially static; 20-minute TTL is more than sufficient.
+_CHARGER_CACHE_TTL_SECONDS = 1200
+
 
 class ExternalContextService:
     def __init__(self) -> None:
         self.settings = get_settings()
+        # {(lat_key, lng_key, radius_m): (timestamp, result)}
+        self._charger_cache: dict[tuple[float, float, int], tuple[float, list[dict[str, Any]]]] = {}
 
     def weather(self, lat: float, lng: float) -> dict[str, Any]:
         if not self.settings.openweather_api_key:
@@ -140,6 +147,20 @@ class ExternalContextService:
             }
 
     def nearest_chargers(self, lat: float, lng: float, radius_m: int = 500) -> list[dict[str, Any]]:
+        cache_key = (
+            round(lat, _CACHE_LAT_LNG_PRECISION),
+            round(lng, _CACHE_LAT_LNG_PRECISION),
+            radius_m,
+        )
+        cached_at, cached_result = self._charger_cache.get(cache_key, (0.0, []))
+        if time.monotonic() - cached_at < _CHARGER_CACHE_TTL_SECONDS:
+            return cached_result
+
+        result = self._fetch_chargers(lat, lng, radius_m)
+        self._charger_cache[cache_key] = (time.monotonic(), result)
+        return result
+
+    def _fetch_chargers(self, lat: float, lng: float, radius_m: int) -> list[dict[str, Any]]:
         api_key = self.settings.google_places_api_key or self.settings.google_maps_api_key
         if not api_key:
             return self._fallback_chargers(lat, lng, radius_m)

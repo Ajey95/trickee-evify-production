@@ -310,9 +310,12 @@ def live_map_context(db: Session, user: User, driver_id: str | None = None) -> d
                     "recorded_at": latest.recorded_at.isoformat(),
                 }
             )
-            for charger in external_context.nearest_chargers(float(latest.lat), float(latest.lng), radius_m=1200):
-                key = f"{charger.get('name')}:{charger.get('lat')}:{charger.get('lng')}"
-                charger_points[key] = charger
+            # Reuse chargers already fetched inside live_driver_profile to avoid
+            # a redundant Places API call per driver per tick.
+            nearest = profile.get("charging", {}).get("nearest_charger")
+            if nearest and nearest.get("lat") is not None and nearest.get("lng") is not None:
+                key = f"{nearest.get('name')}:{nearest.get('lat')}:{nearest.get('lng')}"
+                charger_points[key] = nearest
         low_soc_zones.extend(profile.get("location", {}).get("low_soc_zones") or [])
         stop_zones.extend(profile.get("location", {}).get("frequent_stop_zones") or [])
 
