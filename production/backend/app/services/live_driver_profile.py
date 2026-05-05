@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -13,6 +14,11 @@ SOC_RISE_CHARGE_THRESHOLD = 2.0
 LOW_SOC_THRESHOLD = 20.0
 STOP_SPEED_KMPH = 3.0
 BAD_DATA_VEHICLE_CODES = {"GJ05PZ1856"}
+
+# Cache for bad vehicle IDs: the set of excluded codes is a constant so
+# results are stable; 5-minute TTL prevents accumulation of stale DB rows.
+_BAD_VEHICLE_IDS_TTL_SECONDS = 300
+_bad_vehicle_ids_cache: tuple[float, list[str]] = (0.0, [])
 
 BASELINE_PROFILES: dict[str, dict[str, Any]] = {
     "D2": {
@@ -75,10 +81,16 @@ def _baseline_for(driver: Driver) -> dict[str, Any] | None:
 
 
 def _bad_vehicle_ids(db: Session) -> list[str]:
-    return [
+    global _bad_vehicle_ids_cache
+    cached_at, cached_result = _bad_vehicle_ids_cache
+    if time.monotonic() - cached_at < _BAD_VEHICLE_IDS_TTL_SECONDS:
+        return cached_result
+    result = [
         vehicle.id
         for vehicle in db.query(Vehicle).filter(Vehicle.vehicle_code.in_(BAD_DATA_VEHICLE_CODES)).all()
     ]
+    _bad_vehicle_ids_cache = (time.monotonic(), result)
+    return result
 
 
 def _telemetry_base_query(db: Session, driver: Driver):

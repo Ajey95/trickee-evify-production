@@ -115,6 +115,7 @@ class ExternalContextService:
 
     def _fetch_elevation(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
         if not self.settings.google_maps_api_key:
+            return {"source": "fallback", "elevation_delta_m": 0.0, "grade_pct": 0.0}
 
         locations = f"{origin['lat']},{origin['lng']}|{destination['lat']},{destination['lng']}"
         params = {"locations": locations, "key": self.settings.google_maps_api_key}
@@ -134,6 +135,21 @@ class ExternalContextService:
             return {"source": "fallback", "elevation_delta_m": 0.0, "grade_pct": 0.0, "error": str(exc)}
 
     def directions(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
+        cache_key = (
+            round(origin["lat"], _DIRECTIONS_CACHE_PRECISION),
+            round(origin["lng"], _DIRECTIONS_CACHE_PRECISION),
+            round(destination["lat"], _DIRECTIONS_CACHE_PRECISION),
+            round(destination["lng"], _DIRECTIONS_CACHE_PRECISION),
+        )
+        cached_at, cached_result = self._directions_cache.get(cache_key, (0.0, None))
+        if cached_result is not None and time.monotonic() - cached_at < _DIRECTIONS_CACHE_TTL_SECONDS:
+            return cached_result
+
+        result = self._fetch_directions(origin, destination)
+        self._directions_cache[cache_key] = (time.monotonic(), result)
+        return result
+
+    def _fetch_directions(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
         if not self.settings.google_maps_api_key:
             distance_km = haversine_km(origin["lat"], origin["lng"], destination["lat"], destination["lng"])
             duration_min = fallback_travel_minutes(distance_km)

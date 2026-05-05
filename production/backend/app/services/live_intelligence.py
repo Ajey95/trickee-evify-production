@@ -219,16 +219,16 @@ def fleet_live_overview(db: Session, user: User, window_minutes: int = 7 * 24 * 
     for driver in drivers:
         driver = assert_driver_access(db, user, driver.id)
         profile = live_driver_profile(db, driver, window_minutes=window_minutes)
-        latest = _latest_driver_row(db, driver)
+        latest_data = profile.get("latest") or {}
         rows.append(
             {
                 "driver_id": driver.id,
                 "driver_code": driver.driver_code,
                 "driver_name": driver.full_name,
-                "vehicle_id": latest.vehicle_id if latest else None,
-                "latest_soc": latest.soc if latest else None,
-                "latest_speed": latest.speed if latest else None,
-                "latest_seen_at": latest.recorded_at.isoformat() if latest else None,
+                "vehicle_id": latest_data.get("vehicle_id"),
+                "latest_soc": latest_data.get("soc"),
+                "latest_speed": latest_data.get("speed"),
+                "latest_seen_at": latest_data.get("recorded_at"),
                 "risk_level": profile.get("battery", {}).get("risk_level"),
                 "battery_risk_score": profile.get("battery", {}).get("battery_risk_score"),
                 "stop_wait_pct": profile.get("behavior", {}).get("stop_wait_pct"),
@@ -236,7 +236,7 @@ def fleet_live_overview(db: Session, user: User, window_minutes: int = 7 * 24 * 
                 "profile_status": profile.get("profile_status"),
                 "next_best_action": profile.get("next_best_action"),
                 "active_wait": profile.get("waits", {}).get("active_wait"),
-                "location": profile.get("latest"),
+                "location": latest_data,
             }
         )
 
@@ -295,19 +295,21 @@ def live_map_context(db: Session, user: User, driver_id: str | None = None) -> d
     charger_points: dict[str, dict[str, Any]] = {}
     for driver in drivers:
         profile = live_driver_profile(db, driver)
-        latest = _latest_driver_row(db, driver)
-        if latest and _valid_gps(latest):
+        latest_data = profile.get("latest") or {}
+        lat = latest_data.get("lat")
+        lng = latest_data.get("lng")
+        if lat and lng and lat != 0 and lng != 0:
             vehicle_points.append(
                 {
                     "driver_id": driver.id,
                     "driver_code": driver.driver_code,
-                    "vehicle_id": latest.vehicle_id,
-                    "lat": latest.lat,
-                    "lng": latest.lng,
-                    "soc": latest.soc,
-                    "speed": latest.speed,
+                    "vehicle_id": latest_data.get("vehicle_id"),
+                    "lat": lat,
+                    "lng": lng,
+                    "soc": latest_data.get("soc"),
+                    "speed": latest_data.get("speed"),
                     "risk_level": profile.get("battery", {}).get("risk_level"),
-                    "recorded_at": latest.recorded_at.isoformat(),
+                    "recorded_at": latest_data.get("recorded_at"),
                 }
             )
             # Reuse chargers already fetched inside live_driver_profile to avoid
