@@ -50,33 +50,34 @@ export function useDriverLocationWS(driverId?: string): {
   const wsRef = useRef<WebSocket | null>(null);
   const retryDelayRef = useRef(1000);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeRef = useRef(true);
-  // Track the driverId in a ref so the reconnect closure always reads the
-  // latest value without needing to be recreated on every driverId change.
-  const driverIdRef = useRef(driverId);
-  driverIdRef.current = driverId;
 
   useEffect(() => {
-    activeRef.current = true;
+    let active = true;
     retryDelayRef.current = 1000;
 
+    function scheduleReconnect(connect: () => void) {
+      if (!active) return;
+      retryTimerRef.current = setTimeout(() => {
+        if (!active) return;
+        retryDelayRef.current = Math.min(retryDelayRef.current * 2, 30_000);
+        connect();
+      }, retryDelayRef.current);
+    }
+
     async function connect() {
-      if (!activeRef.current) return;
+      if (!active) return;
 
       const session = await getSession();
       const token = (session as any)?.accessToken as string | undefined;
 
       if (!token) {
         // Session not ready yet – retry shortly.
-        retryTimerRef.current = setTimeout(() => {
-          retryDelayRef.current = Math.min(retryDelayRef.current * 2, 30_000);
-          connect();
-        }, retryDelayRef.current);
+        scheduleReconnect(connect);
         return;
       }
 
       const params = new URLSearchParams({ token });
-      if (driverIdRef.current) params.set("driver_id", driverIdRef.current);
+      if (driverId) params.set("driver_id", driverId);
 
       const url = `${wsBaseUrl()}/ws/live-map?${params.toString()}`;
       const ws = new WebSocket(url);
@@ -100,12 +101,7 @@ export function useDriverLocationWS(driverId?: string): {
 
       ws.onclose = () => {
         setConnected(false);
-        if (activeRef.current) {
-          retryTimerRef.current = setTimeout(() => {
-            retryDelayRef.current = Math.min(retryDelayRef.current * 2, 30_000);
-            connect();
-          }, retryDelayRef.current);
-        }
+        scheduleReconnect(connect);
       };
 
       ws.onerror = () => {
@@ -117,9 +113,14 @@ export function useDriverLocationWS(driverId?: string): {
     connect();
 
     return () => {
-      activeRef.current = false;
+      active = false;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      wsRef.current?.close();
+      const ws = wsRef.current;
+      wsRef.current = null;
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
     };
   }, [driverId]); // reconnect when the driverId filter changes
 

@@ -118,6 +118,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
   const staticLayersRef = React.useRef<any[]>([]);
   // Whether we've already fitted the map bounds on the first data load.
   const hasInitFit = React.useRef(false);
+  const lastFitKeyRef = React.useRef<string | null>(null);
 
   const vehicles = React.useMemo(() => {
     const rows = data?.vehicle_points || [];
@@ -131,6 +132,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
   React.useEffect(() => {
     if (!leafletRef.current) return;
     let cancelled = false;
+    const markerMap = vehicleMarkersRef.current;
 
     import("leaflet")
       .then((L) => {
@@ -158,8 +160,9 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     return () => {
       cancelled = true;
       staticLayersRef.current = [];
-      vehicleMarkersRef.current.clear();
+      markerMap.clear();
       hasInitFit.current = false;
+      lastFitKeyRef.current = null;
       if (mapObjRef.current) {
         mapObjRef.current.remove();
         mapObjRef.current = null;
@@ -175,13 +178,18 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     const map = mapObjRef.current;
     if (!L || !map || !data) return;
 
-    // Fit bounds on the first real data load only.
-    if (!hasInitFit.current && points.length > 1) {
-      map.fitBounds(
-        L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])),
-        { padding: [42, 42] }
-      );
+    const fitKey = selectedDriverId || "all";
+    if ((!hasInitFit.current || lastFitKeyRef.current !== fitKey) && points.length) {
+      if (points.length > 1) {
+        map.fitBounds(
+          L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])),
+          { padding: [42, 42] }
+        );
+      } else {
+        map.setView([points[0].lat, points[0].lng], Math.max(map.getZoom(), 13));
+      }
       hasInitFit.current = true;
+      lastFitKeyRef.current = fitKey;
     }
 
     // ── Vehicle markers: update in place, create/remove as needed ──────────
@@ -262,7 +270,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
         staticLayersRef.current.push(layer);
       }
     }
-  }, [data, vehicles, visible, points]);
+  }, [data, vehicles, visible, points, selectedDriverId]);
 
   const toggle = (key: LayerKey) => {
     setVisible((current) => ({ ...current, [key]: !current[key] }));

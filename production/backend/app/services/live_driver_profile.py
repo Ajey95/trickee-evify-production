@@ -18,7 +18,7 @@ BAD_DATA_VEHICLE_CODES = {"GJ05PZ1856"}
 # Cache for bad vehicle IDs: the set of excluded codes is a constant so
 # results are stable; 5-minute TTL prevents accumulation of stale DB rows.
 _BAD_VEHICLE_IDS_TTL_SECONDS = 300
-_bad_vehicle_ids_cache: tuple[float, list[str]] = (0.0, [])
+_bad_vehicle_ids_cache: dict[int, tuple[float, list[str]]] = {}
 
 BASELINE_PROFILES: dict[str, dict[str, Any]] = {
     "D2": {
@@ -81,15 +81,15 @@ def _baseline_for(driver: Driver) -> dict[str, Any] | None:
 
 
 def _bad_vehicle_ids(db: Session) -> list[str]:
-    global _bad_vehicle_ids_cache
-    cached_at, cached_result = _bad_vehicle_ids_cache
+    cache_key = id(db.get_bind())
+    cached_at, cached_result = _bad_vehicle_ids_cache.get(cache_key, (0.0, []))
     if time.monotonic() - cached_at < _BAD_VEHICLE_IDS_TTL_SECONDS:
         return cached_result
     result = [
         vehicle.id
         for vehicle in db.query(Vehicle).filter(Vehicle.vehicle_code.in_(BAD_DATA_VEHICLE_CODES)).all()
     ]
-    _bad_vehicle_ids_cache = (time.monotonic(), result)
+    _bad_vehicle_ids_cache[cache_key] = (time.monotonic(), result)
     return result
 
 

@@ -45,7 +45,7 @@ def _get_user_from_token(token: str) -> User | None:
 
 
 @router.websocket("/ws/live-map")
-async def ws_live_map(ws: WebSocket, token: str = Query(...)):
+async def ws_live_map(ws: WebSocket, token: str = Query(...), driver_id: str | None = Query(default=None)):
     """Push live-map snapshots to the connected client every 5 seconds.
 
     Authentication is via the JWT access token supplied as ``?token=<jwt>``.
@@ -69,7 +69,7 @@ async def ws_live_map(ws: WebSocket, token: str = Query(...)):
         while True:
             db: Session = SessionLocal()
             try:
-                data = live_map_context(db, user)
+                data = live_map_context(db, user, driver_id=driver_id)
             finally:
                 db.close()
 
