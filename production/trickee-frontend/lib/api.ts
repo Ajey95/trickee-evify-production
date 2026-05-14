@@ -15,8 +15,10 @@ const BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000/
 type ApiResult<T> = { success: boolean; data: T; message?: string; error?: string };
 type FetcherOptions = RequestInit & {
   cacheTtlMs?: number;
+  timeoutMs?: number;
 };
 
+const REQUEST_TIMEOUT_MS = 12_000;
 const SESSION_CACHE_MS = 30_000;
 const DEFAULT_GET_CACHE_MS = 60_000;
 const LIVE_GET_CACHE_MS = 5_000;
@@ -76,6 +78,10 @@ function refreshCacheInBackground<T>(key: string, ttl: number, request: Promise<
         });
       }
     })
+    .catch(() => {
+      // Stale-while-revalidate should never surface transient backend/network
+      // failures as runtime errors after the UI has already rendered cached data.
+    })
     .finally(() => {
       inflightRequests.delete(key);
     });
@@ -86,7 +92,7 @@ async function fetcher<T>(
   options: FetcherOptions = {}
 ): Promise<ApiResult<T>> {
   const url = `${BASE_URL}${endpoint}`;
-  const { cacheTtlMs, ...requestOptions } = options;
+  const { cacheTtlMs, timeoutMs, ...requestOptions } = options;
   const method = (requestOptions.method || "GET").toUpperCase();
   const token = await getAccessToken();
   const ttl = getCacheTtl(endpoint, method, cacheTtlMs);
@@ -98,13 +104,13 @@ async function fetcher<T>(
     const inflight = inflightRequests.get(key);
     if (inflight) return inflight as Promise<ApiResult<T>>;
     if (cached && Date.now() < cached.staleUntil) {
-      const backgroundRequest = runNetworkRequest<T>(url, requestOptions, method, token);
+      const backgroundRequest = runNetworkRequest<T>(url, requestOptions, method, token, timeoutMs);
       refreshCacheInBackground(key, ttl, backgroundRequest);
       return cached.value as ApiResult<T>;
     }
   }
   
-  const request = runNetworkRequest<T>(url, requestOptions, method, token);
+  const request = runNetworkRequest<T>(url, requestOptions, method, token, timeoutMs);
 
   if (ttl > 0) {
     inflightRequests.set(key, request);
@@ -135,27 +141,48 @@ async function runNetworkRequest<T>(
   url: string,
   requestOptions: RequestInit,
   method: string,
-  token?: string
+  token?: string,
+  timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<ApiResult<T>> {
-  const response = await fetch(url, {
-    ...requestOptions,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...requestOptions.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const upstreamSignal = requestOptions.signal;
 
-  const result = await response.json().catch(() => null);
-  if (!response.ok) {
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) controller.abort();
+    else upstreamSignal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+
+  try {
+    const response = await fetch(url, {
+      ...requestOptions,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...requestOptions.headers,
+      },
+    });
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        success: false,
+        data: null as T,
+        error: result?.detail || result?.error || `Request failed with ${response.status}`,
+      };
+    }
+    if (method !== "GET") clearReadCache();
+    return result as ApiResult<T>;
+  } catch (error) {
     return {
       success: false,
       data: null as T,
-      error: result?.detail || result?.error || `Request failed with ${response.status}`,
+      error: error instanceof Error && error.name === "AbortError" ? "Request timed out" : error instanceof Error ? error.message : "Failed to fetch",
     };
+  } finally {
+    window.clearTimeout(timeout);
   }
-  if (method !== "GET") clearReadCache();
-  return result as ApiResult<T>;
 }
 
 export const api = {

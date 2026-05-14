@@ -295,7 +295,7 @@ Implemented:
 - Protected pages through `RoleGuard`
 - Global floating live SOC badge on dashboard pages
 - Subtle dashboard/card watermark treatment across production pages
-- Frontend API request layer now caches the NextAuth backend token briefly, deduplicates concurrent GET calls, keeps short-lived GET responses, and returns stale cached GET data immediately while refreshing in the background so page-to-page navigation does not repeatedly reload identical shell/dashboard data.
+- Frontend API request layer now caches the NextAuth backend token briefly, deduplicates concurrent GET calls, keeps short-lived GET responses, returns stale cached GET data immediately while refreshing in the background, applies a request timeout, and converts fetch/network failures into structured API errors instead of unhandled React runtime crashes.
 
 ### 3.2 Fleet And Vehicle Views
 
