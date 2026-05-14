@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { LocateFixed, MapPin, Navigation } from "lucide-react";
+import { LocateFixed, Navigation } from "lucide-react";
 
 export type PickedPoint = {
   lat: number;
@@ -28,8 +28,63 @@ function isPicked(a: PickedPoint, b: PickedPoint) {
   return Math.abs(a.lat - b.lat) < 0.0001 && Math.abs(a.lng - b.lng) < 0.0001;
 }
 
-function normalizeLeaflet(module: typeof import("leaflet") | { default?: typeof import("leaflet") }) {
+type LeafletModule = typeof import("leaflet");
+
+declare global {
+  interface Window {
+    L?: LeafletModule;
+  }
+}
+
+function normalizeLeaflet(module: LeafletModule | { default?: LeafletModule }) {
   return ("default" in module && module.default ? module.default : module) as typeof import("leaflet");
+}
+
+function ensureStylesheet(id: string, href: string) {
+  if (document.getElementById(id)) return;
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = href;
+  document.head.appendChild(link);
+}
+
+function loadScript(id: string, src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const existing = document.getElementById(id) as HTMLScriptElement | null;
+    if (existing) {
+      if (window.L) resolve();
+      else existing.addEventListener("load", () => resolve(), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.body.appendChild(script);
+  });
+}
+
+async function loadLeaflet() {
+  try {
+    return normalizeLeaflet(await import("leaflet"));
+  } catch {
+    ensureStylesheet("leaflet-cdn-css", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+    await loadScript("leaflet-cdn-js", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+    if (!window.L) throw new Error("Leaflet CDN loaded without window.L");
+    return window.L;
+  }
+}
+
+function osmEmbedUrl(origin: PickedPoint, destination: PickedPoint) {
+  const minLat = Math.min(origin.lat, destination.lat) - 0.025;
+  const maxLat = Math.max(origin.lat, destination.lat) + 0.025;
+  const minLng = Math.min(origin.lng, destination.lng) - 0.025;
+  const maxLng = Math.max(origin.lng, destination.lng) + 0.025;
+  const bbox = [minLng, minLat, maxLng, maxLat].map((value) => value.toFixed(5)).join("%2C");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;
 }
 
 export function MapPicker({ origin, destination, onOriginChange, onDestinationChange }: MapPickerProps) {
@@ -44,9 +99,8 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
   React.useEffect(() => {
     if (!mapRef.current) return;
     let cancelled = false;
-    import("leaflet")
-      .then((leafletModule) => {
-        const L = normalizeLeaflet(leafletModule);
+    loadLeaflet()
+      .then((L) => {
         if (cancelled || !mapRef.current || mapObjRef.current) return;
         leafletRef.current = L;
         setMode("map");
@@ -132,11 +186,16 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
         <div className="relative min-h-[340px] overflow-hidden rounded-lg border border-bg-border bg-[#101722]">
           <div ref={mapRef} className={`absolute inset-0 ${mode === "map" ? "" : "opacity-0"}`} />
           {mode !== "map" && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <MapPin className="w-9 h-9 text-text-dim mx-auto mb-2" />
-                <p className="text-sm text-text-primary font-semibold">Map fallback</p>
-                <p className="text-xs text-text-dim">Leaflet will load in the browser when available.</p>
+            <div className="absolute inset-0">
+              <iframe
+                title="OpenStreetMap picker fallback"
+                src={osmEmbedUrl(origin, destination)}
+                className="absolute inset-0 h-full w-full border-0 opacity-80 grayscale invert"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+              <div className="absolute inset-x-4 bottom-4 rounded-lg border border-bg-border bg-bg-card/90 p-3 text-xs text-text-dim">
+                Select origin/destination from presets. Interactive map controls load when Leaflet is available.
               </div>
             </div>
           )}

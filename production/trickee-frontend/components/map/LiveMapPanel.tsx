@@ -97,8 +97,61 @@ function vehicleIconHtml(point: VehiclePoint) {
   return `<div style="display:flex;align-items:center;gap:6px;background:${color};color:#0d1117;border:2px solid #0d1117;border-radius:999px;padding:7px 9px;font-weight:800;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35);"><span>${point.driver_code}</span><span>${Number(point.soc).toFixed(0)}%</span></div>`;
 }
 
-function normalizeLeaflet(module: typeof import("leaflet") | { default?: typeof import("leaflet") }) {
+type LeafletModule = typeof import("leaflet");
+
+declare global {
+  interface Window {
+    L?: LeafletModule;
+  }
+}
+
+function normalizeLeaflet(module: LeafletModule | { default?: LeafletModule }) {
   return ("default" in module && module.default ? module.default : module) as typeof import("leaflet");
+}
+
+function ensureStylesheet(id: string, href: string) {
+  if (document.getElementById(id)) return;
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = href;
+  document.head.appendChild(link);
+}
+
+function loadScript(id: string, src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const existing = document.getElementById(id) as HTMLScriptElement | null;
+    if (existing) {
+      if (window.L) resolve();
+      else existing.addEventListener("load", () => resolve(), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.body.appendChild(script);
+  });
+}
+
+async function loadLeaflet() {
+  try {
+    return normalizeLeaflet(await import("leaflet"));
+  } catch {
+    ensureStylesheet("leaflet-cdn-css", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+    await loadScript("leaflet-cdn-js", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js");
+    if (!window.L) throw new Error("Leaflet CDN loaded without window.L");
+    return window.L;
+  }
+}
+
+function osmEmbedUrl(bounds: ReturnType<typeof boundsFor>) {
+  const bbox = [bounds.minLng, bounds.minLat, bounds.maxLng, bounds.maxLat]
+    .map((value) => value.toFixed(5))
+    .join("%2C");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;
 }
 
 export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = "" }: LiveMapPanelProps) {
@@ -138,9 +191,8 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     let cancelled = false;
     const markerMap = vehicleMarkersRef.current;
 
-    import("leaflet")
-      .then((leafletModule) => {
-        const L = normalizeLeaflet(leafletModule);
+    loadLeaflet()
+      .then((L) => {
         if (cancelled || !leafletRef.current || mapObjRef.current) return;
         setMode("leaflet");
 
@@ -319,8 +371,14 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
         <div ref={leafletRef} className={`absolute inset-0 ${mode === "leaflet" ? "" : "opacity-0"}`} />
         {mode !== "leaflet" && (
           <div className="absolute inset-0">
-            <div className="absolute inset-0 opacity-70 [background-image:linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:64px_64px]" />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(0,180,216,0.14),transparent_30%),radial-gradient(circle_at_70%_65%,rgba(63,185,80,0.12),transparent_32%)]" />
+            <iframe
+              title="OpenStreetMap fallback"
+              src={osmEmbedUrl(bounds)}
+              className="absolute inset-0 h-full w-full border-0 opacity-80 grayscale invert"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+            <div className="absolute inset-0 bg-bg-primary/20" />
 
             {visible.lowSoc &&
               (data?.low_soc_zones || []).map((zone, index) => {

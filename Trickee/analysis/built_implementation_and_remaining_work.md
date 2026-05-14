@@ -358,8 +358,9 @@ Implemented:
 - `/map` page
 - `useDriverLocationWS`
 - OpenStreetMap/Leaflet map using CARTO dark tiles for clearer production display
-- Projected fallback map
+- OpenStreetMap iframe fallback behind the live overlay, so the user still sees a real map if Leaflet cannot initialize
 - Leaflet dynamic imports are normalized for Next.js module/default export behavior, preventing the map from falling back to the projected grid when the module loads under `default`.
+- Leaflet now has a CDN script/CSS fallback if the bundled dynamic import fails in production.
 - Vehicle, charger, low-SOC, and stop-zone layers
 - Selected-driver filter
 - WebSocket status card
