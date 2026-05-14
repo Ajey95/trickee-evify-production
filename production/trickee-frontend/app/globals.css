@@ -22,6 +22,26 @@
 .leaflet-container {
   background: #101722;
   font-family: var(--font-inter), system-ui, sans-serif;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.leaflet-map-pane,
+.leaflet-tile-pane,
+.leaflet-overlay-pane,
+.leaflet-marker-pane,
+.leaflet-shadow-pane,
+.leaflet-tile-container {
+  min-width: 100% !important;
+  min-height: 100% !important;
+}
+
+.leaflet-tile {
+  width: 256px !important;
+  height: 256px !important;
+  max-width: none !important;
+  max-height: none !important;
+  visibility: visible !important;
 }
 
 .leaflet-control-attribution {

@@ -24,9 +24,9 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
     return pwd_context.verify(plain_password, password_hash)
 
 
-def create_access_token(payload: dict[str, Any]) -> str:
+def create_access_token(payload: dict[str, Any], expire_minutes: int | None = None) -> str:
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes or settings.access_token_expire_minutes)
     to_encode = payload.copy()
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)

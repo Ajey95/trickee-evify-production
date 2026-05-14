@@ -189,6 +189,7 @@ export const api = {
   // 6.1 Auth
   auth: {
     me: () => fetcher<User>("/auth/me"),
+    wsTicket: () => fetcher<{ ticket: string; expires_in_seconds: number }>("/auth/ws-ticket", { cacheTtlMs: 0 }),
     registerFcmToken: (token: string, device_label?: string) => fetcher<any>("/auth/fcm-token", {
       method: "POST",
       body: JSON.stringify({ token, platform: "web", device_label }),

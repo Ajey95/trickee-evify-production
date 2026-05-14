@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.services.telemetry_ingest import ingest_evify_payload
 from app.services.serializers import alert_dict, telemetry_dict
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
+MAX_BULK_TELEMETRY_ROWS = 500
 
 
 class EvifyIngestRequest(BaseModel):
@@ -35,6 +36,11 @@ def ingest_evify_bulk(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("trickee_admin", "fleet_operator")),
 ):
+    if len(request) > MAX_BULK_TELEMETRY_ROWS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Bulk telemetry ingest is limited to {MAX_BULK_TELEMETRY_ROWS} rows per request",
+        )
     rows = []
     for payload in request:
         row, _ = ingest_evify_payload(db, payload, user=current_user, commit=False)

@@ -1,14 +1,17 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_SECRET_KEY = "change-me-generate-with-secrets-token-hex"
 
 
 class Settings(BaseSettings):
     app_name: str = "Trickee EV Intelligence API"
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite:///./trickee.db"
-    secret_key: str = "change-me-generate-with-secrets-token-hex"
+    secret_key: str = DEFAULT_SECRET_KEY
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
     allowed_origins: str = "http://localhost:3000"
@@ -41,6 +44,12 @@ class Settings(BaseSettings):
         extra="ignore",
         protected_namespaces=("settings_",),
     )
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self):
+        if not self.database_url.startswith("sqlite") and self.secret_key == DEFAULT_SECRET_KEY:
+            raise ValueError("SECRET_KEY must be set to a non-default value for non-SQLite deployments")
+        return self
 
     @property
     def sqlalchemy_database_url(self) -> str:

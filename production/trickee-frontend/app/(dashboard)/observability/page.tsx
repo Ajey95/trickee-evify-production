@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Activity, Bell, Database, Radio, Server, TimerReset } from "lucide-react";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
 import { useDriverLocationWS } from "@/hooks/useDriverLocationWS";
+import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 
 export default function ObservabilityPage() {
   const [metrics, setMetrics] = useState<any | null>(null);
@@ -15,30 +16,31 @@ export default function ObservabilityPage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const { connected } = useDriverLocationWS();
 
-  useEffect(() => {
-    async function load() {
-      const [metricsResult, fleetResult, nudges, orders, charging, waits] = await Promise.all([
-        api.admin.metrics(),
-        api.intelligence.fleetLive(),
-        api.intelligence.nudges(10),
-        api.intelligence.orderAssignments(10),
-        api.intelligence.chargingDecisions(10),
-        api.intelligence.waits(10),
-      ]);
-      if (metricsResult.success) setMetrics(metricsResult.data);
-      if (fleetResult.success) setFleetLive(fleetResult.data);
-      setHistory({
-        nudges: nudges.success ? nudges.data : [],
-        orders: orders.success ? orders.data : [],
-        charging: charging.success ? charging.data : [],
-        waits: waits.success ? waits.data : [],
-      });
-      setLastRefresh(new Date());
-    }
-    load();
-    const interval = setInterval(load, 30000);
-    return () => clearInterval(interval);
+  const load = useCallback(async () => {
+    const [metricsResult, fleetResult, nudges, orders, charging, waits] = await Promise.all([
+      api.admin.metrics(),
+      api.intelligence.fleetLive(),
+      api.intelligence.nudges(10),
+      api.intelligence.orderAssignments(10),
+      api.intelligence.chargingDecisions(10),
+      api.intelligence.waits(10),
+    ]);
+    if (metricsResult.success) setMetrics(metricsResult.data);
+    if (fleetResult.success) setFleetLive(fleetResult.data);
+    setHistory({
+      nudges: nudges.success ? nudges.data : [],
+      orders: orders.success ? orders.data : [],
+      charging: charging.success ? charging.data : [],
+      waits: waits.success ? waits.data : [],
+    });
+    setLastRefresh(new Date());
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useVisibilityPolling(load, { intervalMs: 30_000 });
 
   const counts = metrics?.counts || {};
   const kpis = [

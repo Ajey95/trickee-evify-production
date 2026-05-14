@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Thermometer, Zap, Activity, Shield, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { Prediction, Vehicle } from "@/types";
 import { api } from "@/lib/api";
+import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 
 export default function VehiclePage({ params }: { params: { id: string } }) {
   const [prediction, setPrediction] = useState<Prediction | null>(null);
@@ -66,9 +67,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
   }, [loadData]);
+
+  useVisibilityPolling(loadData, { intervalMs: 30_000 });
 
   if (!prediction && !error) return null;
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from typing import Any
 
 import httpx
@@ -80,7 +81,7 @@ def generate_weekly_report(metrics: dict[str, Any]) -> dict[str, Any]:
 
 def _report_email_html(metrics: dict[str, Any], report: dict[str, Any]) -> str:
     summary = metrics.get("fleet_summary", {})
-    narrative = str(report.get("narrative") or "")
+    narrative = html.escape(str(report.get("narrative") or ""))
     return f"""
     <div style="font-family:Inter,Arial,sans-serif;color:#111827;line-height:1.55">
       <h2>Trickee Weekly Evify Live Report</h2>

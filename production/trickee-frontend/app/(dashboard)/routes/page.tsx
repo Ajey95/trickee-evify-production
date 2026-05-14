@@ -8,7 +8,8 @@ import { MapPicker, PickedPoint } from "@/components/intelligence/MapPicker";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Route as RouteIcon, Search, Clock, BarChart2, AlertTriangle, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
+import { Route as RouteIcon, Search, Clock, BarChart2, AlertTriangle, RefreshCw, BatteryCharging } from "lucide-react";
 import { Driver, Route, Vehicle } from "@/types";
 import { api } from "@/lib/api";
 
@@ -31,6 +32,7 @@ export default function RouteIntelligencePage() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [error, setError] = useState("");
   const [rerouteAlert, setRerouteAlert] = useState<{ active: boolean; message: string } | null>(null);
+  const [routeStatus, setRouteStatus] = useState<"idle" | "route_available" | "charge_required">("idle");
 
   useEffect(() => {
     async function loadContext() {
@@ -107,6 +109,7 @@ export default function RouteIntelligencePage() {
       const rankedRoutes = normalizeRoutes(result.data.ranked_routes || []);
       setRoutes(rankedRoutes);
       const best = rankedRoutes.find((route) => route.is_feasible !== false) || rankedRoutes[0];
+      setRouteStatus(result.data.all_routes_infeasible ? "charge_required" : "route_available");
       setNudge({
         ...(result.data.nudge || result.data.departure_nudge || {}),
         route_name: best?.route_name,
@@ -122,6 +125,7 @@ export default function RouteIntelligencePage() {
       }
     } else {
       setError(result.error || "Backend route scoring failed.");
+      setRouteStatus("idle");
     }
     setIsCalculating(false);
   };
@@ -151,7 +155,7 @@ export default function RouteIntelligencePage() {
   };
 
   return (
-    <RoleGuard allowedRoles={["trickee_admin", "driver"]}>
+    <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
     <div className="space-y-8 pb-12">
       <div className="flex justify-between items-end">
         <div>
@@ -161,6 +165,25 @@ export default function RouteIntelligencePage() {
       </div>
 
       {error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
+
+      {routeStatus === "charge_required" && nudge?.destination_charge_plan && (
+        <Card className="border-accent-amber/40 bg-accent-amber/[0.04]">
+          <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <BatteryCharging className="mt-1 h-5 w-5 text-accent-amber" />
+              <div>
+                <h2 className="text-base font-bold text-text-primary">Charge before dispatch</h2>
+                <p className="text-sm text-text-dim">
+                  {nudge.destination_charge_plan.message}
+                </p>
+              </div>
+            </div>
+            <Badge variant="warning">
+              {nudge.destination_charge_plan.charge_minutes || 0} min top-up
+            </Badge>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-bg-border/40">
         <CardContent className="p-4 grid grid-cols-1 md:grid-cols-6 gap-4">

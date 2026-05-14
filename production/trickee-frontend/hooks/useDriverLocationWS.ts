@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getSession } from "next-auth/react";
+import { api } from "@/lib/api";
 
 export type LiveMapData = {
   generated_at?: string;
@@ -56,8 +56,8 @@ function wsBaseUrl(): string {
  * backend `/ws/live-map` endpoint and returns live-map snapshots.
  *
  * Features:
- * - Authenticates via JWT passed as `?token=<jwt>` (browsers cannot set
- *   custom headers during a WebSocket handshake).
+ * - Authenticates via a short-lived WS ticket. The normal dashboard JWT is
+ *   never placed in the WebSocket URL where access logs can capture it.
  * - Auto-reconnects on disconnect with exponential back-off (1 s → 32 s).
  * - Filters by `driverId` when provided.
  *
@@ -91,16 +91,16 @@ export function useDriverLocationWS(driverId?: string): {
     async function connect() {
       if (!active) return;
 
-      const session = await getSession();
-      const token = (session as any)?.accessToken as string | undefined;
+      const ticketResult = await api.auth.wsTicket();
+      const ticket = ticketResult.success ? ticketResult.data?.ticket : undefined;
 
-      if (!token) {
+      if (!ticket) {
         // Session not ready yet – retry shortly.
         scheduleReconnect(connect);
         return;
       }
 
-      const params = new URLSearchParams({ token });
+      const params = new URLSearchParams({ ticket });
       if (driverId) params.set("driver_id", driverId);
 
       const url = `${wsBaseUrl()}/ws/live-map?${params.toString()}`;

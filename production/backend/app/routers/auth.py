@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
@@ -10,6 +12,11 @@ from app.services.firebase_service import verify_firebase_id_token
 from app.services.serializers import device_push_token_dict, user_dict
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+LOGIN_WINDOW_MINUTES = 15
+LOGIN_MAX_FAILURES = 8
+WS_TICKET_TTL_MINUTES = 2
+_login_failures: dict[str, list[datetime]] = {}
 
 
 class LoginRequest(BaseModel):
@@ -27,6 +34,39 @@ class FcmTokenRequest(BaseModel):
     device_label: str | None = None
 
 
+def _login_key(request: Request, email: str) -> str:
+    client = request.client.host if request.client else "unknown"
+    return f"{client}:{email.lower()}"
+
+
+def _prune_failures(key: str, now: datetime) -> list[datetime]:
+    window_start = now - timedelta(minutes=LOGIN_WINDOW_MINUTES)
+    failures = [when for when in _login_failures.get(key, []) if when >= window_start]
+    if failures:
+        _login_failures[key] = failures
+    else:
+        _login_failures.pop(key, None)
+    return failures
+
+
+def _assert_login_allowed(request: Request, email: str) -> str:
+    key = _login_key(request, email)
+    failures = _prune_failures(key, datetime.utcnow())
+    if len(failures) >= LOGIN_MAX_FAILURES:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Try again later.",
+        )
+    return key
+
+
+def _record_login_failure(key: str) -> None:
+    now = datetime.utcnow()
+    failures = _prune_failures(key, now)
+    failures.append(now)
+    _login_failures[key] = failures
+
+
 def _session_payload(user: User) -> dict:
     token = create_access_token(
         {"sub": user.id, "role": user.role, "fleet_id": user.fleet_id, "driver_id": user.driver_id}
@@ -35,10 +75,15 @@ def _session_payload(user: User) -> dict:
 
 
 @router.post("/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    login_key = _assert_login_allowed(request, payload.email)
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
+        _record_login_failure(login_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+    _login_failures.pop(login_key, None)
     return ok(_session_payload(user))
 
 
@@ -70,6 +115,21 @@ def firebase_login(payload: FirebaseLoginRequest, db: Session = Depends(get_db))
 @router.get("/me")
 def me(current_user: User = Depends(get_current_user)):
     return ok(user_dict(current_user))
+
+
+@router.get("/ws-ticket")
+def ws_ticket(current_user: User = Depends(get_current_user)):
+    ticket = create_access_token(
+        {
+            "sub": current_user.id,
+            "role": current_user.role,
+            "fleet_id": current_user.fleet_id,
+            "driver_id": current_user.driver_id,
+            "purpose": "ws_live_map",
+        },
+        expire_minutes=WS_TICKET_TTL_MINUTES,
+    )
+    return ok({"ticket": ticket, "expires_in_seconds": WS_TICKET_TTL_MINUTES * 60})
 
 
 @router.post("/fcm-token")

@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { api } from "@/lib/api";
 import { useDriverLocationWS } from "@/hooks/useDriverLocationWS";
+import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 
-const MAP_POLL_MS = 15_000;
+const MAP_POLL_MS = 30_000;
 const MAP_REQUEST_TIMEOUT_MS = 20_000;
 
 function isTransientMapError(message?: string) {
@@ -26,6 +27,7 @@ export default function LiveMapPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const mapDataRef = React.useRef<any | null>(null);
+  const pollingRef = React.useRef(false);
 
   useEffect(() => {
     mapDataRef.current = mapData;
@@ -49,38 +51,30 @@ export default function LiveMapPage() {
     setIsLoading(false);
   }, [wsMapData]);
 
-  // Fallback: when WebSocket is not connected, poll the REST endpoint
-  // so the map stays reasonably fresh even if WS is unavailable.
-  useEffect(() => {
-    if (wsConnected) return;
-    let active = true;
-    let polling = false;
-
-    async function pollLiveMap() {
-      if (!active || polling) return;
-      polling = true;
-      const result = await api.intelligence.liveMap(selectedDriverId || undefined, {
-        timeoutMs: MAP_REQUEST_TIMEOUT_MS,
-        cacheTtlMs: 8_000,
-      });
-      polling = false;
-      if (!active) return;
-      if (result.success) {
-        setMapData(result.data);
-        setLastSync(new Date());
-        setError("");
-      } else if (!mapDataRef.current || !isTransientMapError(result.error)) {
-        setError(result.error || "Unable to refresh live map data");
-      }
+  const pollLiveMap = useCallback(async () => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    const result = await api.intelligence.liveMap(selectedDriverId || undefined, {
+      timeoutMs: MAP_REQUEST_TIMEOUT_MS,
+      cacheTtlMs: 8_000,
+    });
+    pollingRef.current = false;
+    if (result.success) {
+      setMapData(result.data);
+      setLastSync(new Date());
+      setError("");
+    } else if (!mapDataRef.current || !isTransientMapError(result.error)) {
+      setError(result.error || "Unable to refresh live map data");
     }
+  }, [selectedDriverId]);
 
-    pollLiveMap();
-    const interval = setInterval(pollLiveMap, MAP_POLL_MS);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [wsConnected, selectedDriverId]);
+  // Fallback only: when WebSocket is unavailable, refresh through REST with
+  // visibility/idle awareness, backoff in the hook, and no overlapping calls.
+  useVisibilityPolling(pollLiveMap, {
+    enabled: !wsConnected,
+    intervalMs: MAP_POLL_MS,
+    immediate: true,
+  });
 
   // ── Manual / initial load (also refreshes fleet summary) ─────────────────
   const loadMap = useCallback(async () => {
@@ -231,7 +225,7 @@ export default function LiveMapPage() {
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Connection</p>
                 <p className={`text-sm font-semibold ${wsConnected ? "text-accent-green" : "text-accent-amber"}`}>
-                  {wsConnected ? "● WebSocket live" : "○ REST polling (5 s)"}
+                  {wsConnected ? "● WebSocket live" : "○ REST fallback (30 s)"}
                 </p>
               </div>
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">

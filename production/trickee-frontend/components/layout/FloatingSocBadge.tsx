@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { BatteryCharging, Radio } from "lucide-react";
 import { api } from "@/lib/api";
+import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 import { Vehicle } from "@/types";
 
 function getVehicleSoc(vehicle: Vehicle) {
@@ -16,23 +17,18 @@ export function FloatingSocBadge() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [lastSync, setLastSync] = useState<Date | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    async function loadVehicles() {
-      const result = await api.vehicles.list();
-      if (!active || !result.success) return;
-      setVehicles(result.data);
-      setLastSync(new Date());
-    }
-
-    loadVehicles();
-    const interval = window.setInterval(loadVehicles, 30000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
+  const loadVehicles = useCallback(async () => {
+    const result = await api.vehicles.list();
+    if (!result.success) return;
+    setVehicles(result.data);
+    setLastSync(new Date());
   }, []);
+
+  useEffect(() => {
+    loadVehicles();
+  }, [loadVehicles]);
+
+  useVisibilityPolling(loadVehicles, { intervalMs: 30_000 });
 
   const socSummary = useMemo(() => {
     const values = vehicles.map(getVehicleSoc).filter((value): value is number => value !== null);

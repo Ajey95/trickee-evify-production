@@ -3,13 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import desc
+from sqlalchemy import and_, desc, func
 from sqlalchemy.orm import Session
 
 from app.models import Driver, NudgeEvent, Telemetry, User, Vehicle, WaitEvent
+from app.services.alert_service import CHARGERS
 from app.services.access import assert_driver_access
 from app.services.charge_plan import build_destination_charge_plan
 from app.services.external_context import external_context
+from app.services.geo import haversine_km
 from app.services.live_driver_profile import LOW_SOC_THRESHOLD, live_driver_profile
 from app.services.physics import compute_range_factors
 from app.services.wait_classifier import classify_wait
@@ -25,6 +27,109 @@ def _latest_driver_row(db: Session, driver: Driver) -> Telemetry | None:
 
 def _latest_vehicle_row(db: Session, vehicle_id: str) -> Telemetry | None:
     return db.query(Telemetry).filter(Telemetry.vehicle_id == vehicle_id).order_by(desc(Telemetry.recorded_at)).first()
+
+
+def _battery_risk_level(row: Telemetry) -> str:
+    risk = 0
+    if row.soc < 15:
+        risk += 45
+    elif row.soc < LOW_SOC_THRESHOLD:
+        risk += 30
+    elif row.soc < 30:
+        risk += 15
+    if row.current >= 18:
+        risk += 25
+    elif row.current >= 12:
+        risk += 12
+    if row.temp_max >= 58:
+        risk += 25
+    elif row.temp_max >= 52:
+        risk += 12
+    if row.soh and row.soh < 80:
+        risk += 15
+    return "high" if risk >= 55 else "medium" if risk >= 25 else "low"
+
+
+def _cluster_map_zones(rows: list[Telemetry], max_zones: int = 20) -> list[dict[str, Any]]:
+    buckets: dict[tuple[float, float], dict[str, Any]] = {}
+    for row in rows:
+        if not _valid_gps(row):
+            continue
+        key = (round(float(row.lat), 3), round(float(row.lng), 3))
+        bucket = buckets.setdefault(
+            key,
+            {
+                "center": {"lat": key[0], "lng": key[1]},
+                "sample_count": 0,
+                "latest_seen_at": row.recorded_at,
+            },
+        )
+        bucket["sample_count"] += 1
+        if row.recorded_at > bucket["latest_seen_at"]:
+            bucket["latest_seen_at"] = row.recorded_at
+    zones = sorted(buckets.values(), key=lambda item: item["sample_count"], reverse=True)[:max_zones]
+    for zone in zones:
+        zone["latest_seen_at"] = zone["latest_seen_at"].isoformat()
+    return zones
+
+
+def _fleet_drivers_for_map(db: Session, user: User, driver_id: str | None) -> list[Driver]:
+    if driver_id:
+        return [assert_driver_access(db, user, driver_id)]
+    query = db.query(Driver)
+    if user.role == "driver":
+        query = query.filter(Driver.id == user.driver_id)
+    elif user.role == "fleet_operator":
+        query = query.filter(Driver.fleet_id == user.fleet_id)
+    return query.order_by(Driver.driver_code).limit(100).all()
+
+
+def _latest_rows_for_drivers(db: Session, driver_ids: list[str]) -> dict[str, Telemetry]:
+    if not driver_ids:
+        return {}
+    latest_subquery = (
+        db.query(
+            Telemetry.driver_id.label("driver_id"),
+            func.max(Telemetry.recorded_at).label("recorded_at"),
+        )
+        .filter(Telemetry.driver_id.in_(driver_ids))
+        .group_by(Telemetry.driver_id)
+        .subquery()
+    )
+    rows = (
+        db.query(Telemetry)
+        .join(
+            latest_subquery,
+            and_(
+                Telemetry.driver_id == latest_subquery.c.driver_id,
+                Telemetry.recorded_at == latest_subquery.c.recorded_at,
+            ),
+        )
+        .all()
+    )
+    return {str(row.driver_id): row for row in rows if row.driver_id}
+
+
+def _charger_points_for_map(vehicle_points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    points: list[dict[str, Any]] = []
+    for charger in CHARGERS:
+        lat = float(charger["lat"])
+        lng = float(charger["lng"])
+        distances = [
+            int(haversine_km(float(point["lat"]), float(point["lng"]), lat, lng) * 1000)
+            for point in vehicle_points
+            if point.get("lat") is not None and point.get("lng") is not None
+        ]
+        points.append(
+            {
+                **charger,
+                "lat": lat,
+                "lng": lng,
+                "distance_m": min(distances) if distances else None,
+                "source": "fleet_static",
+            }
+        )
+    return sorted(points, key=lambda item: item.get("distance_m") if item.get("distance_m") is not None else 999999)[:20]
 
 
 def _route_recommendation(
@@ -318,55 +423,53 @@ def fleet_live_overview(db: Session, user: User, window_minutes: int = 7 * 24 * 
 
 
 def live_map_context(db: Session, user: User, driver_id: str | None = None) -> dict[str, Any]:
-    if driver_id:
-        drivers = [assert_driver_access(db, user, driver_id)]
-    else:
-        query = db.query(Driver)
-        if user.role == "driver":
-            query = query.filter(Driver.id == user.driver_id)
-        elif user.role == "fleet_operator":
-            query = query.filter(Driver.fleet_id == user.fleet_id)
-        drivers = query.order_by(Driver.driver_code).limit(100).all()
-
+    drivers = _fleet_drivers_for_map(db, user, driver_id)
+    driver_ids = [driver.id for driver in drivers]
+    latest_by_driver = _latest_rows_for_drivers(db, driver_ids)
     vehicle_points = []
-    low_soc_zones = []
-    stop_zones = []
-    charger_points: dict[str, dict[str, Any]] = {}
     for driver in drivers:
-        profile = live_driver_profile(db, driver)
-        latest_data = profile.get("latest") or {}
-        lat = latest_data.get("lat")
-        lng = latest_data.get("lng")
-        if lat and lng and lat != 0 and lng != 0:
+        latest = latest_by_driver.get(driver.id)
+        if _valid_gps(latest):
             vehicle_points.append(
                 {
                     "driver_id": driver.id,
                     "driver_code": driver.driver_code,
-                    "vehicle_id": latest_data.get("vehicle_id"),
-                    "lat": lat,
-                    "lng": lng,
-                    "soc": latest_data.get("soc"),
-                    "speed": latest_data.get("speed"),
-                    "risk_level": profile.get("battery", {}).get("risk_level"),
-                    "archetype": profile.get("archetype", {}).get("label"),
-                    "recorded_at": latest_data.get("recorded_at"),
+                    "vehicle_id": latest.vehicle_id,
+                    "lat": latest.lat,
+                    "lng": latest.lng,
+                    "soc": latest.soc,
+                    "speed": latest.speed,
+                    "risk_level": _battery_risk_level(latest),
+                    "recorded_at": latest.recorded_at.isoformat(),
                 }
             )
-            # Reuse chargers already fetched inside live_driver_profile to avoid
-            # a redundant Places API call per driver per tick.
-            nearest = profile.get("charging", {}).get("nearest_charger")
-            if nearest and nearest.get("lat") is not None and nearest.get("lng") is not None:
-                key = f"{nearest.get('name')}:{nearest.get('lat')}:{nearest.get('lng')}"
-                charger_points[key] = nearest
-        low_soc_zones.extend(profile.get("location", {}).get("low_soc_zones") or [])
-        stop_zones.extend(profile.get("location", {}).get("frequent_stop_zones") or [])
+
+    recent_rows: list[Telemetry] = []
+    if driver_ids:
+        since = datetime.utcnow() - timedelta(hours=24)
+        recent_rows = (
+            db.query(Telemetry)
+            .filter(
+                Telemetry.driver_id.in_(driver_ids),
+                Telemetry.recorded_at >= since,
+                Telemetry.lat.isnot(None),
+                Telemetry.lng.isnot(None),
+                Telemetry.lat != 0,
+                Telemetry.lng != 0,
+            )
+            .order_by(desc(Telemetry.recorded_at))
+            .limit(1000)
+            .all()
+        )
+    low_soc_rows = [row for row in recent_rows if row.soc < LOW_SOC_THRESHOLD]
+    stop_rows = [row for row in recent_rows if row.speed <= 3.0]
 
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "vehicle_points": vehicle_points,
-        "low_soc_zones": low_soc_zones[:20],
-        "frequent_stop_zones": stop_zones[:20],
-        "charger_points": sorted(charger_points.values(), key=lambda item: item.get("distance_m", 999999))[:20],
+        "low_soc_zones": _cluster_map_zones(low_soc_rows),
+        "frequent_stop_zones": _cluster_map_zones(stop_rows),
+        "charger_points": _charger_points_for_map(vehicle_points),
     }
 
 

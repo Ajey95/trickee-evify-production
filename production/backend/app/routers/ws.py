@@ -20,8 +20,8 @@ router = APIRouter(tags=["websocket"])
 _PUSH_INTERVAL_SECONDS = 5
 
 
-def _get_user_from_token(token: str) -> User | None:
-    """Decode a JWT passed as a query-param and return the matching User.
+def _get_user_from_ticket(ticket: str) -> User | None:
+    """Decode a short-lived WS ticket and return the matching User.
 
     Returns *None* on any auth failure so callers can close with code 4001.
     This is the WS-safe equivalent of ``get_current_user`` (which uses the
@@ -30,9 +30,9 @@ def _get_user_from_token(token: str) -> User | None:
     settings = get_settings()
     db: Session = SessionLocal()
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(ticket, settings.secret_key, algorithms=[settings.algorithm])
         user_id = payload.get("sub")
-        if not user_id:
+        if not user_id or payload.get("purpose") != "ws_live_map":
             return None
         user = db.get(User, user_id)
         if not user or not user.is_active:
@@ -45,12 +45,12 @@ def _get_user_from_token(token: str) -> User | None:
 
 
 @router.websocket("/ws/live-map")
-async def ws_live_map(ws: WebSocket, token: str = Query(...), driver_id: str | None = Query(default=None)):
+async def ws_live_map(ws: WebSocket, ticket: str = Query(...), driver_id: str | None = Query(default=None)):
     """Push live-map snapshots to the connected client every 5 seconds.
 
-    Authentication is via the JWT access token supplied as ``?token=<jwt>``.
-    Browsers cannot set custom headers during a WebSocket handshake, so the
-    query-param approach is the standard workaround.
+    Authentication is via a short-lived WS ticket from
+    ``GET /api/v1/auth/ws-ticket``. Do not pass the normal dashboard JWT in
+    this URL because query strings can appear in access logs.
 
     The server pushes a JSON envelope::
 
@@ -59,7 +59,7 @@ async def ws_live_map(ws: WebSocket, token: str = Query(...), driver_id: str | N
     The client may send any text frame to keep the connection alive; such
     messages are silently ignored.
     """
-    user = _get_user_from_token(token)
+    user = _get_user_from_ticket(ticket)
     if user is None:
         await ws.close(code=4001)
         return

@@ -87,6 +87,15 @@ function osmEmbedUrl(origin: PickedPoint, destination: PickedPoint) {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;
 }
 
+function scheduleInvalidate(map: { invalidateSize: () => void }) {
+  const timers = [0, 250, 700].map((delay) =>
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => map.invalidateSize());
+    }, delay)
+  );
+  return () => timers.forEach((timer) => window.clearTimeout(timer));
+}
+
 export function MapPicker({ origin, destination, onOriginChange, onDestinationChange }: MapPickerProps) {
   const mapRef = React.useRef<HTMLDivElement | null>(null);
   const leafletRef = React.useRef<typeof import("leaflet") | null>(null);
@@ -119,7 +128,7 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
           else onDestinationChange(point);
         });
         mapObjRef.current = map;
-        window.requestAnimationFrame(() => map.invalidateSize());
+        scheduleInvalidate(map);
       })
       .catch(() => setMode("fallback"));
 
@@ -137,6 +146,7 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
     const L = leafletRef.current;
     const map = mapObjRef.current;
     if (!L || !map) return;
+    const cancelInvalidate = scheduleInvalidate(map);
 
     const originLatLng: [number, number] = [origin.lat, origin.lng];
     const destLatLng: [number, number] = [destination.lat, destination.lng];
@@ -153,6 +163,8 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
     }
 
     map.fitBounds(L.latLngBounds([originLatLng, destLatLng]), { padding: [42, 42], maxZoom: 14 });
+
+    return cancelInvalidate;
   }, [origin, destination]);
 
   const choosePreset = (preset: PickedPoint) => {

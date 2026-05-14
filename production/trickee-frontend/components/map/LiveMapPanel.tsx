@@ -154,6 +154,15 @@ function osmEmbedUrl(bounds: ReturnType<typeof boundsFor>) {
   return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;
 }
 
+function scheduleInvalidate(map: { invalidateSize: () => void }) {
+  const timers = [0, 250, 700].map((delay) =>
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => map.invalidateSize());
+    }, delay)
+  );
+  return () => timers.forEach((timer) => window.clearTimeout(timer));
+}
+
 export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = "" }: LiveMapPanelProps) {
   const leafletRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<"leaflet" | "fallback">("fallback");
@@ -211,7 +220,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
 
         lModRef.current = L;
         mapObjRef.current = map;
-        window.requestAnimationFrame(() => map.invalidateSize());
+        scheduleInvalidate(map);
       })
       .catch(() => setMode("fallback"));
 
@@ -235,6 +244,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     const L = lModRef.current;
     const map = mapObjRef.current;
     if (!L || !map || !data) return;
+    const cancelInvalidate = scheduleInvalidate(map);
 
     const fitKey = selectedDriverId || "all";
     if ((!hasInitFit.current || lastFitKeyRef.current !== fitKey) && points.length) {
@@ -328,6 +338,8 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
         staticLayersRef.current.push(layer);
       }
     }
+
+    return cancelInvalidate;
   }, [data, vehicles, visible, points, selectedDriverId]);
 
   const toggle = (key: LayerKey) => {

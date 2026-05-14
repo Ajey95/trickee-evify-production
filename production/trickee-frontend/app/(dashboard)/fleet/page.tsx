@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { FleetKpiBar } from "@/components/fleet/FleetKpiBar";
 import { VehicleCard } from "@/components/fleet/VehicleCard";
 import { VehicleCarousel } from "@/components/fleet/VehicleCarousel";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Vehicle } from "@/types";
 import { api } from "@/lib/api";
+import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 import { BatteryWarning, MapPin, Sparkles, UsersRound } from "lucide-react";
 
 export default function FleetPage() {
@@ -22,39 +23,41 @@ export default function FleetPage() {
   const [weeklyReport, setWeeklyReport] = useState<any | null>(null);
   const [behaviorHistory, setBehaviorHistory] = useState<any[]>([]);
 
+  const loadFleetState = useCallback(async (showLoading = false) => {
+    if (showLoading) setIsLoading(true);
+    const [result, fleetLiveResult, liveMapResult, behaviorHistoryResult] = await Promise.all([
+      api.vehicles.list(),
+      api.intelligence.fleetLive(),
+      api.intelligence.liveMap(),
+      api.intelligence.driverBehaviorHistory(100),
+    ]);
+    if (result.success) {
+      setVehicles(result.data.map((vehicle) => ({ ...vehicle, latest_telemetry: vehicle.latest_telemetry || vehicle.latest })));
+      setLastSync(new Date());
+      setError("");
+    } else {
+      setError(result.error || "Unable to load vehicles");
+    }
+    if (fleetLiveResult.success) setFleetLive(fleetLiveResult.data);
+    if (liveMapResult.success) setLiveMap(liveMapResult.data);
+    if (behaviorHistoryResult.success) setBehaviorHistory(behaviorHistoryResult.data);
+    setIsLoading(false);
+  }, []);
+
   useEffect(() => {
     let active = true;
-    async function loadVehicles() {
-      setIsLoading(true);
-      const [result, fleetLiveResult, liveMapResult, behaviorHistoryResult] = await Promise.all([
-        api.vehicles.list(),
-        api.intelligence.fleetLive(),
-        api.intelligence.liveMap(),
-        api.intelligence.driverBehaviorHistory(100),
-      ]);
-      if (!active) return;
-      if (result.success) {
-        setVehicles(result.data.map((vehicle) => ({ ...vehicle, latest_telemetry: vehicle.latest_telemetry || vehicle.latest })));
-        setLastSync(new Date());
-        setError("");
-      } else {
-        setError(result.error || "Unable to load vehicles");
-      }
-      if (fleetLiveResult.success) setFleetLive(fleetLiveResult.data);
-      if (liveMapResult.success) setLiveMap(liveMapResult.data);
-      if (behaviorHistoryResult.success) setBehaviorHistory(behaviorHistoryResult.data);
-      setIsLoading(false);
-
+    async function loadInitial() {
+      await loadFleetState(true);
       const reportResult = await api.intelligence.weeklyReport();
       if (active && reportResult.success) setWeeklyReport(reportResult.data);
     }
-    loadVehicles();
-    const interval = setInterval(loadVehicles, 30000);
+    loadInitial();
     return () => {
       active = false;
-      clearInterval(interval);
     };
-  }, []);
+  }, [loadFleetState]);
+
+  useVisibilityPolling(() => loadFleetState(false), { intervalMs: 30_000 });
 
   return (
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator"]}>
