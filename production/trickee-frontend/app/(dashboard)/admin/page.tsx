@@ -5,6 +5,7 @@ import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/Table";
 import { Badge } from "@/components/ui/Badge";
+import { AdminMetricCarousel } from "@/components/admin/AdminMetricCarousel";
 import { Activity, Cpu, Database, Layers, Zap, Users, Settings } from "lucide-react";
 import { api } from "@/lib/api";
 import { ModelMetrics, User as TrickeeUser } from "@/types";
@@ -32,6 +33,36 @@ export default function AdminPage() {
   const featureCount = model?.feature_count || 0;
   const servedPredictions = counts.predictions || 0;
   const v5a = modelMetrics?.v5a_candidate;
+  const adminMetrics = [
+    {
+      label: "Model",
+      value: modelName,
+      helper: "Backend serving model",
+      icon: Activity,
+      accentClass: "text-accent-teal",
+    },
+    {
+      label: "Model Status",
+      value: model?.ready ? "Ready" : "Not Ready",
+      helper: "Runtime state",
+      icon: Cpu,
+      accentClass: model?.ready ? "text-accent-green" : "text-accent-amber",
+    },
+    {
+      label: "Served Predictions",
+      value: servedPredictions.toLocaleString(),
+      helper: "Prediction table count",
+      icon: Zap,
+      accentClass: "text-accent-green",
+    },
+    {
+      label: "Features",
+      value: featureCount.toLocaleString(),
+      helper: "Input columns",
+      icon: Layers,
+      accentClass: "text-text-primary",
+    },
+  ];
 
   return (
     <RoleGuard allowedRoles={["trickee_admin"]}>
@@ -43,43 +74,7 @@ export default function AdminPage() {
 
         {error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="border-accent-teal/30 bg-accent-teal/[0.02]">
-            <div className="flex justify-between items-start mb-4">
-              <p className="kpi-label">Model</p>
-              <Activity className="w-4 h-4 text-accent-teal" />
-            </div>
-            <p className="text-xl font-bold font-mono text-accent-teal">{modelName}</p>
-            <p className="text-[10px] text-text-dim mt-2 uppercase font-bold tracking-widest">Backend Serving Model</p>
-          </Card>
-
-          <Card>
-            <div className="flex justify-between items-start mb-4">
-              <p className="kpi-label">Model Status</p>
-              <Cpu className="w-4 h-4 text-accent-magenta" />
-            </div>
-            <p className="text-3xl font-bold font-mono text-text-primary">{model?.ready ? "Ready" : "Not Ready"}</p>
-            <p className="text-[10px] text-text-dim mt-2 uppercase font-bold tracking-widest">Runtime State</p>
-          </Card>
-
-          <Card>
-            <div className="flex justify-between items-start mb-4">
-              <p className="kpi-label">Served Predictions</p>
-              <Zap className="w-4 h-4 text-accent-green" />
-            </div>
-            <p className="text-3xl font-bold font-mono text-text-primary">{servedPredictions.toLocaleString()}</p>
-            <p className="text-[10px] text-text-dim mt-2 uppercase font-bold tracking-widest">Prediction Table Count</p>
-          </Card>
-
-          <Card>
-            <div className="flex justify-between items-start mb-4">
-              <p className="kpi-label">Features</p>
-              <Layers className="w-4 h-4 text-text-dim" />
-            </div>
-            <p className="text-3xl font-bold font-mono text-text-primary">{featureCount}</p>
-            <p className="text-[10px] text-text-dim mt-2 uppercase font-bold tracking-widest">Input Columns</p>
-          </Card>
-        </div>
+        <AdminMetricCarousel metrics={adminMetrics} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card>

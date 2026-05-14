@@ -3,12 +3,14 @@
 import React, { useEffect, useState } from "react";
 import { FleetKpiBar } from "@/components/fleet/FleetKpiBar";
 import { VehicleCard } from "@/components/fleet/VehicleCard";
+import { VehicleCarousel } from "@/components/fleet/VehicleCarousel";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { Vehicle } from "@/types";
 import { api } from "@/lib/api";
-import { BatteryWarning, MapPin, Sparkles } from "lucide-react";
+import { BatteryWarning, MapPin, Sparkles, UsersRound } from "lucide-react";
 
 export default function FleetPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -18,16 +20,17 @@ export default function FleetPage() {
   const [fleetLive, setFleetLive] = useState<any | null>(null);
   const [liveMap, setLiveMap] = useState<any | null>(null);
   const [weeklyReport, setWeeklyReport] = useState<any | null>(null);
+  const [behaviorHistory, setBehaviorHistory] = useState<any[]>([]);
 
   useEffect(() => {
     let active = true;
     async function loadVehicles() {
       setIsLoading(true);
-      const [result, fleetLiveResult, liveMapResult, reportResult] = await Promise.all([
+      const [result, fleetLiveResult, liveMapResult, behaviorHistoryResult] = await Promise.all([
         api.vehicles.list(),
         api.intelligence.fleetLive(),
         api.intelligence.liveMap(),
-        api.intelligence.weeklyReport(),
+        api.intelligence.driverBehaviorHistory(100),
       ]);
       if (!active) return;
       if (result.success) {
@@ -39,8 +42,11 @@ export default function FleetPage() {
       }
       if (fleetLiveResult.success) setFleetLive(fleetLiveResult.data);
       if (liveMapResult.success) setLiveMap(liveMapResult.data);
-      if (reportResult.success) setWeeklyReport(reportResult.data);
+      if (behaviorHistoryResult.success) setBehaviorHistory(behaviorHistoryResult.data);
       setIsLoading(false);
+
+      const reportResult = await api.intelligence.weeklyReport();
+      if (active && reportResult.success) setWeeklyReport(reportResult.data);
     }
     loadVehicles();
     const interval = setInterval(loadVehicles, 30000);
@@ -70,6 +76,53 @@ export default function FleetPage() {
           <Card className="xl:col-span-2">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
+                <UsersRound className="w-4 h-4 text-accent-teal" />
+                Driver Archetype Mix
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(
+                (fleetLive?.drivers || []).reduce((acc: Record<string, number>, row: any) => {
+                  const label = row.archetype?.display_name || row.archetype?.label || "Unknown";
+                  acc[label] = (acc[label] || 0) + 1;
+                  return acc;
+                }, {})
+              ).map(([label, count]) => (
+                <div key={label} className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                  <p className="text-lg font-bold text-text-primary">{String(count)}</p>
+                  <p className="text-xs text-text-dim">{label}</p>
+                </div>
+              ))}
+              {!fleetLive?.drivers?.length && <p className="text-sm text-text-dim">Archetypes appear after live profiles load.</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Personalization Coverage</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                ["Drivers profiled", fleetLive?.summary?.total_drivers || 0],
+                ["Live telemetry", fleetLive?.summary?.active_drivers || 0],
+                ["History snapshots", behaviorHistory.length],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                  <p className="text-xs text-text-dim">{label}</p>
+                  <p className="text-sm font-bold text-text-primary">{String(value)}</p>
+                </div>
+              ))}
+              <p className="text-xs text-text-dim leading-relaxed">
+                Archetypes are driver-level signals used for dispatch, charging, and coaching. Fleet operators see the mix, not a manager profile.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <Card className="xl:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
                 <BatteryWarning className="w-4 h-4 text-accent-teal" />
                 Live Fleet Risk
               </CardTitle>
@@ -94,7 +147,10 @@ export default function FleetPage() {
                   <div key={row.driver_id} className="flex items-center justify-between gap-4 p-3 rounded-lg border border-bg-border bg-bg-primary/30">
                     <div>
                       <p className="text-sm font-semibold text-text-primary">{row.driver_code} - {row.driver_name}</p>
-                      <p className="text-xs text-text-dim">{row.next_best_action}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <Badge variant="info">{row.archetype?.display_name || "Unknown"}</Badge>
+                        <p className="text-xs text-text-dim">{row.next_best_action}</p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-mono text-accent-teal">{Number(row.latest_soc || 0).toFixed(1)}%</p>
@@ -167,11 +223,14 @@ export default function FleetPage() {
         )}
 
         {!isLoading && !error && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {vehicles.map((vehicle) => (
-              <VehicleCard key={vehicle.id} vehicle={vehicle} />
-            ))}
-          </div>
+          <>
+            <VehicleCarousel vehicles={vehicles} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {vehicles.map((vehicle) => (
+                <VehicleCard key={vehicle.id} vehicle={vehicle} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </RoleGuard>

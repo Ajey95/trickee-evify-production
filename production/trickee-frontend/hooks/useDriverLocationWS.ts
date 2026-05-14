@@ -9,6 +9,30 @@ export type LiveMapData = {
   charger_points?: any[];
 };
 
+function mergeVehiclePoint(current: LiveMapData | null, point: any): LiveMapData {
+  const rows = current?.vehicle_points || [];
+  const index = rows.findIndex(
+    (row) =>
+      (point.driver_id && row.driver_id === point.driver_id) ||
+      (point.vehicle_id && row.vehicle_id === point.vehicle_id)
+  );
+  const existing = index >= 0 ? rows[index] : {};
+  const nextPoint = { ...existing, ...point, risk_level: point.risk_level ?? existing.risk_level };
+  const vehicle_points =
+    index >= 0
+      ? rows.map((row, rowIndex) => (rowIndex === index ? nextPoint : row))
+      : [...rows, nextPoint];
+
+  return {
+    ...current,
+    low_soc_zones: current?.low_soc_zones || [],
+    frequent_stop_zones: current?.frequent_stop_zones || [],
+    charger_points: current?.charger_points || [],
+    generated_at: point.recorded_at || new Date().toISOString(),
+    vehicle_points,
+  };
+}
+
 /**
  * Converts the REST base URL to its WebSocket equivalent.
  *
@@ -93,6 +117,8 @@ export function useDriverLocationWS(driverId?: string): {
           const msg = JSON.parse(event.data as string);
           if (msg.type === "live_map" && msg.data) {
             setData(msg.data as LiveMapData);
+          } else if (msg.type === "vehicle_point" && msg.data) {
+            setData((current) => mergeVehiclePoint(current, msg.data));
           }
         } catch {
           // malformed frame – ignore

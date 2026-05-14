@@ -12,31 +12,112 @@ import { getSession } from "next-auth/react";
 
 const BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
 
+type ApiResult<T> = { success: boolean; data: T; message?: string; error?: string };
+type FetcherOptions = RequestInit & {
+  cacheTtlMs?: number;
+};
+
+const SESSION_CACHE_MS = 30_000;
+const DEFAULT_GET_CACHE_MS = 60_000;
+const LIVE_GET_CACHE_MS = 5_000;
+const STALE_GET_CACHE_MS = 5 * 60_000;
+
+let cachedToken: string | undefined;
+let tokenExpiresAt = 0;
+let tokenRequest: Promise<string | undefined> | null = null;
+
+const responseCache = new Map<string, { expiresAt: number; staleUntil: number; value: ApiResult<any> }>();
+const inflightRequests = new Map<string, Promise<ApiResult<any>>>();
+
+async function getAccessToken() {
+  const now = Date.now();
+  if (now < tokenExpiresAt) return cachedToken;
+  if (!tokenRequest) {
+    tokenRequest = getSession()
+      .then((session) => (session as any)?.accessToken as string | undefined)
+      .then((token) => {
+        cachedToken = token;
+        tokenExpiresAt = Date.now() + SESSION_CACHE_MS;
+        return token;
+      })
+      .finally(() => {
+        tokenRequest = null;
+      });
+  }
+  return tokenRequest;
+}
+
+function getCacheTtl(endpoint: string, method: string, explicitTtl?: number) {
+  if (typeof explicitTtl === "number") return explicitTtl;
+  if (method !== "GET") return 0;
+  if (endpoint.includes("/telemetry")) return 0;
+  if (endpoint.startsWith("/intelligence/live-map")) return LIVE_GET_CACHE_MS;
+  return DEFAULT_GET_CACHE_MS;
+}
+
+function cacheKey(url: string, method: string, token?: string) {
+  return `${method}:${url}:${token || "anon"}`;
+}
+
+function clearReadCache() {
+  responseCache.clear();
+  inflightRequests.clear();
+}
+
+function refreshCacheInBackground<T>(key: string, ttl: number, request: Promise<ApiResult<T>>) {
+  inflightRequests.set(key, request);
+  request
+    .then((result) => {
+      if (result.success) {
+        responseCache.set(key, {
+          expiresAt: Date.now() + ttl,
+          staleUntil: Date.now() + STALE_GET_CACHE_MS,
+          value: result,
+        });
+      }
+    })
+    .finally(() => {
+      inflightRequests.delete(key);
+    });
+}
+
 async function fetcher<T>(
   endpoint: string, 
-  options: RequestInit = {}
-): Promise<{ success: boolean; data: T; message?: string; error?: string }> {
+  options: FetcherOptions = {}
+): Promise<ApiResult<T>> {
   const url = `${BASE_URL}${endpoint}`;
-  const session = await getSession();
-  const token = (session as any)?.accessToken;
-  
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
-      },
-    });
+  const { cacheTtlMs, ...requestOptions } = options;
+  const method = (requestOptions.method || "GET").toUpperCase();
+  const token = await getAccessToken();
+  const ttl = getCacheTtl(endpoint, method, cacheTtlMs);
+  const key = cacheKey(url, method, token);
 
-    const result = await response.json().catch(() => null);
-    if (!response.ok) {
-      return {
-        success: false,
-        data: null as T,
-        error: result?.detail || result?.error || `Request failed with ${response.status}`,
-      };
+  if (ttl > 0) {
+    const cached = responseCache.get(key);
+    if (cached && Date.now() < cached.expiresAt) return cached.value as ApiResult<T>;
+    const inflight = inflightRequests.get(key);
+    if (inflight) return inflight as Promise<ApiResult<T>>;
+    if (cached && Date.now() < cached.staleUntil) {
+      const backgroundRequest = runNetworkRequest<T>(url, requestOptions, method, token);
+      refreshCacheInBackground(key, ttl, backgroundRequest);
+      return cached.value as ApiResult<T>;
+    }
+  }
+  
+  const request = runNetworkRequest<T>(url, requestOptions, method, token);
+
+  if (ttl > 0) {
+    inflightRequests.set(key, request);
+  }
+
+  try {
+    const result = await request;
+    if (ttl > 0 && result.success) {
+      responseCache.set(key, {
+        expiresAt: Date.now() + ttl,
+        staleUntil: Date.now() + STALE_GET_CACHE_MS,
+        value: result,
+      });
     }
     return result;
   } catch (error) {
@@ -45,7 +126,36 @@ async function fetcher<T>(
       data: null as any,
       error: error instanceof Error ? error.message : "Unknown error",
     };
+  } finally {
+    inflightRequests.delete(key);
   }
+}
+
+async function runNetworkRequest<T>(
+  url: string,
+  requestOptions: RequestInit,
+  method: string,
+  token?: string
+): Promise<ApiResult<T>> {
+  const response = await fetch(url, {
+    ...requestOptions,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...requestOptions.headers,
+    },
+  });
+
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    return {
+      success: false,
+      data: null as T,
+      error: result?.detail || result?.error || `Request failed with ${response.status}`,
+    };
+  }
+  if (method !== "GET") clearReadCache();
+  return result as ApiResult<T>;
 }
 
 export const api = {
@@ -89,9 +199,11 @@ export const api = {
       soc_start: number;
       day_type: string;
       slot: string;
+      origin?: { lat: number; lng: number };
+      destination?: { lat: number; lng: number };
       origin_label: string;
       dest_label: string;
-    }) => fetcher<{ ranked_routes: Route[]; departure_nudge?: Nudge; nudge?: any; recommended_route?: any; fallback_route?: any }>("/routes/score", {
+    }) => fetcher<{ ranked_routes: Route[]; departure_nudge?: Nudge; nudge?: any; recommended_route?: any; best_informational_route?: any; fallback_route?: any; all_routes_infeasible?: boolean; route_status?: string; route_source?: string }>("/routes/score", {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -152,5 +264,10 @@ export const api = {
     orderAssignments: (limit = 50) => fetcher<any[]>(`/intelligence/history/order-assignments?limit=${limit}`),
     chargingDecisions: (limit = 50) => fetcher<any[]>(`/intelligence/history/charging-decisions?limit=${limit}`),
     nudges: (limit = 50) => fetcher<any[]>(`/intelligence/history/nudges?limit=${limit}`),
+    driverBehaviorHistory: (limit = 100) => fetcher<any[]>(`/intelligence/history/driver-behavior?limit=${limit}`),
+    routeContext: (data: any) => fetcher<any>("/intelligence/context", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   },
 };

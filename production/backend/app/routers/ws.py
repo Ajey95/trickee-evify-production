@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.models import User
 from app.services.live_intelligence import live_map_context
-from app.services.ws_manager import manager
+from app.services.ws_manager import ConnectionScope, manager
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,16 @@ async def ws_live_map(ws: WebSocket, token: str = Query(...), driver_id: str | N
         await ws.close(code=4001)
         return
 
-    await manager.connect(ws, user.id)
+    await manager.connect(
+        ws,
+        ConnectionScope(
+            user_id=user.id,
+            role=user.role,
+            fleet_id=user.fleet_id,
+            driver_id=user.driver_id,
+            selected_driver_id=driver_id,
+        ),
+    )
     try:
         while True:
             db: Session = SessionLocal()

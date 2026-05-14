@@ -178,6 +178,10 @@ def driver_behavior_snapshot_dict(row) -> dict[str, Any]:
         "regen_ratio_30m": row.regen_ratio_30m,
         "throttle_var_30m": row.throttle_var_30m,
         "style_label": row.style_label,
+        "archetype_label": row.archetype_label,
+        "archetype_confidence": row.archetype_confidence,
+        "archetype_source": row.archetype_source,
+        "archetype_payload": row.archetype_payload,
     }
 
 

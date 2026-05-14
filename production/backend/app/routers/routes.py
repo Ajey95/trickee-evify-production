@@ -18,6 +18,10 @@ class RouteScoreRequest(BaseModel):
     slot: str = "morning"
     personal_factor: float = 1.1
     soc_start: float = 80.0
+    origin: dict[str, float] | None = None
+    destination: dict[str, float] | None = None
+    origin_label: str | None = None
+    dest_label: str | None = None
 
 
 class RerouteRequest(BaseModel):
@@ -45,7 +49,18 @@ def score_routes(
     current_user: User = Depends(get_current_user),
 ):
     personal_factor = _personal_factor_for_request(db, current_user, payload.driver_id, payload.personal_factor)
-    return ok(route_scores(payload.day_type, payload.slot, personal_factor, payload.soc_start))
+    return ok(
+        route_scores(
+            payload.day_type,
+            payload.slot,
+            personal_factor,
+            payload.soc_start,
+            origin=payload.origin,
+            destination=payload.destination,
+            origin_label=payload.origin_label,
+            dest_label=payload.dest_label,
+        )
+    )
 
 
 @router.post("/reroute")

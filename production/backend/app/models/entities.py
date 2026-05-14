@@ -195,6 +195,10 @@ class DriverBehaviorSnapshot(Base):
     regen_ratio_30m: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     throttle_var_30m: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     style_label: Mapped[str] = mapped_column(String(50), nullable=False, default="Moderate")
+    archetype_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    archetype_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    archetype_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    archetype_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     driver: Mapped[Driver] = relationship(back_populates="behavior_snapshots")
 

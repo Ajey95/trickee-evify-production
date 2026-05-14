@@ -6,13 +6,33 @@ from fastapi import HTTPException, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import Driver, Fleet, Telemetry, User, Vehicle
-from app.services.alert_service import maybe_create_charging_alert
+from app.services.alert_service import maybe_create_charging_alert, maybe_create_driver_risk_alert
 from app.services.evify_adapter import normalize_evify_payload
 from app.services.live_driver_profile import record_soc_rise_charging_event
 from app.services.physics import compute_derived_fields
 from app.services.trip_inference import update_inferred_trip
 from app.services.wait_classifier import update_wait_event
+from app.services.ws_manager import manager
+
+
+def _live_vehicle_point(row: Telemetry, vehicle: Vehicle, driver: Driver | None) -> dict[str, Any] | None:
+    if row.lat is None or row.lng is None or row.lat == 0 or row.lng == 0:
+        return None
+    if not row.driver_id or not driver:
+        return None
+    return {
+        "driver_id": row.driver_id,
+        "driver_code": driver.driver_code,
+        "vehicle_id": row.vehicle_id,
+        "fleet_id": vehicle.fleet_id,
+        "lat": row.lat,
+        "lng": row.lng,
+        "soc": row.soc,
+        "speed": row.speed,
+        "recorded_at": row.recorded_at.isoformat(),
+    }
 
 
 def default_fleet_id(db: Session, user: User | None = None) -> str:
@@ -99,10 +119,13 @@ def ingest_evify_payload(
     if commit:
         record_soc_rise_charging_event(db, row, prev)
 
-    alert = maybe_create_charging_alert(db, row)
+    alert = maybe_create_charging_alert(db, row) or maybe_create_driver_risk_alert(db, row)
     if commit:
         db.commit()
         db.refresh(row)
         if alert:
             db.refresh(alert)
+        point = _live_vehicle_point(row, vehicle, driver)
+        if point:
+            manager.publish_vehicle_point_from_thread(point, get_settings().redis_url)
     return row, alert

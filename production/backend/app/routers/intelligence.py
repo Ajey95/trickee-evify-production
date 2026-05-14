@@ -26,7 +26,7 @@ from app.services.serializers import (
     wait_event_dict,
 )
 from app.services.wait_time_estimator import estimate_wait_window
-from app.services.weekly_report import generate_weekly_report
+from app.services.weekly_report import generate_weekly_report, send_weekly_report_email
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
@@ -159,12 +159,14 @@ def live_map(
 @router.get("/reports/weekly")
 def weekly_report(
     days: int = Query(default=7, ge=1, le=31),
+    send_email: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("trickee_admin", "fleet_operator")),
 ):
     metrics = weekly_live_metrics(db, current_user, days=days)
     report = generate_weekly_report(metrics)
-    return ok({**metrics, "report": report, "delivery": {"email_status": "not_configured"}})
+    delivery = send_weekly_report_email(metrics, report) if send_email else {"email_status": "not_requested"}
+    return ok({**metrics, "report": report, "delivery": delivery})
 
 
 @router.post("/context")

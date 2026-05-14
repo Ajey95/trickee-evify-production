@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.models import Driver, NudgeEvent, Telemetry, User, Vehicle, WaitEvent
 from app.services.access import assert_driver_access
+from app.services.charge_plan import build_destination_charge_plan
 from app.services.external_context import external_context
-from app.services.live_driver_profile import BAD_DATA_VEHICLE_CODES, live_driver_profile
+from app.services.live_driver_profile import LOW_SOC_THRESHOLD, live_driver_profile
 from app.services.physics import compute_range_factors
 from app.services.wait_classifier import classify_wait
 
@@ -19,14 +20,7 @@ def _valid_gps(row: Telemetry | None) -> bool:
 
 
 def _latest_driver_row(db: Session, driver: Driver) -> Telemetry | None:
-    bad_vehicle_ids = [
-        vehicle.id
-        for vehicle in db.query(Vehicle).filter(Vehicle.vehicle_code.in_(BAD_DATA_VEHICLE_CODES)).all()
-    ]
-    query = db.query(Telemetry).filter(Telemetry.driver_id == driver.id)
-    if bad_vehicle_ids:
-        query = query.filter(Telemetry.vehicle_id.notin_(bad_vehicle_ids))
-    return query.order_by(desc(Telemetry.recorded_at)).first()
+    return db.query(Telemetry).filter(Telemetry.driver_id == driver.id).order_by(desc(Telemetry.recorded_at)).first()
 
 
 def _latest_vehicle_row(db: Session, vehicle_id: str) -> Telemetry | None:
@@ -57,9 +51,20 @@ def _route_recommendation(
     traffic_duration_min = float(traffic.get("duration_traffic_min") or traffic.get("duration_min") or 0.0)
     personalized_eta_min = round(traffic_duration_min * max(personal_factor, 0.5), 1)
     risk_score = float(profile.get("battery", {}).get("battery_risk_score") or 0.0)
-    risk_buffer_km = 1.35 if risk_score >= 65 else 1.25 if risk_score >= 40 else 1.15
+    archetype_policy = profile.get("archetype", {}).get("policy", {})
+    archetype_buffer = float(archetype_policy.get("route_buffer_multiplier") or 1.0)
+    risk_buffer_km = (1.35 if risk_score >= 65 else 1.25 if risk_score >= 40 else 1.15) * archetype_buffer
     required_range_km = round(distance_km * risk_buffer_km, 2)
     current_range_km = float(profile.get("personalized_range", {}).get("estimated_range_km") or 0.0)
+    current_soc = float(latest.soc or 0.0)
+    km_per_soc_pct = current_range_km / current_soc if current_soc > 0 and current_range_km > 0 else 0.0
+    soc_required_pct = required_range_km / km_per_soc_pct if km_per_soc_pct > 0 else 100.0
+    nearest_charger = profile.get("charging", {}).get("nearest_charger")
+    charge_plan = build_destination_charge_plan(
+        current_soc_pct=current_soc,
+        soc_required_pct=soc_required_pct,
+        charger=nearest_charger,
+    )
     route_state = "safe" if current_range_km >= required_range_km else "charge_first"
     return {
         "status": route_state,
@@ -69,12 +74,15 @@ def _route_recommendation(
         "traffic_duration_min": traffic_duration_min,
         "personalized_eta_min": personalized_eta_min,
         "personal_factor": personal_factor,
+        "archetype": profile.get("archetype"),
         "traffic_index": traffic.get("traffic_index"),
         "required_range_km": required_range_km,
+        "soc_required_pct": round(soc_required_pct, 1),
+        "destination_charge_plan": charge_plan,
         "message": (
             "Route is acceptable for this driver profile."
             if route_state == "safe"
-            else "Charge before accepting this route; personalized range buffer is too thin."
+            else charge_plan["message"]
         ),
         "external_context": context,
     }
@@ -91,7 +99,10 @@ def _charging_recommendation(
 
     nearest_charger = profile.get("charging", {}).get("nearest_charger")
     risk_level = profile.get("battery", {}).get("risk_level", "low")
-    warning_threshold = float(profile.get("battery", {}).get("warning_soc_threshold") or 25)
+    archetype = profile.get("archetype") or {}
+    archetype_label = archetype.get("label")
+    warning_adjust = float(archetype.get("policy", {}).get("soc_warning_adjust_pct") or 0.0)
+    warning_threshold = float(profile.get("battery", {}).get("warning_soc_threshold") or 25) + warning_adjust
     wait_type = wait.get("wait_type") if wait else None
     is_chargeable_wait = wait_type in {"restaurant_wait", "idle_wait", "charging_wait"}
     restaurant_wait_min = float((order_context or {}).get("restaurant_wait_min") or 0.0)
@@ -103,18 +114,36 @@ def _charging_recommendation(
             "nearest_charger": nearest_charger,
             "message": "Charge now. SOC is below the critical live threshold.",
         }
+    if latest.soc <= LOW_SOC_THRESHOLD and not nearest_charger:
+        return {
+            "action": "charge_now",
+            "urgency": "high",
+            "nearest_charger": None,
+            "archetype": archetype,
+            "message": "Charge before accepting a long delivery. SOC is below the live low-SOC threshold.",
+        }
     if latest.soc <= warning_threshold and is_chargeable_wait and nearest_charger:
         return {
             "action": "charge_during_wait",
             "urgency": "high" if risk_level == "high" else "medium",
             "nearest_charger": nearest_charger,
+            "archetype": archetype,
             "message": f"Use this {wait_type.replace('_', ' ')} to top up near {nearest_charger['name']}.",
+        }
+    if archetype_label == "stop_wait_optimizer" and is_chargeable_wait and nearest_charger and latest.soc < 45:
+        return {
+            "action": "opportunistic_top_up",
+            "urgency": "medium",
+            "nearest_charger": nearest_charger,
+            "archetype": archetype,
+            "message": f"Stop-window pattern detected. Top up near {nearest_charger['name']} while waiting.",
         }
     if latest.soc <= warning_threshold and nearest_charger:
         return {
             "action": "detour_to_charger",
             "urgency": "high" if risk_level == "high" else "medium",
             "nearest_charger": nearest_charger,
+            "archetype": archetype,
             "message": f"Detour to {nearest_charger['name']} before a long delivery.",
         }
     if restaurant_wait_min >= 12 and nearest_charger and latest.soc < 45:
@@ -122,12 +151,14 @@ def _charging_recommendation(
             "action": "opportunistic_top_up",
             "urgency": "low",
             "nearest_charger": nearest_charger,
+            "archetype": archetype,
             "message": f"Optional top-up is useful if the pickup wait stays above {restaurant_wait_min:.0f} min.",
         }
     return {
         "action": "continue_delivery",
         "urgency": "low",
         "nearest_charger": nearest_charger,
+        "archetype": archetype,
         "message": "Continue delivery. SOC and driver risk are inside live operating limits.",
     }
 
@@ -170,7 +201,13 @@ def live_driver_decision(
     wait = classify_wait(latest, order_context=order_context) if latest else None
     charging = _charging_recommendation(latest, profile, wait, order_context)
     route = _route_recommendation(latest, destination, profile, float(driver.personal_factor or 1.1))
-    nudge_message = charging["message"] if charging["action"] != "continue_delivery" else route["message"]
+    nudge_message = (
+        route["message"]
+        if route.get("status") == "charge_first"
+        else charging["message"]
+        if charging["action"] != "continue_delivery"
+        else route["message"]
+    )
 
     if persist_nudge and latest and driver.id:
         db.add(
@@ -181,6 +218,7 @@ def live_driver_decision(
                 channel="dashboard",
                 message=nudge_message,
                 payload={
+                    "archetype": profile.get("archetype"),
                     "charging": charging,
                     "route": route,
                     "personalized_range": personalized_range,
@@ -231,6 +269,7 @@ def fleet_live_overview(db: Session, user: User, window_minutes: int = 7 * 24 * 
                 "latest_seen_at": latest_data.get("recorded_at"),
                 "risk_level": profile.get("battery", {}).get("risk_level"),
                 "battery_risk_score": profile.get("battery", {}).get("battery_risk_score"),
+                "archetype": profile.get("archetype"),
                 "stop_wait_pct": profile.get("behavior", {}).get("stop_wait_pct"),
                 "regen_ratio_pct": profile.get("behavior", {}).get("regen_ratio_pct"),
                 "profile_status": profile.get("profile_status"),
@@ -309,6 +348,7 @@ def live_map_context(db: Session, user: User, driver_id: str | None = None) -> d
                     "soc": latest_data.get("soc"),
                     "speed": latest_data.get("speed"),
                     "risk_level": profile.get("battery", {}).get("risk_level"),
+                    "archetype": profile.get("archetype", {}).get("label"),
                     "recorded_at": latest_data.get("recorded_at"),
                 }
             )

@@ -97,6 +97,10 @@ function vehicleIconHtml(point: VehiclePoint) {
   return `<div style="display:flex;align-items:center;gap:6px;background:${color};color:#0d1117;border:2px solid #0d1117;border-radius:999px;padding:7px 9px;font-weight:800;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35);"><span>${point.driver_code}</span><span>${Number(point.soc).toFixed(0)}%</span></div>`;
 }
 
+function normalizeLeaflet(module: typeof import("leaflet") | { default?: typeof import("leaflet") }) {
+  return ("default" in module && module.default ? module.default : module) as typeof import("leaflet");
+}
+
 export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = "" }: LiveMapPanelProps) {
   const leafletRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<"leaflet" | "fallback">("fallback");
@@ -135,7 +139,8 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     const markerMap = vehicleMarkersRef.current;
 
     import("leaflet")
-      .then((L) => {
+      .then((leafletModule) => {
+        const L = normalizeLeaflet(leafletModule);
         if (cancelled || !leafletRef.current || mapObjRef.current) return;
         setMode("leaflet");
 
@@ -147,13 +152,14 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
           preferCanvas: true,
         });
 
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
           maxZoom: 19,
         }).addTo(map);
 
         lModRef.current = L;
         mapObjRef.current = map;
+        window.requestAnimationFrame(() => map.invalidateSize());
       })
       .catch(() => setMode("fallback"));
 

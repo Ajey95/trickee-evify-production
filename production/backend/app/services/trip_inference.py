@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Telemetry, Trip
 from app.services.geo import haversine_km
+from app.services.trip_outcome import update_personal_factor_from_trip
 
 MIN_MOVING_SPEED_KMPH = 3.0
 
@@ -81,6 +82,9 @@ def update_inferred_trip(db: Session, row: Telemetry) -> Trip | None:
         if open_trip.soc_start is not None and open_trip.soc_end is not None:
             open_trip.kwh_used = round(max(0.0, open_trip.soc_start - open_trip.soc_end) * 1.824 / 100.0, 4)
         open_trip.distance_km = _distance_for_trip(db, open_trip)
+        # Update driver personal_factor from observed vs Google-predicted travel time.
+        # Pure backend EMA — no agent needed. Caller owns the commit.
+        update_personal_factor_from_trip(db, open_trip)
         return open_trip
 
     return open_trip

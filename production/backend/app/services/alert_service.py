@@ -72,6 +72,62 @@ def maybe_create_charging_alert(db: Session, row: Telemetry) -> Alert | None:
     return alert
 
 
+def maybe_create_driver_risk_alert(db: Session, row: Telemetry) -> Alert | None:
+    risk_reasons: list[str] = []
+    if row.soc < 15:
+        risk_reasons.append(f"critical SOC {row.soc:.0f}%")
+    elif row.soc < 20:
+        risk_reasons.append(f"low SOC {row.soc:.0f}%")
+    if row.current >= 18:
+        risk_reasons.append(f"high current draw {row.current:.1f}A")
+    if row.temp_max >= 58:
+        risk_reasons.append(f"high battery temperature {row.temp_max:.0f}C")
+
+    if not risk_reasons:
+        return None
+
+    existing = (
+        db.query(Alert)
+        .filter(Alert.vehicle_id == row.vehicle_id, Alert.alert_type == "driver_risk", Alert.is_resolved.is_(False))
+        .order_by(desc(Alert.created_at))
+        .first()
+    )
+    if existing:
+        return existing
+
+    message = f"Driver risk detected: {', '.join(risk_reasons)}. Fleet operator should review route/charging plan."
+    alert = Alert(
+        vehicle_id=row.vehicle_id,
+        driver_id=row.driver_id,
+        alert_type="driver_risk",
+        message=message,
+        soc_at_alert=row.soc,
+    )
+    db.add(alert)
+    db.flush()
+    db.add(
+        NudgeEvent(
+            driver_id=row.driver_id,
+            vehicle_id=row.vehicle_id,
+            alert_id=alert.id,
+            nudge_type="driver_risk",
+            channel="dashboard",
+            message=message,
+            payload={
+                "soc": row.soc,
+                "current": row.current,
+                "temp_max": row.temp_max,
+                "lat": row.lat,
+                "lng": row.lng,
+                "risk_reasons": risk_reasons,
+            },
+            status="created",
+        )
+    )
+    _send_alert_push(db, alert, message)
+    return alert
+
+
 def _send_alert_push(db: Session, alert: Alert, message: str) -> None:
     vehicle = db.get(Vehicle, alert.vehicle_id)
     users_query = db.query(User).filter(User.is_active.is_(True))

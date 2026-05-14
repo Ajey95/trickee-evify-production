@@ -16,15 +16,28 @@ def assign_order(available_drivers: list[dict[str, Any]], order: dict[str, Any])
         soc = float(driver.get("soc", 0.0))
         current_range = float(driver.get("current_range_km", 0.0))
         efficiency = float(driver.get("efficiency_score", 0.5))
+        archetype = driver.get("archetype") or {}
+        archetype_label = archetype.get("label") if isinstance(archetype, dict) else str(archetype or "")
         distance_penalty = float(driver.get("distance_to_restaurant_km", 0.0)) * 0.08
         wait_charge_benefit = max(wait_time - 10.0, 0.0) / 30.0
 
         if wait_time >= 15 and current_range >= safety_distance:
             score = ((100.0 - soc) / 100.0) * 0.70 + wait_charge_benefit * 0.25 - distance_penalty
             strategy = "low_soc_wait_time_charging"
+            if archetype_label == "stop_wait_optimizer":
+                score += 0.12
+                strategy = "stop_wait_optimizer_charging"
+            elif archetype_label == "late_charger":
+                score += 0.08
+                strategy = "late_charger_early_top_up"
         else:
             score = efficiency * 0.75 + (current_range >= safety_distance) * 0.20 - distance_penalty
             strategy = "highest_efficiency"
+            if archetype_label == "aggressive_drainer":
+                score -= 0.08
+                strategy = "highest_efficiency_with_aggressive_buffer"
+            elif archetype_label == "range_saver":
+                score += 0.05
 
         ranked.append(
             {

@@ -98,6 +98,22 @@ export interface Route {
   range_remaining_km: number;
   composite_score: number;
   is_ev_optimal: boolean;
+  is_feasible?: boolean;
+  feasibility_reason?: string;
+  soc_required_pct?: number;
+  destination_charge_plan?: {
+    needed: boolean;
+    current_soc_pct: number;
+    destination_soc_required_pct: number;
+    buffer_pct: number;
+    target_soc_pct: number;
+    top_up_soc_pct: number;
+    charge_minutes: number;
+    charger_name?: string;
+    message: string;
+  };
+  charge_minutes_required?: number;
+  top_up_soc_required_pct?: number;
   stop_and_go_index: number;
 }
 
@@ -116,7 +132,7 @@ export interface Alert {
   driver_id?: string;
   vehicle_code: string;
   driver_name?: string;
-  alert_type: 'low_soc_parked' | 'charging_opportunity' | 'reroute';
+  alert_type: 'low_soc_parked' | 'charging_opportunity' | 'reroute' | 'driver_risk';
   message: string;
   soc_at_alert: number;
   nearest_charger?: string;

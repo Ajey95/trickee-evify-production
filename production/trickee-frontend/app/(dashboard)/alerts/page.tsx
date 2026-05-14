@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { 
   Bell, 
   Battery, 
+  BatteryWarning,
   MapPin, 
   Navigation, 
   CheckCircle2, 
@@ -47,6 +48,7 @@ export default function AlertsPage() {
   const getAlertIcon = (type: string) => {
     switch (type) {
       case "charging_opportunity": return Zap;
+      case "driver_risk": return BatteryWarning;
       case "low_soc_parked": return Battery;
       case "reroute": return Navigation;
       default: return Bell;
@@ -56,6 +58,7 @@ export default function AlertsPage() {
   const getAlertColor = (type: string) => {
     switch (type) {
       case "charging_opportunity": return "text-accent-teal border-accent-teal/30 bg-accent-teal/10";
+      case "driver_risk": return "text-accent-red border-accent-red/30 bg-accent-red/10";
       case "low_soc_parked": return "text-accent-red border-accent-red/30 bg-accent-red/10";
       case "reroute": return "text-accent-amber border-accent-amber/30 bg-accent-amber/10";
       default: return "text-text-dim border-bg-border bg-bg-border/30";
@@ -99,7 +102,7 @@ export default function AlertsPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <Badge variant={alert.alert_type === "low_soc_parked" ? "error" : alert.alert_type === "reroute" ? "warning" : "info"}>
+                        <Badge variant={alert.alert_type === "low_soc_parked" || alert.alert_type === "driver_risk" ? "error" : alert.alert_type === "reroute" ? "warning" : "info"}>
                           {alert.alert_type.replace(/_/g, " ")}
                         </Badge>
                         <span className="text-[10px] text-text-dim uppercase font-bold tracking-widest">{new Date(alert.created_at).toLocaleTimeString()}</span>

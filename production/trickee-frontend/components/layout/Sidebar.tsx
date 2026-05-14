@@ -13,7 +13,12 @@ import {
   BarChart3, 
   Bell, 
   Settings2,
-  ShieldCheck
+  ShieldCheck,
+  CalendarDays,
+  ClipboardCheck,
+  DatabaseZap,
+  Radio,
+  BrainCircuit
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -28,10 +33,15 @@ const sidebarItems = [
   { icon: BatteryCharging, label: "AI Predictions", href: "/fleet", activePrefix: "/vehicle", roles: ["trickee_admin", "fleet_operator"] },
   { icon: User, label: "My Profile", href: "/driver", roles: ["driver", "trickee_admin"] },
   { icon: Map, label: "Live Map", href: "/map", roles: ["driver", "trickee_admin", "fleet_operator"] },
-  { icon: Route, label: "Route Intel", href: "/routes", roles: ["trickee_admin", "fleet_operator", "driver"] },
+  { icon: ClipboardCheck, label: "Decisions", href: "/decisions", roles: ["trickee_admin", "fleet_operator"] },
+  { icon: Route, label: "Route Intel", href: "/routes", roles: ["trickee_admin", "driver"] },
+  { icon: CalendarDays, label: "7-Day Schedule", href: "/schedule", roles: ["trickee_admin", "driver"] },
   { icon: BarChart3, label: "Scorecards", href: "/scorecards", roles: ["trickee_admin", "fleet_operator"] },
   { icon: BarChart3, label: "Report Charts", href: "/reports", roles: ["trickee_admin", "fleet_operator"] },
   { icon: Bell, label: "Alerts", href: "/alerts", roles: ["trickee_admin", "fleet_operator", "driver"] },
+  { icon: Radio, label: "Observability", href: "/observability", roles: ["trickee_admin"] },
+  { icon: DatabaseZap, label: "Data Quality", href: "/data-quality", roles: ["trickee_admin", "fleet_operator"] },
+  { icon: BrainCircuit, label: "Model Drift", href: "/model-drift", roles: ["trickee_admin"] },
   { icon: Settings2, label: "Model Metrics", href: "/admin", roles: ["trickee_admin"] },
 ];
 

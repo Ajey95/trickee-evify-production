@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     firebase_fcm_enabled: bool = False
     groq_api_key: str | None = None
     groq_model: str = "llama-3.1-8b-instant"
+    resend_api_key: str | None = None
+    report_from_email: str | None = None
+    report_to_emails: str | None = None
+    redis_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -51,6 +55,12 @@ class Settings(BaseSettings):
             "https://trickee-evify-live.vercel.app",
         ]
         return list(dict.fromkeys([*origins, *production_origins]))
+
+    @property
+    def report_to_email_list(self) -> list[str]:
+        if not self.report_to_emails:
+            return []
+        return [email.strip() for email in self.report_to_emails.split(",") if email.strip()]
 
     @property
     def model_path(self) -> Path:
