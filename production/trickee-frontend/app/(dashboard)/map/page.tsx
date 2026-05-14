@@ -10,6 +10,14 @@ import { Spinner } from "@/components/ui/Spinner";
 import { api } from "@/lib/api";
 import { useDriverLocationWS } from "@/hooks/useDriverLocationWS";
 
+const MAP_POLL_MS = 15_000;
+const MAP_REQUEST_TIMEOUT_MS = 20_000;
+
+function isTransientMapError(message?: string) {
+  const text = (message || "").toLowerCase();
+  return text.includes("timed out") || text.includes("failed to fetch") || text.includes("network");
+}
+
 export default function LiveMapPage() {
   const [mapData, setMapData] = useState<any | null>(null);
   const [fleetLive, setFleetLive] = useState<any | null>(null);
@@ -17,6 +25,11 @@ export default function LiveMapPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const mapDataRef = React.useRef<any | null>(null);
+
+  useEffect(() => {
+    mapDataRef.current = mapData;
+  }, [mapData]);
 
   const drivers = useMemo(() => fleetLive?.drivers || [], [fleetLive]);
   const visibleVehicles = useMemo(() => {
@@ -36,26 +49,47 @@ export default function LiveMapPage() {
     setIsLoading(false);
   }, [wsMapData]);
 
-  // Fallback: when WebSocket is not connected, poll the REST endpoint every 5 s
+  // Fallback: when WebSocket is not connected, poll the REST endpoint
   // so the map stays reasonably fresh even if WS is unavailable.
   useEffect(() => {
     if (wsConnected) return;
-    const interval = setInterval(async () => {
-      const result = await api.intelligence.liveMap(selectedDriverId || undefined);
+    let active = true;
+    let polling = false;
+
+    async function pollLiveMap() {
+      if (!active || polling) return;
+      polling = true;
+      const result = await api.intelligence.liveMap(selectedDriverId || undefined, {
+        timeoutMs: MAP_REQUEST_TIMEOUT_MS,
+        cacheTtlMs: 8_000,
+      });
+      polling = false;
+      if (!active) return;
       if (result.success) {
         setMapData(result.data);
         setLastSync(new Date());
         setError("");
+      } else if (!mapDataRef.current || !isTransientMapError(result.error)) {
+        setError(result.error || "Unable to refresh live map data");
       }
-    }, 5000);
-    return () => clearInterval(interval);
+    }
+
+    pollLiveMap();
+    const interval = setInterval(pollLiveMap, MAP_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [wsConnected, selectedDriverId]);
 
   // ── Manual / initial load (also refreshes fleet summary) ─────────────────
   const loadMap = useCallback(async () => {
     setIsLoading(true);
     const [mapResult, fleetResult] = await Promise.all([
-      api.intelligence.liveMap(selectedDriverId || undefined),
+      api.intelligence.liveMap(selectedDriverId || undefined, {
+        timeoutMs: MAP_REQUEST_TIMEOUT_MS,
+        cacheTtlMs: 8_000,
+      }),
       api.intelligence.fleetLive(),
     ]);
 
@@ -64,7 +98,10 @@ export default function LiveMapPage() {
       setError("");
       setLastSync(new Date());
     } else {
-      setError(mapResult.error || "Unable to load live map data");
+      const message = mapResult.error || "Unable to load live map data";
+      if (!mapDataRef.current || !isTransientMapError(message)) {
+        setError(message);
+      }
     }
 
     if (fleetResult.success) {

@@ -361,10 +361,12 @@ Implemented:
 - OpenStreetMap iframe fallback behind the live overlay, so the user still sees a real map if Leaflet cannot initialize
 - Leaflet dynamic imports are normalized for Next.js module/default export behavior, preventing the map from falling back to the projected grid when the module loads under `default`.
 - Leaflet now has a CDN script/CSS fallback if the bundled dynamic import fails in production.
+- Leaflet map containers, panes, and tiles have global CSS guards plus delayed `invalidateSize()` calls after dashboard layout settles, preventing collapsed tile panes during zoom/pan.
 - Vehicle, charger, low-SOC, and stop-zone layers
 - Selected-driver filter
 - WebSocket status card
 - REST polling fallback when WebSocket is disconnected
+- Map REST fallback polling is non-overlapping, uses a longer timeout, and suppresses transient timeout/network messages when stale map data is already visible.
 - Direct `vehicle_point` merge for fresh live GPS
 - Latest DB row display when no live GPS event is arriving
 

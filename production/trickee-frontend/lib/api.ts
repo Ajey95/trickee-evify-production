@@ -273,7 +273,10 @@ export const api = {
     driverLiveProfile: (driver_id: string) => fetcher<any>(`/intelligence/drivers/${driver_id}/live-profile`),
     driverLiveDecision: (driver_id: string) => fetcher<any>(`/intelligence/drivers/${driver_id}/live-decision`),
     fleetLive: (window_minutes = 10080) => fetcher<any>(`/intelligence/fleet/live?window_minutes=${window_minutes}`),
-    liveMap: (driver_id?: string) => fetcher<any>(`/intelligence/live-map${driver_id ? `?driver_id=${encodeURIComponent(driver_id)}` : ""}`),
+    liveMap: (driver_id?: string, options?: { timeoutMs?: number; cacheTtlMs?: number }) => fetcher<any>(
+      `/intelligence/live-map${driver_id ? `?driver_id=${encodeURIComponent(driver_id)}` : ""}`,
+      options
+    ),
     weeklyReport: (days = 7) => fetcher<any>(`/intelligence/reports/weekly?days=${days}`),
     waitTime: (data: any) => fetcher<any>("/intelligence/wait-time", {
       method: "POST",
