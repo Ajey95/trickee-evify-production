@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
@@ -40,6 +40,13 @@ def _credentials_error() -> HTTPException:
     )
 
 
+def _workspace_access_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Workspace access is pending approval",
+    )
+
+
 def _decode_legacy_token(token: str, settings) -> str | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
@@ -50,16 +57,35 @@ def _decode_legacy_token(token: str, settings) -> str | None:
 
 
 def _decode_supabase_token(token: str, settings) -> dict[str, Any] | None:
-    if not settings.supabase_jwt_secret:
-        return None
     try:
-        return jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience=settings.supabase_jwt_audience,
-        )
-    except JWTError:
+        header = jwt.get_unverified_header(token)
+        alg = header.get("alg", "HS256")
+        
+        if alg == "HS256" and settings.supabase_jwt_secret:
+            return jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience=settings.supabase_jwt_audience,
+            )
+            
+        if not settings.supabase_url or not settings.supabase_anon_key:
+            return None
+            
+        # For ES256/RS256, verify the token is active by calling the Supabase Auth server.
+        payload = jwt.decode(token, options={"verify_signature": False})
+        with httpx.Client(timeout=4.0) as client:
+            resp = client.get(
+                f"{settings.supabase_url}/auth/v1/user",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "apikey": settings.supabase_anon_key,
+                },
+            )
+            if resp.status_code == 200:
+                return payload
+            return None
+    except Exception:
         return None
 
 
@@ -112,7 +138,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         if not user or not user.is_active or user.deleted_at is not None:
             if not user:
                 record_supabase_access_request(db, supabase_payload)
-            raise credentials_error
+            raise _workspace_access_error()
         return user
 
     if not settings.legacy_auth_enabled:

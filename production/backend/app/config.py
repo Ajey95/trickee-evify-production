@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     firebase_auth_enabled: bool = False
     firebase_fcm_enabled: bool = False
     supabase_jwt_secret: str | None = None
+    supabase_url: str | None = None
+    supabase_anon_key: str | None = None
     supabase_jwt_audience: str = "authenticated"
     legacy_auth_enabled: bool = False
     groq_api_key: str | None = None
