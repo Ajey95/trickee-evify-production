@@ -17,7 +17,7 @@ def list_vehicles(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("trickee_admin", "fleet_operator")),
 ):
-    query = db.query(Vehicle)
+    query = db.query(Vehicle).filter(Vehicle.deleted_at.is_(None))
     if current_user.role == "fleet_operator":
         query = query.filter(Vehicle.fleet_id == current_user.fleet_id)
     vehicles = query.order_by(Vehicle.vehicle_code).all()
@@ -54,6 +54,8 @@ def my_vehicles(db: Session = Depends(get_db), current_user: User = Depends(get_
             continue
         vehicle = db.get(Vehicle, latest.vehicle_id)
         if not vehicle:
+            continue
+        if vehicle.deleted_at is not None:
             continue
         seen_vehicle_ids.add(vehicle.id)
         latest_driver = db.get(Driver, latest.driver_id) if latest.driver_id else None

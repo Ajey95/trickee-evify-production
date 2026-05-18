@@ -30,11 +30,24 @@ def list_alerts(
     return ok([alert_dict(row) for row in rows])
 
 
+def _assert_alert_access(db: Session, alert: Alert, user: User) -> None:
+    if user.role == "trickee_admin":
+        return
+    if user.role == "driver" and alert.driver_id == user.driver_id:
+        return
+    if user.role == "fleet_operator":
+        vehicle = db.get(Vehicle, alert.vehicle_id)
+        if vehicle and vehicle.fleet_id == user.fleet_id:
+            return
+    raise HTTPException(status_code=403, detail="Alert not in user's scope")
+
+
 @router.post("/{alert_id}/resolve")
-def resolve_alert(alert_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def resolve_alert(alert_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     alert = db.get(Alert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+    _assert_alert_access(db, alert, current_user)
     alert.is_resolved = True
     db.commit()
     db.refresh(alert)

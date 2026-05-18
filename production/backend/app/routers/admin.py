@@ -13,6 +13,7 @@ from app.models import (
     NudgeEvent,
     OrderAssignmentDecision,
     Prediction,
+    SecurityEvent,
     Telemetry,
     Trip,
     User,
@@ -79,6 +80,7 @@ def metrics(db: Session = Depends(get_db), _: User = Depends(require_roles("tric
                 "order_assignment_decisions": db.query(OrderAssignmentDecision).count(),
                 "charging_decision_records": db.query(ChargingDecisionRecord).count(),
                 "wait_events": db.query(WaitEvent).count(),
+                "security_events": db.query(SecurityEvent).count(),
             },
         }
     )
@@ -86,4 +88,4 @@ def metrics(db: Session = Depends(get_db), _: User = Depends(require_roles("tric
 
 @router.get("/users")
 def users(db: Session = Depends(get_db), _: User = Depends(require_roles("trickee_admin"))):
-    return ok([user_dict(user) for user in db.query(User).order_by(User.email).all()])
+    return ok([user_dict(user) for user in db.query(User).filter(User.deleted_at.is_(None)).order_by(User.email).all()])

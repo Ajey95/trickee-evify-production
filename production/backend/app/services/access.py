@@ -7,7 +7,7 @@ from app.models import Driver, Telemetry, User, Vehicle
 
 def assert_vehicle_access(db: Session, user: User, vehicle_id: str) -> Vehicle:
     vehicle = db.get(Vehicle, vehicle_id)
-    if not vehicle:
+    if not vehicle or vehicle.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
     if user.role == "trickee_admin":
         return vehicle
@@ -27,7 +27,7 @@ def assert_vehicle_access(db: Session, user: User, vehicle_id: str) -> Vehicle:
 
 def assert_driver_access(db: Session, user: User, driver_id: str) -> Driver:
     driver = db.get(Driver, driver_id)
-    if not driver:
+    if not driver or driver.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found")
     if user.role == "trickee_admin":
         return driver

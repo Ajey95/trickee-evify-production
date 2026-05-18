@@ -16,7 +16,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [latestTelemetry, setLatestTelemetry] = useState<any | null>(null);
   const [chartData, setChartData] = useState<{ time: string; soc: number; isPredicted?: boolean }[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isRoadmapOpen, setIsRoadmapOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [error, setError] = useState("");
   const [vehicleLabel, setVehicleLabel] = useState(params.id);
@@ -96,9 +96,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="page-title mb-0">{vehicleLabel}</h1>
-              <Badge variant="success">Active AI Monitoring</Badge>
+              <Badge variant="success">Active Monitoring</Badge>
             </div>
-            <p className="text-text-dim mt-1">LSTM Sequence Inference Engine V4.1</p>
+            <p className="text-text-dim mt-1">Vehicle range and SOC forecast</p>
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
@@ -106,7 +106,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             {isRefreshing ? (
               <>
                 <RefreshCw className="w-2 h-2 text-accent-magenta animate-spin" />
-                <span className="text-accent-magenta">Inferencing...</span>
+                <span className="text-accent-magenta">Updating...</span>
               </>
             ) : (
               <>
@@ -127,8 +127,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <Card className="lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between">
             <div>
-              <CardTitle>100-Minute Prediction Context</CardTitle>
-              <CardDescription>Historical SOC flow vs AI predictive point</CardDescription>
+              <CardTitle>SOC Forecast Context</CardTitle>
+              <CardDescription>Recent SOC history and near-term forecast</CardDescription>
             </div>
             <div className="flex gap-4">
               <div className="flex items-center gap-2">
@@ -149,8 +149,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Context Features</CardTitle>
-              <CardDescription>Physics inputs to LSTM</CardDescription>
+              <CardTitle>Vehicle Signals</CardTitle>
+              <CardDescription>Battery, thermal, and load context</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {[
@@ -172,15 +172,15 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <Card className="bg-bg-border/20 border-dashed opacity-80 group">
              <CardHeader 
               className="flex-row items-center justify-between cursor-pointer"
-              onClick={() => setIsRoadmapOpen(!isRoadmapOpen)}
+              onClick={() => setIsDetailsOpen(!isDetailsOpen)}
             >
-              <CardTitle className="text-sm">Model Feature Contract</CardTitle>
-              {isRoadmapOpen ? <ChevronUp className="w-4 h-4 text-text-dim" /> : <ChevronDown className="w-4 h-4 text-text-dim" />}
+              <CardTitle className="text-sm">Forecast Details</CardTitle>
+              {isDetailsOpen ? <ChevronUp className="w-4 h-4 text-text-dim" /> : <ChevronDown className="w-4 h-4 text-text-dim" />}
             </CardHeader>
-            {isRoadmapOpen && (
+            {isDetailsOpen && (
               <CardContent className="p-0 animate-in slide-in-from-top-2 duration-300">
                  <p className="p-4 text-xs text-text-dim">
-                  Prediction values on this page are returned by the backend inference endpoint from the latest telemetry window.
+                  Forecast values update from the latest vehicle signals.
                  </p>
               </CardContent>
             )}

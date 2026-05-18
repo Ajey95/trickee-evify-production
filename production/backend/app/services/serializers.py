@@ -12,6 +12,7 @@ def user_dict(user) -> dict[str, Any]:
     return {
         "id": user.id,
         "email": user.email,
+        "supabase_user_id": user.supabase_user_id,
         "firebase_uid": user.firebase_uid,
         "auth_provider": user.auth_provider,
         "full_name": user.full_name,

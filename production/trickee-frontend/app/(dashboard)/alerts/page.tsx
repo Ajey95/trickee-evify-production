@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Alert } from "@/types";
 import { api } from "@/lib/api";
+import { RoleGuard } from "@/components/layout/RoleGuard";
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -66,6 +67,7 @@ export default function AlertsPage() {
   };
 
   return (
+    <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
     <div className="space-y-8 pb-12">
       <div className="flex justify-between items-end">
         <div>
@@ -171,5 +173,6 @@ export default function AlertsPage() {
         )}
       </div>
     </div>
+    </RoleGuard>
   );
 }

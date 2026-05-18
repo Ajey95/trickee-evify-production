@@ -44,7 +44,7 @@ export default function ObservabilityPage() {
 
   const counts = metrics?.counts || {};
   const kpis = [
-    { label: "WebSocket", value: connected ? "Live" : "Fallback", icon: Radio, variant: connected ? "success" : "warning" },
+    { label: "Live Feed", value: connected ? "Connected" : "Reconnecting", icon: Radio, variant: connected ? "success" : "warning" },
     { label: "Vehicles", value: counts.vehicles || 0, icon: Activity, variant: "info" },
     { label: "Telemetry", value: counts.telemetry || 0, icon: Database, variant: "info" },
     { label: "Nudges", value: counts.nudge_events || 0, icon: Bell, variant: "info" },
@@ -61,8 +61,8 @@ export default function ObservabilityPage() {
     <RoleGuard allowedRoles={["trickee_admin"]}>
       <div className="space-y-8 pb-12">
         <div>
-          <h1 className="page-title mb-1">Production Observability</h1>
-          <p className="text-text-dim">Runtime health, WebSocket state, event throughput, and backend table counters.</p>
+          <h1 className="page-title mb-1">Operations Health</h1>
+          <p className="text-text-dim">System health, live activity, and recent decision events.</p>
         </div>
 
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
@@ -85,12 +85,12 @@ export default function ObservabilityPage() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Server className="w-4 h-4 text-accent-teal" />
-                API Health
+                Service Health
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {[
-                ["Model ready", metrics?.model?.ready ? "Ready" : "Fallback"],
+                ["Model ready", metrics?.model?.ready ? "Ready" : "Limited"],
                 ["Model", metrics?.model?.name || metrics?.model_version || "-"],
                 ["Avg inference", `${Number(metrics?.avg_inference_latency_ms || 0).toFixed(1)} ms`],
                 ["Fleet active", `${fleetLive?.summary?.active_drivers || 0} drivers`],

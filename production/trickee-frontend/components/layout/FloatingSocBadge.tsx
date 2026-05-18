@@ -5,6 +5,7 @@ import { BatteryCharging, Radio } from "lucide-react";
 import { api } from "@/lib/api";
 import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 import { Vehicle } from "@/types";
+import { useAuth } from "@/components/AuthProvider";
 
 function getVehicleSoc(vehicle: Vehicle) {
   const predicted = vehicle.latest_prediction?.predicted_next_soc;
@@ -14,15 +15,16 @@ function getVehicleSoc(vehicle: Vehicle) {
 }
 
 export function FloatingSocBadge() {
+  const { user } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [lastSync, setLastSync] = useState<Date | null>(null);
 
   const loadVehicles = useCallback(async () => {
-    const result = await api.vehicles.list();
+    const result = user?.role === "driver" ? await api.vehicles.mine() : await api.vehicles.list();
     if (!result.success) return;
     setVehicles(result.data);
     setLastSync(new Date());
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     loadVehicles();

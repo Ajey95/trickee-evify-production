@@ -15,10 +15,10 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "primary", size = "md", isLoading, children, disabled, ...props }, ref) => {
     const variants = {
-      primary: "bg-accent-teal text-bg-primary hover:bg-[#0096b4] active:scale-[0.98]",
-      secondary: "bg-bg-border text-text-primary hover:bg-[#3d444d] active:scale-[0.98]",
-      outline: "border border-bg-border text-text-primary hover:bg-bg-border/50 active:scale-[0.98]",
-      ghost: "text-text-dim hover:text-text-primary hover:bg-bg-border/30",
+      primary: "bg-accent-teal text-bg-primary hover:bg-[#11c1df] active:scale-[0.99]",
+      secondary: "bg-white/[0.06] text-text-primary hover:bg-white/[0.09] active:scale-[0.99]",
+      outline: "border border-bg-border text-text-primary hover:bg-white/[0.05] active:scale-[0.99]",
+      ghost: "text-text-dim hover:text-text-primary hover:bg-white/[0.05]",
       danger: "bg-accent-red text-white hover:bg-[#da3633] active:scale-[0.98]",
     };
 
@@ -33,7 +33,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || isLoading}
         className={cn(
-          "inline-flex items-center justify-center rounded-lg font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed",
+          "inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-teal/45",
           variants[variant],
           sizes[size],
           className

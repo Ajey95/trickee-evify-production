@@ -1,5 +1,6 @@
 from app.services.charging_decision_engine import choose_charging_option
-from app.services.external_context import external_context
+from app.services.daily_impact_report import build_daily_impact_report
+from app.services.external_context import ExternalContextService, external_context
 from app.services.intelligence_history import persist_charging_decision, persist_order_assignment
 from app.services.live_intelligence import fleet_live_overview, live_driver_decision, live_map_context, weekly_live_metrics
 from app.services.live_driver_profile import classify_driver_archetype, detect_soc_rise_charging, live_driver_profile
@@ -7,8 +8,9 @@ from app.services.order_assignment_engine import assign_order
 from app.services.route_scorer import route_scores
 from app.services.wait_time_estimator import estimate_wait_window
 from app.services.weekly_report import generate_weekly_report, send_weekly_report_email
-from app.models import Driver, Fleet, Telemetry, Vehicle
+from app.models import Alert, ChargingDecisionRecord, Driver, Fleet, NudgeEvent, Telemetry, Trip, Vehicle, WaitEvent
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 
 def test_route_context_fallback_without_external_keys():
@@ -19,6 +21,76 @@ def test_route_context_fallback_without_external_keys():
     assert "weather" in context
     assert "traffic" in context
     assert context["traffic"]["distance_km"] > 0
+
+
+def _external_context_settings(**overrides):
+    defaults = {
+        "redis_url": None,
+        "external_context_redis_cache_enabled": True,
+        "external_context_stale_cache_seconds": 86400,
+        "external_context_h3_enabled": True,
+        "external_context_h3_resolution": 10,
+        "external_context_weather_h3_resolution": 6,
+        "google_external_daily_limit": 10,
+        "openweather_external_daily_limit": 10,
+        "google_maps_api_key": "google-key",
+        "google_places_api_key": "places-key",
+        "openweather_api_key": None,
+        "external_api_timeout_seconds": 1.0,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_external_context_uses_h3_bucket_when_available(monkeypatch):
+    service = ExternalContextService()
+    service.settings = _external_context_settings()
+
+    class FakeH3:
+        @staticmethod
+        def latlng_to_cell(lat, lng, resolution):
+            return f"{resolution}:{round(lat, 2)}:{round(lng, 2)}"
+
+    monkeypatch.setattr("app.services.external_context.h3", FakeH3)
+
+    assert service._location_bucket(21.1702, 72.8311, precision=3, resolution=10) == ("h3", 10, "10:21.17:72.83")
+
+
+def test_external_context_caches_google_directions_per_grid_cell(monkeypatch):
+    service = ExternalContextService()
+    service.settings = _external_context_settings()
+    calls = {"count": 0}
+
+    def fake_fetch(origin, destination):
+        calls["count"] += 1
+        return {"source": "google_directions", "distance_km": 3.2, "duration_traffic_min": 11.0}
+
+    monkeypatch.setattr(service, "_fetch_directions", fake_fetch)
+
+    first = service.directions({"lat": 21.17021, "lng": 72.83111}, {"lat": 21.19021, "lng": 72.85111})
+    second = service.directions({"lat": 21.17024, "lng": 72.83114}, {"lat": 21.19024, "lng": 72.85114})
+
+    assert first == second
+    assert calls["count"] == 1
+
+
+def test_external_context_blocks_google_after_daily_quota(monkeypatch):
+    service = ExternalContextService()
+    service.settings = _external_context_settings(google_external_daily_limit=1)
+    calls = {"count": 0}
+
+    def fake_fetch(origin, destination):
+        calls["count"] += 1
+        return {"source": "google_directions", "distance_km": 3.2, "duration_traffic_min": 11.0}
+
+    monkeypatch.setattr(service, "_fetch_directions", fake_fetch)
+
+    first = service.directions({"lat": 21.170, "lng": 72.831}, {"lat": 21.190, "lng": 72.851})
+    second = service.directions({"lat": 21.171, "lng": 72.832}, {"lat": 21.191, "lng": 72.852})
+
+    assert first["source"] == "google_directions"
+    assert second["quota_status"] == "blocked"
+    assert calls["count"] == 1
 
 
 def test_order_assignment_prefers_low_soc_when_wait_is_useful():
@@ -343,3 +415,99 @@ def test_fleet_map_and_weekly_report_are_scoped_and_deterministic(db_session, mo
     assert metrics["driver_count"] == 1
     assert report["narrative"]
     assert delivery["email_status"] == "not_configured"
+
+
+def test_daily_impact_report_uses_persisted_operational_records(db_session):
+    class UserStub:
+        role = "fleet_operator"
+        fleet_id = None
+        driver_id = None
+
+    now = datetime.utcnow()
+    fleet = Fleet(name="Evify", city="Surat")
+    db_session.add(fleet)
+    db_session.flush()
+    user = UserStub()
+    user.fleet_id = fleet.id
+    driver = Driver(fleet_id=fleet.id, driver_code="D047", full_name="Driver 47")
+    vehicle = Vehicle(fleet_id=fleet.id, vehicle_code="GJ05PZ1945")
+    db_session.add_all([driver, vehicle])
+    db_session.flush()
+    db_session.add(
+        Trip(
+            vehicle_id=vehicle.id,
+            driver_id=driver.id,
+            started_at=now.replace(hour=9, minute=0, second=0, microsecond=0),
+            ended_at=now.replace(hour=9, minute=28, second=0, microsecond=0),
+            distance_km=8.2,
+            kwh_used=0.32,
+            soc_start=42,
+            soc_end=35,
+        )
+    )
+    db_session.add(
+        ChargingDecisionRecord(
+            driver_id=driver.id,
+            vehicle_id=vehicle.id,
+            order_id="O-1",
+            chosen_option="OPTION_A",
+            message="Charge during pickup wait.",
+            wait_window={"chargeable_min": 14},
+            result_payload={"wait_window": {"chargeable_min": 14}},
+        )
+    )
+    db_session.add(
+        Alert(
+            vehicle_id=vehicle.id,
+            driver_id=driver.id,
+            alert_type="charging_opportunity",
+            message="Charge during wait.",
+            soc_at_alert=22,
+            is_resolved=True,
+        )
+    )
+    db_session.add(
+        NudgeEvent(
+            driver_id=driver.id,
+            vehicle_id=vehicle.id,
+            nudge_type="charging_decision",
+            message="Charge during wait.",
+            status="acknowledged",
+        )
+    )
+    db_session.add(
+        WaitEvent(
+            vehicle_id=vehicle.id,
+            driver_id=driver.id,
+            started_at=now.replace(hour=9, minute=5, second=0, microsecond=0),
+            ended_at=now.replace(hour=9, minute=19, second=0, microsecond=0),
+            last_seen_at=now.replace(hour=9, minute=19, second=0, microsecond=0),
+            wait_type="restaurant_wait",
+            duration_seconds=840,
+        )
+    )
+    for index in range(60):
+        db_session.add(
+            Telemetry(
+                vehicle_id=vehicle.id,
+                driver_id=driver.id,
+                recorded_at=now.replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(seconds=index * 30),
+                soc=42 - index * 0.05,
+                current=4,
+                battery_voltage=50,
+                speed=16,
+                temp_max=40,
+                soh=95,
+            )
+        )
+    db_session.commit()
+
+    report = build_daily_impact_report(db_session, user, report_date=now.date())
+
+    assert report["summary"]["delivered_orders"] == 1
+    assert report["summary"]["time_saved_min"] >= 14
+    assert report["summary"]["charge_value_captured_inr"] > 0
+    assert report["summary"]["low_soc_risks_avoided"] == 1
+    assert report["summary"]["confidence"] == "high"
+    assert report["driver_reports"][0]["driver_code"] == "D047"
+    assert report["tool_evidence"]

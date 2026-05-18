@@ -1,8 +1,7 @@
 "use client";
 
 import React from "react";
-import { BatteryCharging, Car, MapPin, Navigation, TriangleAlert, type LucideIcon } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
+import { BatteryCharging, Car, MapPin, TriangleAlert, type LucideIcon } from "lucide-react";
 
 type LatLng = { lat: number; lng: number };
 
@@ -86,15 +85,76 @@ function project(point: LatLng, bounds: ReturnType<typeof boundsFor>) {
   };
 }
 
-function riskColor(risk?: string) {
-  if (risk === "high") return "#f85149";
-  if (risk === "medium") return "#d29922";
-  return "#00b4d8";
+function riskTone(risk?: string) {
+  if (risk === "high") return "risk-high";
+  if (risk === "medium") return "risk-medium";
+  return "risk-low";
+}
+
+function escapeHtml(value: string | number | undefined | null) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function vehicleIconHtml(point: VehiclePoint) {
-  const color = riskColor(point.risk_level);
-  return `<div style="display:flex;align-items:center;gap:6px;background:${color};color:#0d1117;border:2px solid #0d1117;border-radius:999px;padding:7px 9px;font-weight:800;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35);"><span>${point.driver_code}</span><span>${Number(point.soc).toFixed(0)}%</span></div>`;
+  const soc = Number(point.soc).toFixed(0);
+  return `
+    <div class="trickee-vehicle-marker ${riskTone(point.risk_level)}">
+      <span class="trickee-marker-pulse"></span>
+      <span class="trickee-marker-core">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.5 19.5 20 12 16.9 4.5 20 12 3.5Z" />
+        </svg>
+      </span>
+      <span class="trickee-marker-label">
+        <b>${escapeHtml(point.driver_code)}</b>
+        <em>${escapeHtml(soc)}%</em>
+      </span>
+    </div>`;
+}
+
+function chargerIconHtml(point: ChargerPoint) {
+  return `
+    <div class="trickee-charger-marker" title="${escapeHtml(point.name)}">
+      <span class="trickee-charger-dot">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13 2 5.5 13H11l-1 9 8-12h-5l1-8Z" />
+        </svg>
+      </span>
+    </div>`;
+}
+
+function VehicleMarker({ point }: { point: VehiclePoint }) {
+  return (
+    <div className={`trickee-vehicle-marker ${riskTone(point.risk_level)}`}>
+      <span className="trickee-marker-pulse" />
+      <span className="trickee-marker-core">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.5 19.5 20 12 16.9 4.5 20 12 3.5Z" />
+        </svg>
+      </span>
+      <span className="trickee-marker-label">
+        <b>{point.driver_code}</b>
+        <em>{Number(point.soc).toFixed(0)}%</em>
+      </span>
+    </div>
+  );
+}
+
+function ChargerMarker({ point }: { point: ChargerPoint }) {
+  return (
+    <div className="trickee-charger-marker" title={point.name}>
+      <span className="trickee-charger-dot">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13 2 5.5 13H11l-1 9 8-12h-5l1-8Z" />
+        </svg>
+      </span>
+    </div>
+  );
 }
 
 type LeafletModule = typeof import("leaflet");
@@ -166,6 +226,7 @@ function scheduleInvalidate(map: { invalidateSize: () => void }) {
 export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = "" }: LiveMapPanelProps) {
   const leafletRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<"leaflet" | "fallback">("fallback");
+  const [zoom, setZoom] = React.useState(12);
   const [visible, setVisible] = React.useState<Record<LayerKey, boolean>>({
     vehicles: true,
     chargers: true,
@@ -173,16 +234,10 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     stops: true,
   });
 
-  // ── Leaflet imperative refs ──────────────────────────────────────────────
-  // Storing Leaflet module and map instance across renders so we never
-  // recreate the map – only update it.
   const lModRef = React.useRef<typeof import("leaflet") | null>(null);
   const mapObjRef = React.useRef<any>(null);
-  // Per-driver Leaflet Marker instances for smooth in-place updates.
   const vehicleMarkersRef = React.useRef<Map<string, any>>(new Map());
-  // Static layers cleared and re-added on each data change (they don't move).
   const staticLayersRef = React.useRef<any[]>([]);
-  // Whether we've already fitted the map bounds on the first data load.
   const hasInitFit = React.useRef(false);
   const lastFitKeyRef = React.useRef<string | null>(null);
 
@@ -194,7 +249,6 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
   const points = React.useMemo(() => allCoordinates({ ...data, vehicle_points: vehicles }), [data, vehicles]);
   const bounds = React.useMemo(() => boundsFor(points), [points]);
 
-  // ── Effect 1: initialise Leaflet map once on mount ────────────────────────
   React.useEffect(() => {
     if (!leafletRef.current) return;
     let cancelled = false;
@@ -208,16 +262,19 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
         const map = L.map(leafletRef.current, {
           center: [21.17, 72.83],
           zoom: 12,
-          zoomControl: true,
+          zoomControl: false,
           attributionControl: true,
           preferCanvas: true,
+          scrollWheelZoom: true,
         });
 
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+          className: "trickee-premium-tiles",
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
           maxZoom: 19,
         }).addTo(map);
 
+        map.on("zoomend", () => setZoom(map.getZoom()));
         lModRef.current = L;
         mapObjRef.current = map;
         scheduleInvalidate(map);
@@ -237,9 +294,8 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       lModRef.current = null;
       setMode("fallback");
     };
-  }, []); // run once
+  }, []);
 
-  // ── Effect 2: sync map layers whenever data or visibility changes ─────────
   React.useEffect(() => {
     const L = lModRef.current;
     const map = mapObjRef.current;
@@ -251,7 +307,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       if (points.length > 1) {
         map.fitBounds(
           L.latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])),
-          { padding: [42, 42] }
+          { padding: [48, 48] }
         );
       } else {
         map.setView([points[0].lat, points[0].lng], Math.max(map.getZoom(), 13));
@@ -260,29 +316,32 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       lastFitKeyRef.current = fitKey;
     }
 
-    // ── Vehicle markers: update in place, create/remove as needed ──────────
     const activeDriverIds = new Set<string>();
     if (visible.vehicles) {
       for (const point of vehicles) {
         activeDriverIds.add(point.driver_id);
         const ll: [number, number] = [point.lat, point.lng];
+        const icon = L.divIcon({ className: "trickee-map-label", html: vehicleIconHtml(point), iconSize: [1, 1] });
         const existing = vehicleMarkersRef.current.get(point.driver_id);
         if (existing) {
-          // Smoothly move the pin to its new position.
           existing.setLatLng(ll);
-          existing.setIcon(
-            L.divIcon({ className: "trickee-map-label", html: vehicleIconHtml(point) })
-          );
+          existing.setIcon(icon);
         } else {
           const marker = L.marker(ll, {
             title: `${point.driver_code} - ${Number(point.soc).toFixed(1)}% SOC`,
-            icon: L.divIcon({ className: "trickee-map-label", html: vehicleIconHtml(point) }),
-          }).addTo(map);
+            icon,
+          })
+            .bindTooltip(`${point.driver_code} - ${Number(point.soc).toFixed(1)}% SOC`, {
+              className: "trickee-map-tooltip",
+              direction: "top",
+              offset: [0, -18],
+            })
+            .addTo(map);
           vehicleMarkersRef.current.set(point.driver_id, marker);
         }
       }
     }
-    // Remove markers for drivers no longer in the dataset or when layer is hidden.
+
     vehicleMarkersRef.current.forEach((marker, id) => {
       if (!activeDriverIds.has(id)) {
         marker.remove();
@@ -290,20 +349,20 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       }
     });
 
-    // ── Static layers: remove previous, re-add fresh ────────────────────────
     for (const layer of staticLayersRef.current) layer.remove();
     staticLayersRef.current = [];
 
     if (visible.chargers) {
       for (const point of data.charger_points || []) {
-        const layer = L.circleMarker([point.lat, point.lng], {
-          radius: 9,
-          color: "#0d1117",
-          weight: 2,
-          fillColor: "#3fb950",
-          fillOpacity: 0.95,
+        const layer = L.marker([point.lat, point.lng], {
+          title: point.name,
+          icon: L.divIcon({ className: "trickee-map-label", html: chargerIconHtml(point), iconSize: [1, 1] }),
         })
-          .bindTooltip(point.name)
+          .bindTooltip(point.name, {
+            className: "trickee-map-tooltip",
+            direction: "top",
+            offset: [0, -12],
+          })
           .addTo(map);
         staticLayersRef.current.push(layer);
       }
@@ -313,12 +372,13 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       for (const zone of data.low_soc_zones || []) {
         const layer = L.circle([zone.center.lat, zone.center.lng], {
           radius: Math.min(420, 90 + zone.sample_count * 8),
-          color: "#f85149",
-          fillColor: "#f85149",
-          fillOpacity: 0.2,
-          weight: 1,
+          color: "#df6d63",
+          fillColor: "#df6d63",
+          fillOpacity: 0.13,
+          opacity: 0.72,
+          weight: 1.2,
         })
-          .bindTooltip(`Low SOC zone - ${zone.sample_count} samples`)
+          .bindTooltip(`Low SOC zone - ${zone.sample_count} samples`, { className: "trickee-map-tooltip" })
           .addTo(map);
         staticLayersRef.current.push(layer);
       }
@@ -328,12 +388,13 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       for (const zone of data.frequent_stop_zones || []) {
         const layer = L.circle([zone.center.lat, zone.center.lng], {
           radius: Math.min(360, 70 + zone.sample_count * 6),
-          color: "#d29922",
-          fillColor: "#d29922",
-          fillOpacity: 0.16,
-          weight: 1,
+          color: "#c69b55",
+          fillColor: "#c69b55",
+          fillOpacity: 0.12,
+          opacity: 0.68,
+          weight: 1.2,
         })
-          .bindTooltip(`Stop zone - ${zone.sample_count} samples`)
+          .bindTooltip(`Stop zone - ${zone.sample_count} samples`, { className: "trickee-map-tooltip" })
           .addTo(map);
         staticLayersRef.current.push(layer);
       }
@@ -347,50 +408,45 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
   };
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div className={`space-y-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="rounded-full border border-white/10 bg-white/[0.045] p-1 backdrop-blur-md">
           {layerControls.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               type="button"
               onClick={() => toggle(key)}
-              className={`h-9 px-3 rounded-lg border text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-colors ${
+              className={`inline-flex h-8 items-center gap-2 rounded-full px-3 text-[11px] font-semibold tracking-[-0.01em] transition-all duration-200 ${
                 visible[key]
-                  ? "border-accent-teal/40 bg-accent-teal/10 text-accent-teal"
-                  : "border-bg-border bg-bg-card text-text-dim"
+                  ? "bg-white text-[#101318] shadow-sm"
+                  : "text-text-dim hover:bg-white/[0.06] hover:text-text-primary"
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className="h-3.5 w-3.5" />
               {label}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          {wsConnected && (
-            <Badge variant="success">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-pulse" />
-              LIVE
-            </Badge>
-          )}
-          <Badge variant={mode === "leaflet" ? "success" : "info"}>
-            {mode === "leaflet" ? "OpenStreetMap" : "Projected live map"}
-          </Badge>
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 py-2 text-[11px] font-medium text-text-dim backdrop-blur-md">
+          <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? "bg-[#75c995]" : "bg-[#c69b55]"}`} />
+          <span>{wsConnected ? "Live stream" : "Background refresh"}</span>
+          <span className="h-3 w-px bg-white/10" />
+          <span>{mode === "leaflet" ? "OpenStreetMap" : "Projected"}</span>
         </div>
       </div>
 
-      <div className="relative min-h-[560px] overflow-hidden rounded-lg border border-bg-border bg-[#101722]">
+      <div className="relative min-h-[560px] overflow-hidden rounded-[22px] border border-white/10 bg-[#eef0ec] shadow-[0_28px_80px_rgba(0,0,0,0.24)]">
         <div ref={leafletRef} className={`absolute inset-0 ${mode === "leaflet" ? "" : "opacity-0"}`} />
         {mode !== "leaflet" && (
           <div className="absolute inset-0">
             <iframe
-              title="OpenStreetMap fallback"
+              title="OpenStreetMap view"
               src={osmEmbedUrl(bounds)}
-              className="absolute inset-0 h-full w-full border-0 opacity-80 grayscale invert"
+              className="absolute inset-0 h-full w-full border-0 opacity-75 grayscale"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
             />
-            <div className="absolute inset-0 bg-bg-primary/20" />
+            <div className="absolute inset-0 bg-[#eef0ec]/20" />
 
             {visible.lowSoc &&
               (data?.low_soc_zones || []).map((zone, index) => {
@@ -398,7 +454,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
                 return (
                   <div
                     key={`low-${index}`}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent-red/70 bg-accent-red/15"
+                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#df6d63]/60 bg-[#df6d63]/15"
                     style={{ ...pos, width: `${Math.min(180, 54 + zone.sample_count * 4)}px`, height: `${Math.min(180, 54 + zone.sample_count * 4)}px` }}
                     title={`Low SOC zone: ${zone.sample_count} samples`}
                   />
@@ -411,7 +467,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
                 return (
                   <div
                     key={`stop-${index}`}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent-amber/70 bg-accent-amber/15"
+                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#c69b55]/60 bg-[#c69b55]/15"
                     style={{ ...pos, width: `${Math.min(150, 42 + zone.sample_count * 3)}px`, height: `${Math.min(150, 42 + zone.sample_count * 3)}px` }}
                     title={`Stop zone: ${zone.sample_count} samples`}
                   />
@@ -422,10 +478,8 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
               (data?.charger_points || []).map((point, index) => {
                 const pos = project(point, bounds);
                 return (
-                  <div key={`charger-${index}`} className="absolute -translate-x-1/2 -translate-y-1/2" style={pos} title={point.name}>
-                    <div className="w-8 h-8 rounded-full bg-accent-green text-bg-primary border-2 border-bg-primary flex items-center justify-center shadow-lg">
-                      <BatteryCharging className="w-4 h-4" />
-                    </div>
+                  <div key={`charger-${index}`} className="absolute -translate-x-1/2 -translate-y-1/2" style={pos}>
+                    <ChargerMarker point={point} />
                   </div>
                 );
               })}
@@ -440,17 +494,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
                     style={pos}
                     title={`${point.driver_code} - ${Number(point.soc).toFixed(1)}% SOC`}
                   >
-                    <div className="relative">
-                      <div
-                        className="w-11 h-11 rounded-full border-2 border-bg-primary flex items-center justify-center shadow-xl"
-                        style={{ backgroundColor: riskColor(point.risk_level) }}
-                      >
-                        <Navigation className="w-5 h-5 text-bg-primary" />
-                      </div>
-                      <div className="absolute left-1/2 top-11 -translate-x-1/2 whitespace-nowrap rounded-md border border-bg-border bg-bg-card/95 px-2 py-1 text-[10px] font-bold text-text-primary shadow-lg">
-                        {point.driver_code} - {Number(point.soc).toFixed(0)}%
-                      </div>
-                    </div>
+                    <VehicleMarker point={point} />
                   </div>
                 );
               })}
@@ -459,16 +503,48 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
 
         {!points.length && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <MapPin className="w-10 h-10 text-text-dim mx-auto mb-3" />
-              <p className="text-sm text-text-primary font-semibold">No live GPS points yet</p>
-              <p className="text-xs text-text-dim mt-1">The map will populate once telemetry includes lat/lng.</p>
+            <div className="rounded-2xl border border-white/50 bg-white/70 px-6 py-5 text-center text-[#1b1f26] shadow-sm backdrop-blur-xl">
+              <MapPin className="mx-auto mb-3 h-8 w-8 text-[#6f7782]" />
+              <p className="text-sm font-semibold">No live GPS points yet</p>
+              <p className="mt-1 text-xs text-[#6f7782]">The map will populate once telemetry includes lat/lng.</p>
             </div>
           </div>
         )}
 
-        <div className="absolute left-4 bottom-4 rounded-lg border border-bg-border bg-bg-card/90 px-3 py-2 text-[11px] text-text-dim">
-          Updated {data?.generated_at ? new Date(data.generated_at).toLocaleTimeString() : "when live data arrives"}
+        <div className="absolute left-4 top-4 max-w-[calc(100%-2rem)] rounded-2xl border border-white/55 bg-white/72 px-4 py-3 text-[#1b1f26] shadow-sm backdrop-blur-xl">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6f7782]">Fleet surface</p>
+          <p className="mt-1 text-sm font-semibold">Surat live operations</p>
+          <p className="mt-0.5 text-xs text-[#6f7782]">{vehicles.length} vehicles visible · zoom {zoom}</p>
+        </div>
+
+        <div className="absolute bottom-4 right-4 flex flex-col overflow-hidden rounded-2xl border border-white/55 bg-white/72 shadow-sm backdrop-blur-xl">
+          <button
+            type="button"
+            className="h-10 w-10 text-lg font-medium text-[#1b1f26] transition-colors hover:bg-white/70"
+            onClick={() => mapObjRef.current?.zoomIn()}
+            aria-label="Zoom in"
+          >
+            +
+          </button>
+          <span className="mx-2 h-px bg-[#d7d9dc]" />
+          <button
+            type="button"
+            className="h-10 w-10 text-lg font-medium text-[#1b1f26] transition-colors hover:bg-white/70"
+            onClick={() => mapObjRef.current?.zoomOut()}
+            aria-label="Zoom out"
+          >
+            -
+          </button>
+        </div>
+
+        <div className="absolute bottom-4 left-4 flex max-w-[calc(100%-5.5rem)] flex-wrap items-center gap-2 rounded-2xl border border-white/55 bg-white/72 px-3 py-2 text-[11px] font-medium text-[#4d5561] shadow-sm backdrop-blur-xl">
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#4f9fb3]" />Vehicle</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#7aa889]" />Charger</span>
+          <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#df6d63]" />Low SOC</span>
+          <span className="hidden items-center gap-1.5 sm:inline-flex"><i className="h-2 w-2 rounded-full bg-[#c69b55]" />Stop zone</span>
+          <span className="hidden text-[#7b828c] md:inline">
+            Updated {data?.generated_at ? new Date(data.generated_at).toLocaleTimeString() : "when live data arrives"}
+          </span>
         </div>
       </div>
     </div>

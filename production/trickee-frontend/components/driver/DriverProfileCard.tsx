@@ -33,8 +33,8 @@ export const DriverProfileCard = ({ driver, currentVehicle }: DriverProfileCardP
         </div>
         <p className="text-text-dim text-sm mb-6 max-w-lg">
           {currentVehicle
-            ? `Currently linked to ${currentVehicle.vehicle_code} from backend telemetry.`
-            : "No active vehicle assignment found in backend telemetry."}
+            ? `Currently assigned to ${currentVehicle.vehicle_code}.`
+            : "No active vehicle assignment found."}
         </p>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
@@ -57,7 +57,7 @@ export const DriverProfileCard = ({ driver, currentVehicle }: DriverProfileCardP
             <p className="text-xl font-bold font-mono text-accent-teal">
               {driver.efficiency_rank ? `#${driver.efficiency_rank}` : "N/A"}
             </p>
-            <p className="text-[10px] text-text-dim mt-0.5">Backend ranking</p>
+            <p className="text-[10px] text-text-dim mt-0.5">Fleet ranking</p>
           </div>
           <div>
             <p className="kpi-label">Weekly Efficiency</p>

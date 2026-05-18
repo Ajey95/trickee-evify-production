@@ -200,7 +200,7 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
           {mode !== "map" && (
             <div className="absolute inset-0">
               <iframe
-                title="OpenStreetMap picker fallback"
+                title="OpenStreetMap picker"
                 src={osmEmbedUrl(origin, destination)}
                 className="absolute inset-0 h-full w-full border-0 opacity-80 grayscale invert"
                 loading="lazy"

@@ -140,7 +140,7 @@ export default function DecisionsPage() {
     if (order.success) setOrderResult(order.data);
     if (charge.success) setChargingResult(charge.data);
     if (!wait.success || !order.success || !charge.success) {
-      setError(wait.error || order.error || charge.error || "One decision API failed.");
+      setError(wait.error || order.error || charge.error || "Decision run failed.");
     }
     setIsRunning(false);
   };
@@ -183,7 +183,7 @@ export default function DecisionsPage() {
             <CardContent className="space-y-4">
               <Badge variant="info">{waitResult?.wait_type || "ready"}</Badge>
               <p className="text-3xl font-bold text-text-primary">{fmt(waitResult?.estimated_wait_min || waitResult?.wait_min || 0)} min</p>
-              <p className="text-sm text-text-dim">{waitResult?.message || "Run the stack to classify pickup wait and charging opportunity."}</p>
+              <p className="text-sm text-text-dim">{waitResult?.message || "Run decisions to review pickup wait and charging opportunity."}</p>
             </CardContent>
           </Card>
 
@@ -213,7 +213,7 @@ export default function DecisionsPage() {
                 {chargingResult?.chosen_option || "pending"}
               </Badge>
               <p className="text-xl font-bold text-text-primary">{chargingResult?.selected_charger?.name || "No charger selected"}</p>
-              <p className="text-sm text-text-dim">{chargingResult?.message || "Run the stack to choose wait-time charging vs continue."}</p>
+              <p className="text-sm text-text-dim">{chargingResult?.message || "Run decisions to compare charging now vs continuing."}</p>
             </CardContent>
           </Card>
         </div>

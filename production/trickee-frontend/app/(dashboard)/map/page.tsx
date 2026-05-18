@@ -6,7 +6,6 @@ import { LiveMapPanel } from "@/components/map/LiveMapPanel";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Spinner } from "@/components/ui/Spinner";
 import { api } from "@/lib/api";
 import { useDriverLocationWS } from "@/hooks/useDriverLocationWS";
 import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
@@ -63,7 +62,7 @@ export default function LiveMapPage() {
       setMapData(result.data);
       setLastSync(new Date());
       setError("");
-    } else if (!mapDataRef.current || !isTransientMapError(result.error)) {
+    } else if (!isTransientMapError(result.error)) {
       setError(result.error || "Unable to refresh live map data");
     }
   }, [selectedDriverId]);
@@ -93,7 +92,7 @@ export default function LiveMapPage() {
       setLastSync(new Date());
     } else {
       const message = mapResult.error || "Unable to load live map data";
-      if (!mapDataRef.current || !isTransientMapError(message)) {
+      if (!isTransientMapError(message)) {
         setError(message);
       }
     }
@@ -116,9 +115,7 @@ export default function LiveMapPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="page-title mb-1">Live Fleet Map</h1>
-            <p className="text-text-dim">
-              Live telemetry locations, low-SOC risk zones, frequent stop zones, and charger context.
-            </p>
+            <p className="text-text-dim">Real-time vehicle locations, charging context, and operating risk zones.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <select
@@ -168,8 +165,14 @@ export default function LiveMapPage() {
 
         <Card className="p-4">
           {isLoading && !mapData ? (
-            <div className="min-h-[560px] flex items-center justify-center">
-              <Spinner size="lg" />
+            <div className="relative min-h-[560px] overflow-hidden rounded-[22px] border border-white/10 bg-[#eef0ec]">
+              <div className="absolute inset-0 bg-[linear-gradient(115deg,transparent,rgba(255,255,255,0.55),transparent)] animate-pulse" />
+              <div className="absolute left-5 top-5 h-20 w-56 rounded-2xl bg-white/60" />
+              <div className="absolute bottom-5 left-5 h-10 w-96 max-w-[calc(100%-7rem)] rounded-2xl bg-white/60" />
+              <div className="absolute bottom-5 right-5 h-24 w-11 rounded-2xl bg-white/60" />
+              <div className="absolute left-[28%] top-[42%] h-8 w-28 rounded-full bg-white/70" />
+              <div className="absolute left-[58%] top-[36%] h-8 w-28 rounded-full bg-white/70" />
+              <div className="absolute left-[48%] top-[62%] h-24 w-24 rounded-full border border-[#df6d63]/30 bg-[#df6d63]/10" />
             </div>
           ) : (
             <LiveMapPanel data={mapData} selectedDriverId={selectedDriverId || undefined} wsConnected={wsConnected} />
@@ -225,22 +228,22 @@ export default function LiveMapPage() {
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Connection</p>
                 <p className={`text-sm font-semibold ${wsConnected ? "text-accent-green" : "text-accent-amber"}`}>
-                  {wsConnected ? "● WebSocket live" : "○ REST fallback (30 s)"}
+                  {wsConnected ? "Connected" : "Reconnecting"}
                 </p>
               </div>
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Last frontend refresh</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Last refresh</p>
                 <p className="text-sm text-text-primary">{lastSync ? lastSync.toLocaleTimeString() : "Waiting"}</p>
               </div>
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Backend map generated</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Map updated</p>
                 <p className="text-sm text-text-primary">
-                  {mapData?.generated_at ? new Date(mapData.generated_at).toLocaleString() : "Waiting for live data"}
+                  {mapData?.generated_at ? new Date(mapData.generated_at).toLocaleString() : "Waiting for vehicle data"}
                 </p>
               </div>
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Map provider</p>
-                <p className="text-sm text-text-primary">OpenStreetMap via Leaflet</p>
+                <p className="text-sm text-text-primary">OpenStreetMap</p>
               </div>
             </CardContent>
           </Card>

@@ -28,10 +28,10 @@ type ArchetypePanelProps = {
 
 const fallback: Archetype = {
   label: "data_poor",
-  display_name: "Data Poor / Unknown",
+  display_name: "New Profile",
   confidence: 0.2,
-  source: "fallback",
-  reasons: ["waiting for enough live telemetry"],
+  source: "learning",
+  reasons: ["Collecting more driver data"],
   policy: {
     soc_warning_adjust_pct: 5,
     route_buffer_multiplier: 1.15,

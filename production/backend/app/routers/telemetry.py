@@ -1,13 +1,15 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.models import User
 from app.schemas.api import ok
 from app.services.auth import require_roles
+from app.services.rate_limit import check_rate_limit
 from app.services.telemetry_ingest import ingest_evify_payload
 from app.services.serializers import alert_dict, telemetry_dict
 
@@ -16,26 +18,42 @@ MAX_BULK_TELEMETRY_ROWS = 500
 
 
 class EvifyIngestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     payload: dict[str, Any]
 
 
 @router.post("/evify")
-def ingest_evify(
+async def ingest_evify(
     request: EvifyIngestRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("trickee_admin", "fleet_operator")),
 ):
+    await check_rate_limit(
+        request=http_request,
+        namespace="telemetry-ingest",
+        limit=get_settings().telemetry_rate_limit_per_minute,
+        subject=f"user:{current_user.id}",
+    )
     row, alert = ingest_evify_payload(db, request.payload, user=current_user)
     data = {"telemetry": telemetry_dict(row), "alert": alert_dict(alert) if alert else None}
     return ok(data, "Telemetry ingested")
 
 
 @router.post("/evify/bulk")
-def ingest_evify_bulk(
+async def ingest_evify_bulk(
     request: list[dict[str, Any]],
+    http_request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("trickee_admin", "fleet_operator")),
 ):
+    await check_rate_limit(
+        request=http_request,
+        namespace="telemetry-bulk-ingest",
+        limit=max(1, get_settings().telemetry_rate_limit_per_minute // 4),
+        subject=f"user:{current_user.id}",
+    )
     if len(request) > MAX_BULK_TELEMETRY_ROWS:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

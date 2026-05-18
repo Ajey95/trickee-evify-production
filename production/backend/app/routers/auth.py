@@ -1,14 +1,17 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.config import get_settings
 from app.models import DevicePushToken, User
 from app.schemas.api import ok
+from app.services.audit import record_security_event
 from app.services.auth import create_access_token, get_current_user, verify_password
 from app.services.firebase_service import verify_firebase_id_token
+from app.services.rate_limit import check_rate_limit, ip_rate_limit
 from app.services.serializers import device_push_token_dict, user_dict
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -20,18 +23,24 @@ _login_failures: dict[str, list[datetime]] = {}
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=256)
 
 
 class FirebaseLoginRequest(BaseModel):
-    id_token: str
+    model_config = ConfigDict(extra="forbid")
+
+    id_token: str = Field(min_length=20, max_length=4096)
 
 
 class FcmTokenRequest(BaseModel):
-    token: str
-    platform: str = "web"
-    device_label: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=20, max_length=4096)
+    platform: str = Field(default="web", pattern="^(web|android|ios)$")
+    device_label: str | None = Field(default=None, max_length=120)
 
 
 def _login_key(request: Request, email: str) -> str:
@@ -75,20 +84,43 @@ def _session_payload(user: User) -> dict:
 
 
 @router.post("/login")
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+def login(
+    payload: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(ip_rate_limit("auth-login", lambda: get_settings().auth_rate_limit_per_minute)),
+):
+    if not get_settings().legacy_auth_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy password login is disabled")
     login_key = _assert_login_allowed(request, payload.email)
     user = db.query(User).filter(User.email == payload.email).first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or not user.password_hash or not verify_password(payload.password, user.password_hash):
         _record_login_failure(login_key)
+        record_security_event(
+            db,
+            event_type="legacy_login_failed",
+            request=request,
+            metadata={"email_domain": payload.email.split("@")[-1]},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:
+        record_security_event(db, event_type="legacy_login_inactive_user", request=request, user=user)
+        db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
     _login_failures.pop(login_key, None)
+    record_security_event(db, event_type="legacy_login_success", request=request, user=user)
+    db.commit()
     return ok(_session_payload(user))
 
 
 @router.post("/firebase-login")
-def firebase_login(payload: FirebaseLoginRequest, db: Session = Depends(get_db)):
+def firebase_login(
+    payload: FirebaseLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(ip_rate_limit("firebase-login", lambda: get_settings().auth_rate_limit_per_minute)),
+):
     decoded = verify_firebase_id_token(payload.id_token)
     firebase_uid = decoded.get("uid")
     email = decoded.get("email")
@@ -99,8 +131,12 @@ def firebase_login(payload: FirebaseLoginRequest, db: Session = Depends(get_db))
     if not user:
         user = db.query(User).filter(User.email == email).first()
     if not user:
+        record_security_event(db, event_type="firebase_login_unmapped_user", request=request, metadata={"email_domain": email.split("@")[-1]})
+        db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Firebase user is not mapped in Trickee")
     if not user.is_active:
+        record_security_event(db, event_type="firebase_login_inactive_user", request=request, user=user)
+        db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
 
     if user.firebase_uid != firebase_uid or user.auth_provider != "firebase":
@@ -109,6 +145,8 @@ def firebase_login(payload: FirebaseLoginRequest, db: Session = Depends(get_db))
         db.commit()
         db.refresh(user)
 
+    record_security_event(db, event_type="firebase_login_success", request=request, user=user)
+    db.commit()
     return ok(_session_payload(user))
 
 
@@ -118,7 +156,13 @@ def me(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/ws-ticket")
-def ws_ticket(current_user: User = Depends(get_current_user)):
+async def ws_ticket(request: Request, current_user: User = Depends(get_current_user)):
+    await check_rate_limit(
+        request=request,
+        namespace="ws-ticket",
+        limit=get_settings().websocket_ticket_rate_limit_per_minute,
+        subject=f"user:{current_user.id}",
+    )
     ticket = create_access_token(
         {
             "sub": current_user.id,
@@ -133,11 +177,18 @@ def ws_ticket(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/fcm-token")
-def register_fcm_token(
+async def register_fcm_token(
     payload: FcmTokenRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await check_rate_limit(
+        request=request,
+        namespace="fcm-token",
+        limit=get_settings().auth_rate_limit_per_minute,
+        subject=f"user:{current_user.id}",
+    )
     token = db.query(DevicePushToken).filter(DevicePushToken.token == payload.token).first()
     if token:
         token.user_id = current_user.id
@@ -159,11 +210,18 @@ def register_fcm_token(
 
 
 @router.delete("/fcm-token")
-def unregister_fcm_token(
+async def unregister_fcm_token(
     payload: FcmTokenRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await check_rate_limit(
+        request=request,
+        namespace="fcm-token",
+        limit=get_settings().auth_rate_limit_per_minute,
+        subject=f"user:{current_user.id}",
+    )
     token = (
         db.query(DevicePushToken)
         .filter(DevicePushToken.user_id == current_user.id, DevicePushToken.token == payload.token)

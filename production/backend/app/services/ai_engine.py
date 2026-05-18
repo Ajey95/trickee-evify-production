@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 import joblib
 import numpy as np
@@ -38,6 +39,7 @@ FEATURE_COLS = [
 ]
 
 SEQ_LEN = 20
+logger = logging.getLogger(__name__)
 
 
 class BatteryRangeModel(nn.Module):
@@ -92,7 +94,13 @@ class AiEngine:
             self.ready = False
             return
 
-        checkpoint = torch.load(settings.model_path, map_location="cpu", weights_only=False)
+        try:
+            checkpoint = torch.load(settings.model_path, map_location="cpu", weights_only=True)
+        except Exception:
+            if settings.environment.lower() in {"production", "prod"}:
+                raise
+            logger.warning("Falling back to unsafe model artifact load for local development only")
+            checkpoint = torch.load(settings.model_path, map_location="cpu", weights_only=False)
         checkpoint_features = checkpoint.get("feature_columns")
         if checkpoint_features and list(checkpoint_features) != FEATURE_COLS:
             raise RuntimeError("V4.1 checkpoint feature order does not match backend FEATURE_COLS")

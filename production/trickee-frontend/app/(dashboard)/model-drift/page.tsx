@@ -75,8 +75,8 @@ export default function ModelDriftPage() {
     <RoleGuard allowedRoles={["trickee_admin"]}>
       <div className="space-y-8 pb-12">
         <div>
-          <h1 className="page-title mb-1">Model Drift Dashboard</h1>
-          <p className="text-text-dim">Prediction error, behavior distribution, archetype stability, and V6 training-readiness signals.</p>
+          <h1 className="page-title mb-1">Model Health</h1>
+          <p className="text-text-dim">Prediction accuracy, behavior stability, and fleet coverage.</p>
         </div>
 
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
@@ -106,7 +106,7 @@ export default function ModelDriftPage() {
                   <XAxis dataKey="index" stroke="#8b949e" tick={{ fontSize: 11 }} />
                   <YAxis stroke="#8b949e" tick={{ fontSize: 11 }} />
                   <Tooltip contentStyle={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 8 }} />
-                  <Line type="monotone" dataKey="error" name="AI error" stroke="#f85149" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="error" name="Error" stroke="#f85149" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="predicted" name="Predicted SOC" stroke="#00b4d8" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="actual" name="Actual SOC" stroke="#3fb950" strokeWidth={2} dot={false} />
                 </ReLineChart>
@@ -143,7 +143,7 @@ export default function ModelDriftPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               {driftStatus === "stable" ? <TrendingDown className="w-4 h-4 text-accent-green" /> : <TrendingUp className="w-4 h-4 text-accent-amber" />}
-              V6 Readiness
+              Coverage Readiness
             </CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -151,7 +151,7 @@ export default function ModelDriftPage() {
               ["Vehicles monitored", vehicles.length],
               ["Behavior snapshots", behaviorRows.length],
               ["Prediction history", predictionRows.length],
-              ["Model version", metrics?.model_version || metrics?.model?.name || "fallback"],
+              ["Model version", metrics?.model_version || metrics?.model?.name || "Limited"],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-lg border border-bg-border bg-bg-primary/40 p-4">
                 <p className="text-[10px] uppercase tracking-wider text-text-dim mb-2">{String(label)}</p>

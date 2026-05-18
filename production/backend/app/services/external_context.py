@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -9,16 +13,21 @@ from app.config import get_settings
 from app.services.alert_service import CHARGERS
 from app.services.geo import fallback_travel_minutes, haversine_km
 
-# Resolution for cache key bucketing: ~111 m per 0.001 degree.
+try:
+    import h3
+except Exception:  # pragma: no cover - optional dependency fallback during partial deploys.
+    h3 = None
+
+# Fallback rounded-grid precision when H3 is unavailable or disabled.
 _CACHE_LAT_LNG_PRECISION = 3
 # Charger locations are essentially static; 20-minute TTL is more than sufficient.
 _CHARGER_CACHE_TTL_SECONDS = 1200
 
-# Weather varies at city scale (~11 km); 1 decimal place ≈ 11 km grid.  10-minute TTL.
+# Weather varies at city scale; H3 resolution 6 is neighborhood-sized. 10-minute TTL.
 _WEATHER_CACHE_PRECISION = 1
 _WEATHER_CACHE_TTL_SECONDS = 600
 
-# Traffic directions change on a ~5-minute cadence; same grid as chargers (~111 m).
+# Traffic directions change on a ~5-minute cadence.
 _DIRECTIONS_CACHE_PRECISION = 3
 _DIRECTIONS_CACHE_TTL_SECONDS = 300
 
@@ -26,27 +35,186 @@ _DIRECTIONS_CACHE_TTL_SECONDS = 300
 _ELEVATION_CACHE_PRECISION = 3
 _ELEVATION_CACHE_TTL_SECONDS = 86400
 
+_REDIS_KEY_PREFIX = "trickee:external-context"
+logger = logging.getLogger(__name__)
+
 
 class ExternalContextService:
     def __init__(self) -> None:
         self.settings = get_settings()
-        # {(lat_key, lng_key, radius_m): (timestamp, result)}
-        self._charger_cache: dict[tuple[float, float, int], tuple[float, list[dict[str, Any]]]] = {}
-        # {(lat_key, lng_key): (timestamp, result)}
-        self._weather_cache: dict[tuple[float, float], tuple[float, dict[str, Any]]] = {}
-        # {(o_lat, o_lng, d_lat, d_lng): (timestamp, result)}
-        self._directions_cache: dict[tuple[float, float, float, float], tuple[float, dict[str, Any]]] = {}
-        # {(o_lat, o_lng, d_lat, d_lng): (timestamp, result)}
-        self._elevation_cache: dict[tuple[float, float, float, float], tuple[float, dict[str, Any]]] = {}
+        # Cache keys use H3 cells when available, falling back to rounded lat/lng grids.
+        self._charger_cache: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = {}
+        self._weather_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+        self._directions_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+        self._elevation_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+        self._quota_counters: dict[tuple[str, str], int] = {}
+        self._quota_day: str | None = None
+
+    def _h3_cell(self, lat: float, lng: float, resolution: int) -> str | None:
+        if not (getattr(self.settings, "external_context_h3_enabled", True) and h3):
+            return None
+        try:
+            if hasattr(h3, "latlng_to_cell"):
+                return h3.latlng_to_cell(lat, lng, resolution)
+            return h3.geo_to_h3(lat, lng, resolution)
+        except Exception as exc:
+            logger.warning("H3 cache bucketing failed; falling back to rounded grid: %s", exc)
+            return None
+
+    def _location_bucket(self, lat: float, lng: float, *, precision: int, resolution: int) -> tuple[Any, ...]:
+        cell = self._h3_cell(lat, lng, resolution)
+        if cell:
+            return ("h3", resolution, cell)
+        return ("grid", precision, round(lat, precision), round(lng, precision))
+
+    def _route_bucket(
+        self,
+        origin: dict[str, float],
+        destination: dict[str, float],
+        *,
+        precision: int,
+        resolution: int,
+    ) -> tuple[Any, ...]:
+        return (
+            *self._location_bucket(origin["lat"], origin["lng"], precision=precision, resolution=resolution),
+            *self._location_bucket(destination["lat"], destination["lng"], precision=precision, resolution=resolution),
+        )
+
+    def _redis_client(self):
+        if not (self.settings.external_context_redis_cache_enabled and self.settings.redis_url):
+            return None
+        try:
+            from redis import Redis
+
+            return Redis.from_url(self.settings.redis_url, decode_responses=True)
+        except Exception as exc:
+            logger.warning("External context Redis cache unavailable: %s", exc)
+            return None
+
+    def _cache_name(self, namespace: str, parts: tuple[Any, ...]) -> str:
+        raw = json.dumps([namespace, *parts], sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return f"{_REDIS_KEY_PREFIX}:cache:{namespace}:{digest}"
+
+    def _read_persistent_cache(self, key: str, *, allow_stale: bool = False) -> Any | None:
+        client = self._redis_client()
+        if not client:
+            return None
+        try:
+            raw = client.get(key)
+            if not raw:
+                return None
+            payload = json.loads(raw)
+            now = time.time()
+            if now <= float(payload.get("expires_at", 0)):
+                return payload.get("value")
+            if allow_stale and now <= float(payload.get("stale_until", 0)):
+                value = payload.get("value")
+                if isinstance(value, dict):
+                    return {**value, "cache_status": "stale"}
+                return value
+        except Exception as exc:
+            logger.warning("External context cache read failed: %s", exc)
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return None
+
+    def _write_persistent_cache(self, key: str, value: Any, ttl_seconds: int) -> None:
+        client = self._redis_client()
+        if not client:
+            return
+        stale_ttl = max(ttl_seconds, self.settings.external_context_stale_cache_seconds)
+        now = time.time()
+        payload = {
+            "expires_at": now + ttl_seconds,
+            "stale_until": now + stale_ttl,
+            "value": value,
+        }
+        try:
+            client.setex(key, stale_ttl, json.dumps(payload, default=str))
+        except Exception as exc:
+            logger.warning("External context cache write failed: %s", exc)
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+    def _quota_key(self, provider: str) -> tuple[str, str]:
+        day = datetime.now(timezone.utc).strftime("%Y%m%d")
+        return (provider, day)
+
+    def _daily_limit_for(self, provider: str) -> int:
+        if provider == "google":
+            return self.settings.google_external_daily_limit
+        if provider == "openweather":
+            return self.settings.openweather_external_daily_limit
+        return 0
+
+    def _consume_provider_quota(self, provider: str) -> bool:
+        limit = self._daily_limit_for(provider)
+        if limit <= 0:
+            return False
+
+        quota_key = self._quota_key(provider)
+        redis_key = f"{_REDIS_KEY_PREFIX}:quota:{provider}:{quota_key[1]}"
+        client = self._redis_client()
+        if client:
+            try:
+                count = int(client.incr(redis_key))
+                client.expire(redis_key, 60 * 60 * 48)
+                if count > limit:
+                    logger.warning("External provider quota exhausted provider=%s count=%s limit=%s", provider, count, limit)
+                    return False
+                return True
+            except Exception as exc:
+                logger.warning("External provider quota Redis check failed: %s", exc)
+            finally:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+        if self._quota_day != quota_key[1]:
+            self._quota_counters.clear()
+            self._quota_day = quota_key[1]
+        count = self._quota_counters.get(quota_key, 0) + 1
+        self._quota_counters[quota_key] = count
+        if count > limit:
+            logger.warning("External provider local quota exhausted provider=%s count=%s limit=%s", provider, count, limit)
+            return False
+        return True
+
+    def _quota_blocked(self, provider: str, service: str) -> dict[str, Any]:
+        return {
+            "source": "fallback",
+            "quota_status": "blocked",
+            "service": service,
+            "description": f"{provider} daily quota guard blocked external call",
+        }
 
     def weather(self, lat: float, lng: float) -> dict[str, Any]:
-        cache_key = (round(lat, _WEATHER_CACHE_PRECISION), round(lng, _WEATHER_CACHE_PRECISION))
+        cache_key = self._location_bucket(
+            lat,
+            lng,
+            precision=_WEATHER_CACHE_PRECISION,
+            resolution=getattr(self.settings, "external_context_weather_h3_resolution", 6),
+        )
         cached_at, cached_result = self._weather_cache.get(cache_key, (0.0, None))
         if cached_result is not None and time.monotonic() - cached_at < _WEATHER_CACHE_TTL_SECONDS:
             return cached_result
+        persistent_key = self._cache_name("weather", cache_key)
+        persistent = self._read_persistent_cache(persistent_key)
+        if persistent is not None:
+            self._weather_cache[cache_key] = (time.monotonic(), persistent)
+            return persistent
 
         result = self._fetch_weather(lat, lng)
         self._weather_cache[cache_key] = (time.monotonic(), result)
+        self._write_persistent_cache(persistent_key, result, _WEATHER_CACHE_TTL_SECONDS)
         return result
 
     def _fetch_weather(self, lat: float, lng: float) -> dict[str, Any]:
@@ -60,6 +228,15 @@ class ExternalContextService:
                 "wind_speed_mps": None,
                 "heatwave_severity": "high" if ambient_temp >= 38 else "medium" if ambient_temp >= 34 else "low",
                 "description": "No OpenWeather key configured",
+            }
+        if not self._consume_provider_quota("openweather"):
+            return {
+                "ambient_temp_c": 31.0,
+                "rain_mm_1h": 0.0,
+                "humidity_pct": None,
+                "wind_speed_mps": None,
+                "heatwave_severity": "low",
+                **self._quota_blocked("openweather", "weather"),
             }
 
         url = "https://api.openweathermap.org/data/2.5/weather"
@@ -99,18 +276,31 @@ class ExternalContextService:
         if not destination:
             return {"source": "fallback", "elevation_delta_m": 0.0, "grade_pct": 0.0}
 
-        cache_key = (
-            round(origin["lat"], _ELEVATION_CACHE_PRECISION),
-            round(origin["lng"], _ELEVATION_CACHE_PRECISION),
-            round(destination["lat"], _ELEVATION_CACHE_PRECISION),
-            round(destination["lng"], _ELEVATION_CACHE_PRECISION),
+        cache_key = self._route_bucket(
+            origin,
+            destination,
+            precision=_ELEVATION_CACHE_PRECISION,
+            resolution=getattr(self.settings, "external_context_h3_resolution", 10),
         )
         cached_at, cached_result = self._elevation_cache.get(cache_key, (0.0, None))
         if cached_result is not None and time.monotonic() - cached_at < _ELEVATION_CACHE_TTL_SECONDS:
             return cached_result
+        persistent_key = self._cache_name("elevation", cache_key)
+        persistent = self._read_persistent_cache(persistent_key)
+        if persistent is not None:
+            self._elevation_cache[cache_key] = (time.monotonic(), persistent)
+            return persistent
+
+        if self.settings.google_maps_api_key and not self._consume_provider_quota("google"):
+            stale = self._read_persistent_cache(persistent_key, allow_stale=True)
+            if stale is not None:
+                self._elevation_cache[cache_key] = (time.monotonic(), stale)
+                return stale
+            return {"elevation_delta_m": 0.0, "grade_pct": 0.0, **self._quota_blocked("google", "elevation")}
 
         result = self._fetch_elevation(origin, destination)
         self._elevation_cache[cache_key] = (time.monotonic(), result)
+        self._write_persistent_cache(persistent_key, result, _ELEVATION_CACHE_TTL_SECONDS)
         return result
 
     def _fetch_elevation(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
@@ -135,18 +325,42 @@ class ExternalContextService:
             return {"source": "fallback", "elevation_delta_m": 0.0, "grade_pct": 0.0, "error": str(exc)}
 
     def directions(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
-        cache_key = (
-            round(origin["lat"], _DIRECTIONS_CACHE_PRECISION),
-            round(origin["lng"], _DIRECTIONS_CACHE_PRECISION),
-            round(destination["lat"], _DIRECTIONS_CACHE_PRECISION),
-            round(destination["lng"], _DIRECTIONS_CACHE_PRECISION),
+        cache_key = self._route_bucket(
+            origin,
+            destination,
+            precision=_DIRECTIONS_CACHE_PRECISION,
+            resolution=getattr(self.settings, "external_context_h3_resolution", 10),
         )
         cached_at, cached_result = self._directions_cache.get(cache_key, (0.0, None))
         if cached_result is not None and time.monotonic() - cached_at < _DIRECTIONS_CACHE_TTL_SECONDS:
             return cached_result
+        persistent_key = self._cache_name("directions", cache_key)
+        persistent = self._read_persistent_cache(persistent_key)
+        if persistent is not None:
+            self._directions_cache[cache_key] = (time.monotonic(), persistent)
+            return persistent
+
+        if self.settings.google_maps_api_key and not self._consume_provider_quota("google"):
+            stale = self._read_persistent_cache(persistent_key, allow_stale=True)
+            if stale is not None:
+                self._directions_cache[cache_key] = (time.monotonic(), stale)
+                return stale
+            distance_km = haversine_km(origin["lat"], origin["lng"], destination["lat"], destination["lng"])
+            duration_min = fallback_travel_minutes(distance_km)
+            return {
+                "distance_km": round(distance_km, 2),
+                "duration_min": round(duration_min, 1),
+                "duration_traffic_min": round(duration_min * 1.18, 1),
+                "traffic_index": 0.85,
+                "eta_delay_min": round(duration_min * 0.18, 1),
+                "incident_closure": False,
+                "stop_start_probability": 0.62,
+                **self._quota_blocked("google", "directions"),
+            }
 
         result = self._fetch_directions(origin, destination)
         self._directions_cache[cache_key] = (time.monotonic(), result)
+        self._write_persistent_cache(persistent_key, result, _DIRECTIONS_CACHE_TTL_SECONDS)
         return result
 
     def _fetch_directions(self, origin: dict[str, float], destination: dict[str, float]) -> dict[str, Any]:
@@ -206,20 +420,43 @@ class ExternalContextService:
             }
 
     def nearest_chargers(self, lat: float, lng: float, radius_m: int = 500) -> list[dict[str, Any]]:
-        # Cache key buckets coordinates to _CACHE_LAT_LNG_PRECISION decimal places (~111 m grid).
+        # Cache key buckets coordinates to an H3 cell, with rounded-grid fallback.
         # radius_m is included so callers using different radii get independent cache entries;
         # in practice the codebase uses 300 m, 500 m, 750 m, and 1200 m.
         cache_key = (
-            round(lat, _CACHE_LAT_LNG_PRECISION),
-            round(lng, _CACHE_LAT_LNG_PRECISION),
+            *self._location_bucket(
+                lat,
+                lng,
+                precision=_CACHE_LAT_LNG_PRECISION,
+                resolution=getattr(self.settings, "external_context_h3_resolution", 10),
+            ),
             radius_m,
         )
         cached_at, cached_result = self._charger_cache.get(cache_key, (0.0, []))
         if time.monotonic() - cached_at < _CHARGER_CACHE_TTL_SECONDS:
             return cached_result
+        persistent_key = self._cache_name("chargers", cache_key)
+        persistent = self._read_persistent_cache(persistent_key)
+        if persistent is not None:
+            self._charger_cache[cache_key] = (time.monotonic(), persistent)
+            return persistent
+
+        api_key = self.settings.google_places_api_key or self.settings.google_maps_api_key
+        if api_key and not self._consume_provider_quota("google"):
+            stale = self._read_persistent_cache(persistent_key, allow_stale=True)
+            if stale is not None:
+                self._charger_cache[cache_key] = (time.monotonic(), stale)
+                return stale
+            fallback = [
+                {**charger, "quota_status": "blocked"}
+                for charger in self._fallback_chargers(lat, lng, radius_m)
+            ]
+            self._charger_cache[cache_key] = (time.monotonic(), fallback)
+            return fallback
 
         result = self._fetch_chargers(lat, lng, radius_m)
         self._charger_cache[cache_key] = (time.monotonic(), result)
+        self._write_persistent_cache(persistent_key, result, _CHARGER_CACHE_TTL_SECONDS)
         return result
 
     def _fetch_chargers(self, lat: float, lng: float, radius_m: int) -> list[dict[str, Any]]:
@@ -252,6 +489,8 @@ class ExternalContextService:
                         "source": "google_places",
                     }
                 )
+            if not chargers:
+                return self._fallback_chargers(lat, lng, radius_m)
             return sorted(chargers, key=lambda item: item["distance_m"])
         except Exception:
             return self._fallback_chargers(lat, lng, radius_m)

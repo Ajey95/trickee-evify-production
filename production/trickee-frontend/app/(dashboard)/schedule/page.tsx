@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
 import { Driver, Vehicle } from "@/types";
+import { useAuth } from "@/components/AuthProvider";
 
 const defaultOrigin: PickedPoint = { label: "Ring Road Depot", lat: 21.1702, lng: 72.8311 };
 const defaultDestination: PickedPoint = { label: "Varachha Pickup", lat: 21.2131, lng: 72.8708 };
@@ -21,6 +22,7 @@ function dateLabel(offset: number) {
 }
 
 export default function RouteSchedulePage() {
+  const { user } = useAuth();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState("");
@@ -32,7 +34,10 @@ export default function RouteSchedulePage() {
 
   useEffect(() => {
     async function load() {
-      const [driversResult, vehiclesResult] = await Promise.all([api.drivers.list(), api.vehicles.list()]);
+      const [driversResult, vehiclesResult] =
+        user?.role === "driver"
+          ? await Promise.all([api.drivers.me().then((result) => ({ ...result, data: result.success ? [result.data] : [] })), api.vehicles.mine()])
+          : await Promise.all([api.drivers.list(), api.vehicles.list()]);
       if (driversResult.success) {
         setDrivers(driversResult.data);
         setSelectedDriverId(driversResult.data[0]?.id || "");
@@ -43,7 +48,7 @@ export default function RouteSchedulePage() {
       }
     }
     load();
-  }, []);
+  }, [user?.role]);
 
   const selectedVehicle = useMemo(() => vehicles.find((vehicle) => (vehicle.latest_telemetry || vehicle.latest)?.driver_id === selectedDriverId) || vehicles[0], [selectedDriverId, vehicles]);
   const socStart = Math.round((selectedVehicle?.latest_telemetry || selectedVehicle?.latest)?.soc || 60);
@@ -69,7 +74,7 @@ export default function RouteSchedulePage() {
         label: dateLabel(day),
         slot,
         status: result.success ? "planned" : "needs_review",
-        route: best?.route_name || best?.name || "Backend route unavailable",
+        route: best?.route_name || best?.name || "Route unavailable",
         eta: best?.personalized_eta_min || best?.duration_min || 0,
         soc_end: best?.soc_end_pct || best?.soc_end || 0,
         energy: best?.ev_kwh_used || best?.energy_kwh || 0,

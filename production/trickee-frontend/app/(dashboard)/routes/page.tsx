@@ -51,7 +51,7 @@ export default function RouteIntelligencePage() {
         setSocStart(Math.round((firstVehicle?.latest_telemetry || firstVehicle?.latest)?.soc || 0));
       }
       if (!driversResult.success || !vehiclesResult.success) {
-        setError(driversResult.error || vehiclesResult.error || "Unable to load route context from backend.");
+        setError(driversResult.error || vehiclesResult.error || "Unable to load route context.");
       }
       setIsLoading(false);
     }
@@ -91,7 +91,7 @@ export default function RouteIntelligencePage() {
 
   const handleCalculate = async () => {
     if (!selectedDriver) {
-      setError("Select a backend driver before scoring routes.");
+      setError("Select a driver before scoring routes.");
       return;
     }
     setIsCalculating(true);
@@ -124,7 +124,7 @@ export default function RouteIntelligencePage() {
         setError("");
       }
     } else {
-      setError(result.error || "Backend route scoring failed.");
+      setError(result.error || "Route scoring failed.");
       setRouteStatus("idle");
     }
     setIsCalculating(false);
@@ -146,10 +146,10 @@ export default function RouteIntelligencePage() {
       const recommended = result.data.recommended_reroute;
       setRerouteAlert({
         active: true,
-        message: recommended?.name ? `Backend recommends ${recommended.name}.` : "Backend returned a reroute recommendation.",
+        message: recommended?.name ? `Switch to ${recommended.name}.` : "A better route is available.",
       });
     } else {
-      setError(result.error || "Backend reroute failed.");
+      setError(result.error || "Reroute check failed.");
     }
     setIsLoading(false);
   };
@@ -160,7 +160,7 @@ export default function RouteIntelligencePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="page-title mb-1">Route Intelligence</h1>
-          <p className="text-text-dim">Physics-aware route scoring from backend driver and vehicle context.</p>
+          <p className="text-text-dim">Compare routes by time, range, traffic, and battery margin.</p>
         </div>
       </div>
 
@@ -248,7 +248,7 @@ export default function RouteIntelligencePage() {
           <RouteIcon className="w-5 h-5 text-accent-teal" />
           <h2 className="section-title mb-0">Ranked Alternatives</h2>
         </div>
-        {routes.length ? <RouteCompareCards routes={routes} /> : <Card><p className="text-sm text-text-dim">Run backend route scoring to show ranked alternatives.</p></Card>}
+        {routes.length ? <RouteCompareCards routes={routes} /> : <Card><p className="text-sm text-text-dim">Score routes to compare ranked alternatives.</p></Card>}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -258,7 +258,7 @@ export default function RouteIntelligencePage() {
             <h2 className="section-title mb-0">EV Energy Consumption Comparison</h2>
           </div>
           <Card className="h-[300px]">
-            {routes.length ? <EnergyBarChart data={routes} /> : <div className="h-full flex items-center justify-center text-sm text-text-dim">No backend route output yet.</div>}
+            {routes.length ? <EnergyBarChart data={routes} /> : <div className="h-full flex items-center justify-center text-sm text-text-dim">No route comparison yet.</div>}
           </Card>
         </section>
 
@@ -279,14 +279,14 @@ export default function RouteIntelligencePage() {
         <Card className="border-accent-amber/20 bg-accent-amber/[0.02]">
           <CardContent className="flex flex-col md:flex-row items-center justify-between gap-6 p-6">
             <div className="flex-1">
-              <h3 className="font-bold text-text-primary text-lg mb-2">Backend Reroute Check</h3>
+              <h3 className="font-bold text-text-primary text-lg mb-2">Reroute Check</h3>
               <p className="text-sm text-text-dim leading-relaxed">
-                Uses the selected backend vehicle, driver, and top ranked route from the latest scoring result.
+                Re-check the current route when road conditions change.
               </p>
             </div>
             <Button variant="outline" className="border-accent-amber/50 text-accent-amber hover:bg-accent-amber/10 whitespace-nowrap gap-2" onClick={handleSimulateJam} isLoading={isLoading} disabled={!routes.length}>
               <RefreshCw className="w-4 h-4" />
-              Ask Backend For Reroute
+              Check Reroute
             </Button>
           </CardContent>
 

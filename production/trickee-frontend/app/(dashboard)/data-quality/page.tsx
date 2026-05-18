@@ -65,8 +65,8 @@ export default function DataQualityPage() {
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator"]}>
       <div className="space-y-8 pb-12">
         <div>
-          <h1 className="page-title mb-1">Data Quality Dashboard</h1>
-          <p className="text-text-dim">GPS, battery, thermal, freshness, and bad-row visibility before model decisions depend on them.</p>
+          <h1 className="page-title mb-1">Data Quality</h1>
+          <p className="text-text-dim">GPS, battery, thermal, and freshness checks across the fleet.</p>
         </div>
 
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
@@ -125,7 +125,7 @@ export default function DataQualityPage() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Thermometer className="w-4 h-4 text-accent-teal" />
-                Intelligence Impact
+                Operations Impact
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">

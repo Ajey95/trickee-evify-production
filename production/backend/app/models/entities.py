@@ -18,6 +18,8 @@ class Fleet(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     city: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     users: Mapped[list["User"]] = relationship(back_populates="fleet")
     vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="fleet")
@@ -29,9 +31,10 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    supabase_user_id: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, nullable=True)
     firebase_uid: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="password")
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     fleet_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("fleets.id"), nullable=True)
@@ -39,6 +42,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     fleet: Mapped[Fleet | None] = relationship(back_populates="users")
     driver: Mapped["Driver | None"] = relationship(back_populates="user")
@@ -60,6 +64,135 @@ class DevicePushToken(Base):
     user: Mapped[User] = relationship(back_populates="push_tokens")
 
 
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    event_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AIInteractionLog(Base):
+    __tablename__ = "ai_interaction_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    fleet_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("fleets.id"), nullable=True, index=True)
+    feature: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    prompt_version: Mapped[str] = mapped_column(String(40), nullable=False, default="v1")
+    model_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_calls: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    token_usage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ToolCallLog(Base):
+    __tablename__ = "tool_call_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    fleet_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("fleets.id"), nullable=True, index=True)
+    feature: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    tool_name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    input_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class NotificationPersonalizationLog(Base):
+    __tablename__ = "notification_personalization_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    alert_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(30), nullable=False)
+    action: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    tone: Mapped[str] = mapped_column(String(30), nullable=False)
+    send: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    raw_data_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AssistantMessage(Base):
+    __tablename__ = "assistant_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="app")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    response: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    tool_calls: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class DriverProfileSnapshot(Base):
+    __tablename__ = "driver_profile_snapshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    profile: Mapped[dict] = mapped_column(JSON, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="rolling_metrics")
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class DriverCoachingEvent(Base):
+    __tablename__ = "driver_coaching_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    trip_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("trips.id"), nullable=True, index=True)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="trip")
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    tips: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tone: Mapped[str] = mapped_column(String(30), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class FleetSummaryLog(Base):
+    __tablename__ = "fleet_summary_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    fleet_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("fleets.id"), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    summary_type: Mapped[str] = mapped_column(String(30), nullable=False, default="realtime")
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    risks: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    suggested_actions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    vehicles_flagged: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class Vehicle(Base):
     __tablename__ = "vehicles"
 
@@ -74,6 +207,8 @@ class Vehicle(Base):
     manufacture_year: Mapped[int] = mapped_column(Integer, nullable=False, default=2024)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     fleet: Mapped[Fleet] = relationship(back_populates="vehicles")
     telemetry: Mapped[list["Telemetry"]] = relationship(back_populates="vehicle")
@@ -95,6 +230,8 @@ class Driver(Base):
     avg_current_30m: Mapped[float] = mapped_column(Float, default=5.0)
     avg_speed_30m: Mapped[float] = mapped_column(Float, default=28.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     fleet: Mapped[Fleet] = relationship(back_populates="drivers")
     user: Mapped[User | None] = relationship(back_populates="driver")
@@ -180,6 +317,8 @@ class Trip(Base):
     route_taken: Mapped[str | None] = mapped_column(String(50), nullable=True)
     recommended_route: Mapped[str | None] = mapped_column(String(50), nullable=True)
     followed_nudge: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class DriverBehaviorSnapshot(Base):
@@ -217,6 +356,7 @@ class NudgeEvent(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="created")
     outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -236,6 +376,7 @@ class OrderAssignmentDecision(Base):
     result_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ChargingDecisionRecord(Base):
@@ -253,6 +394,7 @@ class ChargingDecisionRecord(Base):
     result_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class WaitEvent(Base):
@@ -283,7 +425,7 @@ class Alert(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     vehicle_id: Mapped[str] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=False, index=True)
-    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True)
+    driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True, index=True)
     alert_type: Mapped[str] = mapped_column(String(50), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     soc_at_alert: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -291,3 +433,4 @@ class Alert(Base):
     charger_distance_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

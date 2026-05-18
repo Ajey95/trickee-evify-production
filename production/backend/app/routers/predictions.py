@@ -1,24 +1,33 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.database import get_db
 from app.models import Prediction, User
 from app.schemas.api import ok
 from app.services.access import assert_vehicle_access
 from app.services.ai_engine import ai_engine
 from app.services.auth import get_current_user, require_roles
+from app.services.rate_limit import check_rate_limit
 from app.services.serializers import prediction_dict
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
 
 @router.post("/infer/{vehicle_id}")
-def infer_vehicle(
+async def infer_vehicle(
     vehicle_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("trickee_admin", "fleet_operator")),
 ):
+    await check_rate_limit(
+        request=request,
+        namespace="prediction-infer",
+        limit=get_settings().ai_rate_limit_per_minute,
+        subject=f"user:{current_user.id}",
+    )
     vehicle = assert_vehicle_access(db, current_user, vehicle_id)
     try:
         result = ai_engine.infer_vehicle(db, vehicle)

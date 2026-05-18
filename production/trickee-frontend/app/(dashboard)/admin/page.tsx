@@ -21,7 +21,7 @@ export default function AdminPage() {
       if (metricsResult.success) setModelMetrics(metricsResult.data);
       if (usersResult.success) setUsers(usersResult.data);
       if (!metricsResult.success || !usersResult.success) {
-        setError(metricsResult.error || usersResult.error || "Unable to load admin data from backend.");
+        setError(metricsResult.error || usersResult.error || "Unable to load admin data.");
       }
     }
     loadAdminData();
@@ -37,7 +37,7 @@ export default function AdminPage() {
     {
       label: "Model",
       value: modelName,
-      helper: "Backend serving model",
+      helper: "Active model",
       icon: Activity,
       accentClass: "text-accent-teal",
     },
@@ -51,14 +51,14 @@ export default function AdminPage() {
     {
       label: "Served Predictions",
       value: servedPredictions.toLocaleString(),
-      helper: "Prediction table count",
+      helper: "Prediction volume",
       icon: Zap,
       accentClass: "text-accent-green",
     },
     {
       label: "Features",
       value: featureCount.toLocaleString(),
-      helper: "Input columns",
+      helper: "Signal count",
       icon: Layers,
       accentClass: "text-text-primary",
     },
@@ -68,8 +68,8 @@ export default function AdminPage() {
     <RoleGuard allowedRoles={["trickee_admin"]}>
       <div className="space-y-8 pb-12">
         <div>
-          <h1 className="page-title mb-1">Model Metrics & Admin</h1>
-          <p className="text-text-dim">Backend model readiness, data counts, and access control.</p>
+          <h1 className="page-title mb-1">Model Metrics</h1>
+          <p className="text-text-dim">Model health, fleet data, and workspace access.</p>
         </div>
 
         {error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
@@ -79,8 +79,8 @@ export default function AdminPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Card>
             <CardHeader>
-              <CardTitle>Backend Data Profile</CardTitle>
-              <CardDescription>Live counts from the production API database</CardDescription>
+              <CardTitle>Data Profile</CardTitle>
+              <CardDescription>Current fleet and prediction coverage</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
@@ -109,7 +109,7 @@ export default function AdminPage() {
               </div>
               {v5a && (
                 <div className="p-4 rounded-xl border border-bg-border bg-bg-primary/40">
-                  <p className="kpi-label mb-2">V5-A Candidate</p>
+                  <p className="kpi-label mb-2">Sequence Coverage</p>
                   <p className="text-sm text-text-primary">Sequences: {v5a.sequences ?? "N/A"} | Raw rows: {v5a.raw_rows ?? "N/A"}</p>
                 </div>
               )}
@@ -120,7 +120,7 @@ export default function AdminPage() {
             <CardHeader className="flex-row items-center justify-between">
               <div>
                 <CardTitle>User Management</CardTitle>
-                <CardDescription>Users returned by backend RBAC service</CardDescription>
+                <CardDescription>Approved workspace users</CardDescription>
               </div>
               <Users className="w-5 h-5 text-text-dim" />
             </CardHeader>
@@ -154,7 +154,7 @@ export default function AdminPage() {
                   ))}
                 </TableBody>
               </Table>
-              {!users.length && <div className="p-6 text-sm text-text-dim">No backend users returned.</div>}
+              {!users.length && <div className="p-6 text-sm text-text-dim">No users available.</div>}
             </CardContent>
           </Card>
         </div>

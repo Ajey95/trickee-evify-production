@@ -17,29 +17,13 @@ Default local backend:
 http://localhost:8000/api/v1
 ```
 
-Demo users are authenticated through the FastAPI backend when Firebase env is off:
+Users authenticate with Supabase Auth. Supabase email/password users must be mapped to a Trickee backend user by email or `supabase_user_id`.
 
-- `admin@trickee.ai` / `Trickee@2026`
-- `fleet@evify.in` / `Evify@2026`
-- `driver1@evify.in` / `Driver@2026`
+For emergency rollback only, set `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=true` in the frontend and `LEGACY_AUTH_ENABLED=true` in the backend to temporarily allow the old backend password login.
 
 ## Backend Integration
 
-The frontend uses NextAuth for the app session. With Firebase disabled, credentials are validated by the backend endpoint:
-
-```text
-POST /api/v1/auth/login
-```
-
-The backend JWT is stored in the NextAuth session and sent as `Authorization: Bearer <token>` by `lib/api.ts`.
-
-When Firebase is enabled, the browser signs in with Firebase Auth first, sends the Firebase ID token to:
-
-```text
-POST /api/v1/auth/firebase-login
-```
-
-The backend verifies the Firebase token, maps it to the Trickee user/role, then returns the same Trickee JWT session used by the rest of the dashboard.
+The frontend stores the Supabase browser session through `@supabase/ssr`. API calls send the Supabase access token as `Authorization: Bearer <token>`; the backend verifies it with `SUPABASE_JWT_SECRET`, then loads the internal Trickee user, role, fleet, and driver scope.
 
 FCM browser alerts are available through the topbar `Push Alerts` button. The browser token is registered at:
 
@@ -75,10 +59,11 @@ Recommended deployment:
 Set these Vercel env vars:
 
 ```text
-NEXTAUTH_URL=https://<vercel-frontend-url>
-NEXTAUTH_SECRET=<secure-secret>
 BACKEND_URL=https://<render-backend-url>/api/v1
 NEXT_PUBLIC_BACKEND_URL=https://<render-backend-url>/api/v1
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-anon-key>
+NEXT_PUBLIC_LEGACY_AUTH_ENABLED=false
 NEXT_PUBLIC_FIREBASE_AUTH_ENABLED=true
 NEXT_PUBLIC_FIREBASE_API_KEY=<firebase-web-api-key>
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<project>.firebaseapp.com

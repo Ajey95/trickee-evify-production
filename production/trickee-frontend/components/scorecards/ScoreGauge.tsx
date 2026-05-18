@@ -12,13 +12,6 @@ export const ScoreGauge = ({ score }: ScoreGaugeProps) => {
     return "stroke-accent-red";
   };
 
-  const getScoreBg = (s: number) => {
-    if (s >= 85) return "bg-accent-green/10 text-accent-green";
-    if (s >= 70) return "bg-accent-teal/10 text-accent-teal";
-    if (s >= 50) return "bg-accent-amber/10 text-accent-amber";
-    return "bg-accent-red/10 text-accent-red";
-  };
-
   const radius = 18;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (score / 100) * circumference;

@@ -11,7 +11,7 @@ export const TripHistoryTable = ({ trips }: TripHistoryTableProps) => {
   if (!trips.length) {
     return (
       <div className="border border-bg-border rounded-xl p-6 text-sm text-text-dim">
-        No backend trip history is available for this driver yet.
+        No trip history is available for this driver yet.
       </div>
     );
   }

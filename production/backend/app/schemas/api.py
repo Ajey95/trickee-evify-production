@@ -14,3 +14,10 @@ class ApiResponse(BaseModel, Generic[T]):
 
 def ok(data: Any = None, message: str = "OK") -> dict[str, Any]:
     return {"success": True, "data": data, "message": message, "error": None}
+
+
+def error_response(message: str, *, request_id: str | None = None) -> dict[str, Any]:
+    data: dict[str, Any] = {"success": False, "data": None, "message": "Error", "error": message}
+    if request_id:
+        data["request_id"] = request_id
+    return data

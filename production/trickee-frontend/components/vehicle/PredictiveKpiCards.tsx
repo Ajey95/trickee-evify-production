@@ -20,12 +20,12 @@ export const PredictiveKpiCards = ({ prediction }: PredictiveKpiCardsProps) => {
     {
       label: "Dynamic Range (Now)",
       value: `${dynamicRange.toFixed(1)} km`,
-      sub: "Backend physics-adjusted estimate",
+      sub: "Current operating estimate",
       color: "text-accent-teal",
       icon: Activity,
     },
     {
-      label: "AI Predicted Shift (5m)",
+      label: "Expected SOC Shift",
       value: `${predictedDelta > 0 ? "+" : ""}${predictedDelta.toFixed(2)}%`,
       sub: `SOC: ${actualSoc.toFixed(2)}% -> ${predictedNextSoc.toFixed(2)}%`,
       color: "text-accent-magenta",
@@ -34,14 +34,14 @@ export const PredictiveKpiCards = ({ prediction }: PredictiveKpiCardsProps) => {
     {
       label: "Predicted Range (After 5m)",
       value: `${predictedRange.toFixed(1)} km`,
-      sub: "Physics-Adjusted",
+      sub: "Near-term range",
       color: "text-accent-magenta",
       icon: ShieldCheck,
     },
     {
-      label: "Ground Truth (Verification)",
+      label: "Verified SOC",
       value: `${trueNextSoc.toFixed(2)}%`,
-      sub: `AI error: ${aiError.toFixed(3)}%`,
+      sub: `Error: ${aiError.toFixed(3)}%`,
       color: "text-accent-green",
       icon: Activity,
     },

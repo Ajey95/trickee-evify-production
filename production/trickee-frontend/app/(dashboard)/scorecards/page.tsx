@@ -41,7 +41,7 @@ export default function ScorecardsPage() {
         setSelectedDriver(result.data[0] || null);
         setError("");
       } else {
-        setError(result.error || "Unable to load backend drivers.");
+        setError(result.error || "Unable to load drivers.");
       }
     }
     loadDrivers();
@@ -57,7 +57,7 @@ export default function ScorecardsPage() {
       <div className="space-y-8 pb-12">
         <div>
           <h1 className="page-title mb-1">Driver Scorecards</h1>
-          <p className="text-text-dim">Fleet-wide rankings from backend driver behavior metrics.</p>
+          <p className="text-text-dim">Fleet-wide rankings from driver behavior and efficiency signals.</p>
         </div>
 
         {error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
@@ -107,7 +107,7 @@ export default function ScorecardsPage() {
                   ))}
                 </TableBody>
               </Table>
-              {!rankedDrivers.length && <div className="p-6 text-sm text-text-dim">No backend drivers available.</div>}
+              {!rankedDrivers.length && <div className="p-6 text-sm text-text-dim">No drivers available.</div>}
             </Card>
           </div>
 

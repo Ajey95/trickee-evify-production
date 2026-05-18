@@ -8,7 +8,8 @@ import {
   Alert, 
   ModelMetrics 
 } from "@/types";
-import { getSession } from "next-auth/react";
+import { createClient, isSupabaseConfigured } from "@/utils/supabase/client";
+import { readLegacyToken } from "@/lib/auth-storage";
 
 const BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
 
@@ -19,7 +20,7 @@ type FetcherOptions = RequestInit & {
 };
 
 const REQUEST_TIMEOUT_MS = 12_000;
-const SESSION_CACHE_MS = 30_000;
+const SESSION_CACHE_MS = 20_000;
 const DEFAULT_GET_CACHE_MS = 60_000;
 const LIVE_GET_CACHE_MS = 5_000;
 const STALE_GET_CACHE_MS = 5 * 60_000;
@@ -34,9 +35,17 @@ const inflightRequests = new Map<string, Promise<ApiResult<any>>>();
 async function getAccessToken() {
   const now = Date.now();
   if (now < tokenExpiresAt) return cachedToken;
+  const legacyToken = readLegacyToken();
+  if (legacyToken) {
+    cachedToken = legacyToken;
+    tokenExpiresAt = Date.now() + SESSION_CACHE_MS;
+    return legacyToken;
+  }
+  if (!isSupabaseConfigured) return undefined;
   if (!tokenRequest) {
-    tokenRequest = getSession()
-      .then((session) => (session as any)?.accessToken as string | undefined)
+    tokenRequest = createClient()
+      .auth.getSession()
+      .then(({ data }) => data.session?.access_token)
       .then((token) => {
         cachedToken = token;
         tokenExpiresAt = Date.now() + SESSION_CACHE_MS;
@@ -64,6 +73,12 @@ function cacheKey(url: string, method: string, token?: string) {
 function clearReadCache() {
   responseCache.clear();
   inflightRequests.clear();
+  cachedToken = undefined;
+  tokenExpiresAt = 0;
+}
+
+export function resetApiClientState() {
+  clearReadCache();
 }
 
 function refreshCacheInBackground<T>(key: string, ttl: number, request: Promise<ApiResult<T>>) {
@@ -189,6 +204,11 @@ export const api = {
   // 6.1 Auth
   auth: {
     me: () => fetcher<User>("/auth/me"),
+    legacyLogin: (email: string, password: string) => fetcher<{ access_token: string; token_type: string; user: User }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+      cacheTtlMs: 0,
+    }),
     wsTicket: () => fetcher<{ ticket: string; expires_in_seconds: number }>("/auth/ws-ticket", { cacheTtlMs: 0 }),
     registerFcmToken: (token: string, device_label?: string) => fetcher<any>("/auth/fcm-token", {
       method: "POST",
@@ -218,6 +238,15 @@ export const api = {
     me: () => fetcher<Driver>("/drivers/me"),
     get: (id: string) => fetcher<Driver>(`/drivers/${id}`),
     trips: (id: string, limit = 20) => fetcher<any[]>(`/drivers/${id}/trips?limit=${limit}`),
+    profile: (id: string) => fetcher<any>(`/drivers/${id}/profile`),
+    updateProfile: (id: string, data: any) => fetcher<any>(`/drivers/${id}/profile/update`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+    coaching: (id: string, data: any) => fetcher<any>(`/drivers/${id}/coaching`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   },
 
   // 6.5 Routes
@@ -253,6 +282,10 @@ export const api = {
         slot: data.slot,
       }),
     }),
+    explain: (data: any) => fetcher<any>("/routes/explain", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   },
 
   // 6.6 Alerts
@@ -279,6 +312,11 @@ export const api = {
       options
     ),
     weeklyReport: (days = 7) => fetcher<any>(`/intelligence/reports/weekly?days=${days}`),
+    reportCharts: (days = 7) => fetcher<any>(`/intelligence/reports/charts?days=${days}`, { cacheTtlMs: 30_000 }),
+    dailyImpact: (reportDate?: string) => fetcher<any>(
+      `/intelligence/reports/daily-impact${reportDate ? `?report_date=${encodeURIComponent(reportDate)}` : ""}`,
+      { cacheTtlMs: 30_000 }
+    ),
     waitTime: (data: any) => fetcher<any>("/intelligence/wait-time", {
       method: "POST",
       body: JSON.stringify(data),
@@ -297,6 +335,36 @@ export const api = {
     nudges: (limit = 50) => fetcher<any[]>(`/intelligence/history/nudges?limit=${limit}`),
     driverBehaviorHistory: (limit = 100) => fetcher<any[]>(`/intelligence/history/driver-behavior?limit=${limit}`),
     routeContext: (data: any) => fetcher<any>("/intelligence/context", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  },
+  notifications: {
+    personalize: (data: any) => fetcher<any>("/notifications/personalize", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  },
+  assistant: {
+    message: (data: any) => fetcher<any>("/assistant/message", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  },
+  battery: {
+    insight: (data: any) => fetcher<any>("/battery/insight", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  },
+  chargers: {
+    recommend: (data: any) => fetcher<any>("/chargers/recommend", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  },
+  fleet: {
+    summary: (data: any) => fetcher<any>("/fleet/summary", {
       method: "POST",
       body: JSON.stringify(data),
     }),

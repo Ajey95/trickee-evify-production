@@ -35,7 +35,7 @@ export default function DriverProfilePage() {
       }
 
       if (!selectedDriver) {
-        setError("No backend driver profile is available for this account.");
+        setError("No driver profile is available for this account.");
         setIsLoading(false);
         return;
       }
@@ -78,11 +78,11 @@ export default function DriverProfilePage() {
         <div className="flex justify-between items-end">
           <div>
             <h1 className="page-title mb-1">Driver Performance Profile</h1>
-            <p className="text-text-dim">Backend-derived driving behavior, trips, and current vehicle state.</p>
+            <p className="text-text-dim">Driving behavior, trips, and current vehicle state.</p>
           </div>
         </div>
 
-        {isLoading && <Card><p className="text-sm text-text-dim">Loading backend driver profile...</p></Card>}
+        {isLoading && <Card><p className="text-sm text-text-dim">Loading driver profile...</p></Card>}
         {!isLoading && error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
 
         {driver && (
@@ -145,7 +145,7 @@ export default function DriverProfilePage() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-text-dim">No current backend vehicle assignment found for this driver.</p>
+                      <p className="text-sm text-text-dim">No current vehicle assignment found for this driver.</p>
                     )}
                   </CardContent>
                 </Card>

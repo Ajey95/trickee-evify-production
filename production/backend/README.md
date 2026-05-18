@@ -32,7 +32,7 @@ python -m app.utils.seed
 uvicorn app.main:app --reload --port 8000
 ```
 
-Demo users:
+Demo users are seeded for local development. The production auth path is Supabase Auth, so create matching Supabase users with the same emails or set `supabase_user_id` on the backend `users` row. Backend password login works only when `LEGACY_AUTH_ENABLED=true`.
 
 - `admin@trickee.ai` / `Trickee@2026`
 - `fleet@evify.in` / `Evify@2026`
@@ -40,16 +40,26 @@ Demo users:
 
 ## Key Endpoints
 
-- `POST /api/v1/auth/login`
-- `POST /api/v1/auth/firebase-login`
-- `POST /api/v1/auth/fcm-token`
 - `GET /api/v1/auth/me`
+- `GET /api/v1/auth/ws-ticket`
+- `POST /api/v1/auth/login` (legacy rollback only)
+- `POST /api/v1/auth/firebase-login` (optional Firebase auth only)
+- `POST /api/v1/auth/fcm-token`
 - `GET /api/v1/vehicles`
 - `POST /api/v1/telemetry/evify`
 - `POST /api/v1/telemetry/evify/bulk`
 - `POST /api/v1/predictions/infer/{vehicle_id}`
 - `POST /api/v1/routes/score`
+- `POST /api/v1/routes/explain`
 - `GET /api/v1/alerts`
+- `POST /api/v1/notifications/personalize`
+- `POST /api/v1/assistant/message`
+- `POST /api/v1/battery/insight`
+- `POST /api/v1/chargers/recommend`
+- `GET /api/v1/drivers/{driver_id}/profile`
+- `POST /api/v1/drivers/{driver_id}/profile/update`
+- `POST /api/v1/drivers/{driver_id}/coaching`
+- `POST /api/v1/fleet/summary`
 - `GET /api/v1/admin/metrics`
 
 ## Future Roadmap APIs
@@ -65,19 +75,85 @@ Implemented backend support for the V5/V5-D roadmap:
 
 External keys are optional. Without keys, the services use deterministic fallbacks suitable for demos and tests.
 
-## Firebase Auth + FCM
+External context requests are cost controlled:
 
-Firebase is used only for identity and push delivery. Trickee still owns RBAC, fleet/driver mapping, telemetry, predictions, alerts, and training data in Postgres.
-
-Auth flow:
+- Google Places, Directions, and Elevation share a daily provider quota.
+- OpenWeather has a separate daily provider quota.
+- H3 spatial cache keys deduplicate nearby charger, route, elevation, and weather lookups.
+- Redis persists context cache entries across workers when `REDIS_URL` is configured.
 
 ```text
-Frontend Firebase login -> Firebase ID token -> POST /auth/firebase-login -> Trickee JWT
+EXTERNAL_CONTEXT_H3_ENABLED=true
+EXTERNAL_CONTEXT_H3_RESOLUTION=10
+EXTERNAL_CONTEXT_WEATHER_H3_RESOLUTION=6
 ```
 
-The backend maps Firebase users by `firebase_uid` first, then by email. If a Firebase email exists in the Trickee `users` table, the first Firebase login links that user to the Firebase UID. Unknown Firebase users are rejected until they are created/mapped in Trickee.
+## AI Features 1-8
 
-Required backend env when enabling Firebase:
+Features 1-8 are implemented through grounded backend tools plus a shared AI client:
+
+- The backend computes decisions, scores, risk, profiles, charger rank, and fleet facts.
+- The LLM is used only for wording, explanation, summaries, and conversational composition.
+- Every AI feature has deterministic fallback text when `GROQ_API_KEY` is blank or the model fails.
+- Tool calls and AI calls are logged in `tool_call_logs` and `ai_interaction_logs`.
+- Feature records are stored in `notification_personalization_logs`, `assistant_messages`, `driver_profile_snapshots`, `driver_coaching_events`, and `fleet_summary_logs`.
+- Prompt-injection text is treated as untrusted input and cannot bypass tool grounding.
+
+Production AI/rate-limit envs:
+
+```text
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.1-8b-instant
+AI_REQUEST_TIMEOUT_SECONDS=4
+AI_MAX_RETRIES=1
+AI_MAX_INPUT_CHARS=4000
+AI_MAX_OUTPUT_TOKENS=220
+ASSISTANT_RATE_LIMIT_PER_HOUR=20
+NOTIFICATION_PERSONALIZATION_RATE_LIMIT_PER_HOUR=10
+CHARGER_RECOMMENDATION_RATE_LIMIT_PER_HOUR=30
+ROUTE_EXPLANATION_RATE_LIMIT_PER_HOUR=30
+FLEET_SUMMARY_RATE_LIMIT_PER_HOUR=20
+COACHING_RATE_LIMIT_PER_DAY=10
+```
+
+## Supabase Auth, Legacy Rollback, And FCM
+
+Supabase Auth is the primary identity provider. Frontend API requests send the Supabase access token as a bearer token. The backend verifies it with:
+
+```text
+SUPABASE_JWT_SECRET=<Supabase JWT secret>
+SUPABASE_JWT_AUDIENCE=authenticated
+```
+
+The backend maps the Supabase JWT `sub` to `users.supabase_user_id`; if that is not populated yet, it falls back to the JWT email and links the row on first successful request. Trickee still owns app authorization through the internal `users.role`, `fleet_id`, and `driver_id` fields.
+
+Set `LEGACY_AUTH_ENABLED=true` only for emergency rollback to the old password endpoint.
+
+## Security And Production Controls
+
+Implemented production controls:
+
+- Request-size guard through `MAX_REQUEST_BODY_BYTES`.
+- Request IDs and secure response headers on API responses.
+- Generic internal-error responses with server-side exception logging.
+- Redis-backed rate limiting when `REDIS_URL` is set, with in-process fallback for local development.
+- Separate limits for auth, telemetry ingest, intelligence workflows, prediction inference, and WebSocket tickets.
+- External context cost guard for Google/OpenWeather calls:
+  - in-process cache for fast repeated requests
+  - Redis-backed cross-worker cache when `REDIS_URL` is set
+  - stale cached fallback when daily quota is exhausted
+  - daily provider circuit breakers through `GOOGLE_EXTERNAL_DAILY_LIMIT` and `OPENWEATHER_EXTERNAL_DAILY_LIMIT`
+- Short-lived legacy backend JWTs; Supabase remains the primary session authority.
+- Security event audit records for legacy/Firebase login success and failure paths.
+- Supabase-only RLS baseline migration when the database exposes the `auth` schema.
+
+Use Redis in production for rate limits and external-context caching because in-memory limits/cache are per process and reset on deploy. This is especially important before enabling Google Maps/Places keys.
+
+## Firebase FCM
+
+Firebase is now used primarily for push delivery. Trickee still owns RBAC, fleet/driver mapping, telemetry, predictions, alerts, and training data in Postgres.
+
+Required backend env when enabling FCM:
 
 ```text
 FIREBASE_AUTH_ENABLED=true

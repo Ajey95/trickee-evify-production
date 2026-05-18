@@ -14,9 +14,9 @@ export const RangePenaltyBreakdown = ({ prediction }: RangePenaltyBreakdownProps
 
   const dynamicRange = Number(prediction.dynamic_range_km ?? 0);
   const penalties = [
-    { label: "Battery Health (SOH)", value: `${(Number(prediction.soh_factor ?? 0) * 100).toFixed(1)}%`, icon: ZapOff, status: "Backend" },
-    { label: "Thermal Penalty", value: `${((1 - Number(prediction.thermal_factor ?? 1)) * 100).toFixed(1)}%`, icon: Thermometer, status: "Backend" },
-    { label: "Aggression Penalty", value: `${((1 - Number(prediction.aggression_factor ?? 1)) * 100).toFixed(1)}%`, icon: Gauge, status: "Backend" },
+    { label: "Battery Health", value: `${(Number(prediction.soh_factor ?? 0) * 100).toFixed(1)}%`, icon: ZapOff, status: "Measured" },
+    { label: "Thermal Load", value: `${((1 - Number(prediction.thermal_factor ?? 1)) * 100).toFixed(1)}%`, icon: Thermometer, status: "Measured" },
+    { label: "Driving Load", value: `${((1 - Number(prediction.aggression_factor ?? 1)) * 100).toFixed(1)}%`, icon: Gauge, status: "Measured" },
   ];
 
   return (
@@ -28,7 +28,7 @@ export const RangePenaltyBreakdown = ({ prediction }: RangePenaltyBreakdownProps
         <div className="flex items-center gap-3">
           <h4 className="section-title mb-0">Range Penalty Breakdown</h4>
           <span className="text-[10px] bg-accent-amber/10 text-accent-amber px-2 py-0.5 rounded border border-accent-amber/20 font-bold uppercase tracking-widest">
-            Backend Factors
+            Live Factors
           </span>
         </div>
         {isOpen ? <ChevronUp className="w-5 h-5 text-text-dim" /> : <ChevronDown className="w-5 h-5 text-text-dim" />}
@@ -59,8 +59,7 @@ export const RangePenaltyBreakdown = ({ prediction }: RangePenaltyBreakdownProps
               <ZapOff className="w-5 h-5 text-accent-amber" />
             </div>
             <p className="text-sm text-text-primary">
-              Backend physics model estimates {dynamicRange.toFixed(1)} km from the latest telemetry window.
-              <span className="font-bold text-accent-amber"> Factors shown here come from the saved prediction response. </span>
+              Current range is estimated at {dynamicRange.toFixed(1)} km from recent vehicle behavior.
             </p>
           </div>
         </div>

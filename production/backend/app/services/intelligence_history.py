@@ -62,9 +62,10 @@ def persist_charging_decision(
     db.add(record)
     db.flush()
     if result.get("message"):
+        driver_id = driver.get("id") or driver.get("driver_id")
         db.add(
             NudgeEvent(
-                driver_id=driver.get("id") if driver.get("id") else None,
+                driver_id=driver_id if driver_id else None,
                 vehicle_id=driver.get("vehicle_id"),
                 nudge_type="charging_decision",
                 channel="dashboard",
