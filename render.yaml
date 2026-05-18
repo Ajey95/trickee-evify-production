@@ -14,9 +14,17 @@ services:
       - key: ALGORITHM
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: "1440"
+        value: "15"
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_JWT_AUDIENCE
+        value: authenticated
+      - key: LEGACY_AUTH_ENABLED
+        value: "false"
       - key: MODEL_DIR
         value: models_ml
       - key: DEMO_SEED
@@ -37,5 +45,51 @@ services:
         sync: false
       - key: EXTERNAL_API_TIMEOUT_SECONDS
         value: "6"
+      - key: EXTERNAL_CONTEXT_REDIS_CACHE_ENABLED
+        value: "true"
+      - key: EXTERNAL_CONTEXT_STALE_CACHE_SECONDS
+        value: "86400"
+      - key: EXTERNAL_CONTEXT_H3_ENABLED
+        value: "true"
+      - key: EXTERNAL_CONTEXT_H3_RESOLUTION
+        value: "10"
+      - key: EXTERNAL_CONTEXT_WEATHER_H3_RESOLUTION
+        value: "6"
+      - key: GOOGLE_EXTERNAL_DAILY_LIMIT
+        value: "1500"
+      - key: OPENWEATHER_EXTERNAL_DAILY_LIMIT
+        value: "1000"
       - key: NOTIFICATION_PROVIDER
         value: dashboard
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
+      - key: AI_REQUEST_TIMEOUT_SECONDS
+        value: "4"
+      - key: AI_MAX_RETRIES
+        value: "1"
+      - key: AI_MAX_INPUT_CHARS
+        value: "4000"
+      - key: AI_MAX_OUTPUT_TOKENS
+        value: "220"
+      - key: ASSISTANT_RATE_LIMIT_PER_HOUR
+        value: "20"
+      - key: NOTIFICATION_PERSONALIZATION_RATE_LIMIT_PER_HOUR
+        value: "10"
+      - key: CHARGER_RECOMMENDATION_RATE_LIMIT_PER_HOUR
+        value: "30"
+      - key: ROUTE_EXPLANATION_RATE_LIMIT_PER_HOUR
+        value: "30"
+      - key: FLEET_SUMMARY_RATE_LIMIT_PER_HOUR
+        value: "20"
+      - key: COACHING_RATE_LIMIT_PER_DAY
+        value: "10"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: REPORT_FROM_EMAIL
+        sync: false
+      - key: REPORT_TO_EMAILS
+        sync: false
+      - key: REDIS_URL
+        sync: false

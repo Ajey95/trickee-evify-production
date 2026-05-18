@@ -12,27 +12,32 @@ type AuthContextValue = {
   status: AuthState;
   session: Session | null;
   user: User | null;
+  authError: string | null;
   refreshUser: () => Promise<User | null>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-async function fetchCurrentUser(): Promise<User | null> {
+type CurrentUserResult = { user: User | null; error: string | null };
+
+async function fetchCurrentUser(): Promise<CurrentUserResult> {
   const { api } = await import("@/lib/api");
   const result = await api.auth.me();
-  if (!result.success) return null;
+  if (!result.success) return { user: null, error: result.error || "Unable to access workspace." };
   writeCachedProfile(result.data);
-  return result.data;
+  return { user: result.data, error: null };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(() => readCachedProfile());
   const [status, setStatus] = useState<AuthState>(() => (readCachedProfile() ? "authenticated" : "loading"));
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshUser = useCallback(async () => {
-    const nextUser = await fetchCurrentUser();
+    const { user: nextUser, error } = await fetchCurrentUser();
     setUser(nextUser);
+    setAuthError(error);
     setStatus(nextUser ? "authenticated" : "unauthenticated");
     return nextUser;
   }, []);
@@ -51,12 +56,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!active) return;
       setSession(nextSession);
       if (nextSession || readLegacyToken()) {
-        const nextUser = await fetchCurrentUser();
+        const { user: nextUser, error } = await fetchCurrentUser();
         if (!active) return;
         setUser(nextUser);
+        setAuthError(error);
         setStatus(nextUser ? "authenticated" : "unauthenticated");
       } else {
         setUser(null);
+        setAuthError(null);
         writeCachedProfile(null);
         setStatus("unauthenticated");
       }
@@ -67,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(nextSession);
       if (!nextSession && !readLegacyToken()) {
         setUser(null);
+        setAuthError(null);
         writeCachedProfile(null);
         setStatus("unauthenticated");
       } else {
@@ -89,13 +97,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setSession(null);
     setUser(null);
+    setAuthError(null);
     setStatus("unauthenticated");
     resetApiClientState();
   }, []);
 
   const value = useMemo(
-    () => ({ status, session, user, refreshUser, signOut }),
-    [status, session, user, refreshUser, signOut]
+    () => ({ status, session, user, authError, refreshUser, signOut }),
+    [status, session, user, authError, refreshUser, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

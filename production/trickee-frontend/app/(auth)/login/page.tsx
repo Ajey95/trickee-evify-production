@@ -38,7 +38,7 @@ export default function LoginPage() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
-  const { status, user, refreshUser } = useAuth();
+  const { status, user, authError, refreshUser } = useAuth();
 
   const canSubmit = useMemo(() => email.trim().length > 3 && password.length > 0 && !isLoading, [email, password, isLoading]);
   const canSendOtp = useMemo(() => codeTarget.trim().length > 3 && !otpLoading, [codeTarget, otpLoading]);
@@ -73,7 +73,11 @@ export default function LoginPage() {
           });
         }
       }
-      setError("This account is waiting for workspace access.");
+      setError(
+        authError === "Workspace access is pending approval"
+          ? "This account is waiting for workspace access."
+          : "We could not verify this session. Please try again."
+      );
       return false;
     }
     router.replace(homeForRole(nextUser.role));

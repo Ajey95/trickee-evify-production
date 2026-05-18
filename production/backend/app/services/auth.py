@@ -72,7 +72,7 @@ def _decode_supabase_token(token: str, settings) -> dict[str, Any] | None:
             return None
             
         # For ES256/RS256, verify the token is active by calling the Supabase Auth server.
-        payload = jwt.decode(token, options={"verify_signature": False})
+        payload = jwt.get_unverified_claims(token)
         with httpx.Client(timeout=4.0) as client:
             resp = client.get(
                 f"{settings.supabase_url}/auth/v1/user",

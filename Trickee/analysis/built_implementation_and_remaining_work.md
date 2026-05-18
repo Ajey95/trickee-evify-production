@@ -20,7 +20,7 @@ Trickee is now a backend-connected EV intelligence platform with live telemetry 
 - **ML:** V4.1 SOC/range inference with V5/V6 learning foundations
 - **Personalization:** Dynamic driver archetypes derived from live driver profile metrics
 - **Destination charging:** Route/live decisions can tell a driver exactly how much SOC is needed, how many minutes to charge, and which charger to use before committing to a destination.
-- **Notifications:** FCM foundations plus optional Resend weekly report email
+- **Notifications:** Dashboard alert feed is the reliable pilot channel; FCM/browser push foundations exist but need production receipt verification; WhatsApp is not implemented yet and is tracked as a future/fallback driver channel; Resend is used for report email, not live driver alerts.
 - **Deploy targets:** Vercel frontend and Render backend
 
 Current live-state principle:
@@ -75,6 +75,7 @@ Implemented tables/foundations:
 
 - `fleets`
 - `users`
+- `access_requests`
 - `vehicles`
 - `drivers`
 - `telemetry`
@@ -288,6 +289,8 @@ Implemented:
 - Supabase Auth as the primary production login/session path
 - Backend Supabase JWT verification using `SUPABASE_JWT_SECRET`
 - Internal user mapping by `users.supabase_user_id`, with email-link fallback for existing mapped users
+- New Supabase users without an approved Trickee user mapping are recorded in `access_requests` and remain blocked until a `trickee_admin` approves role/fleet/driver access.
+- Admin-managed access approval creates or updates the internal Trickee `users` mapping server-side; the frontend cannot self-assign admin, fleet, or driver permissions.
 - Backend-owned RBAC/ABAC checks using `users.role`, `fleet_id`, and `driver_id`
 - Legacy backend password login only when `LEGACY_AUTH_ENABLED=true`
 - Optional Firebase ID token login when Firebase auth is enabled
@@ -299,6 +302,8 @@ Implemented:
 - Notification personalization logs with fallback tracking
 - Alert feed and resolve endpoint
 - Charging/low-SOC alert foundations
+- Current pilot notification channel is the dashboard alert/feed surface.
+- WhatsApp/Twilio delivery is not implemented in production code yet. It is a recommended future fallback/high-priority channel for critical low-SOC alerts, charging opportunities, route-risk nudges, daily fleet summaries, and the conversational assistant.
 
 Current LLM configuration:
 
@@ -495,10 +500,17 @@ Remaining:
 
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/firebase-login`
+- `POST /api/v1/auth/access-request`
 - `GET /api/v1/auth/me`
 - `POST /api/v1/auth/fcm-token`
 - `DELETE /api/v1/auth/fcm-token`
 - `POST /api/v1/auth/logout`
+- `GET /api/v1/admin/access-requests`
+- `POST /api/v1/admin/access-requests`
+- `POST /api/v1/admin/access-requests/{request_id}/approve`
+- `POST /api/v1/admin/access-requests/{request_id}/reject`
+- `GET /api/v1/admin/fleets`
+- `GET /api/v1/admin/drivers`
 
 ### Vehicles
 
@@ -1096,6 +1108,13 @@ FCM deployment status checked:
 - `https://trickee-evify-live.vercel.app/firebase-messaging-sw.js` returned HTTP 200 and contains Firebase messaging code.
 - Full push receipt is still not marked complete because it requires a logged-in browser, notification permission, token registration, and an actual alert push on the deployed domain.
 
+Notification-channel status:
+
+- **Primary now:** dashboard alert feed and persisted alert/nudge records.
+- **Built foundation:** FCM service worker, browser token registration endpoint, and personalized notification wording endpoint.
+- **Needs verification:** end-to-end production FCM delivery from deployed backend/frontend.
+- **Not implemented yet:** WhatsApp delivery. Recommended later as opt-in fallback/high-priority delivery, not as the core decision system.
+
 Verification completed:
 
 - Backend full test suite: `41 passed`
@@ -1175,3 +1194,183 @@ Operational note:
 
 - Render/Supabase production values must come from environment variables, not from defaults in `config.py`.
 - Local `.env` files contain real credentials in the developer workspace and must not be committed. Any key that was ever hardcoded in archived code should be rotated before pilot.
+
+---
+
+## 21. Latest Local Dev Fix - Next.js CSP React Refresh
+
+Implemented in `production/trickee-frontend`:
+
+- Updated `next.config.mjs` so local development CSP includes `unsafe-eval` only when `NODE_ENV !== "production"`.
+- Production CSP remains stricter and does not allow `unsafe-eval`.
+
+Why:
+
+- Next.js dev mode uses React Refresh/Webpack runtime code that requires eval-like behavior.
+- Without the development-only exception, local pages can load HTML but fail to execute `main-app.js` under the browser's CSP.
+
+---
+
+## 22. Latest Frontend Feature - Premium Public Landing Page
+
+Implemented in `production/trickee-frontend`:
+
+- Replaced the root `/` redirect with a premium public landing page.
+- Added GSAP-powered entrance, scroll reveal, parallax, counter, and product-scene motion.
+- Added Lenis smooth scrolling for the public landing page.
+- Added direct routes into existing product surfaces:
+  - `/signup`
+  - `/login`
+  - `/fleet`
+  - `/map`
+  - `/routes`
+  - `/decisions`
+  - `/ai`
+  - `/impact`
+  - `/reports`
+- Updated site metadata to match the public positioning.
+
+Design notes:
+
+- Palette follows the existing Trickee dark graphite, refined teal, blue, and white-on-black system.
+- The landing page uses a full product cockpit scene instead of a disconnected marketing illustration.
+- Hero typography was tightened after visual review: headline size, line-height, supporting copy, and desktop grid ratio were reduced so the hero feels sleeker and no longer overwhelms the product scene.
+- Production CSP remains strict; local dev CSP still has the development-only React Refresh exception.
+
+Verification completed:
+
+- Frontend lint: passed.
+- Frontend type check: passed.
+- Frontend production build: passed.
+- Local route checks returned HTTP 200 for `/`, `/login`, `/signup`, `/fleet`, `/map`, `/routes`, `/decisions`, `/ai`, `/impact`, and `/reports`.
+- Landing page `_next/static` CSS and JavaScript assets returned correct MIME types.
+
+---
+
+## 23. Latest Auth/Admin Hardening - Workspace Access Approval
+
+Implemented in `production/backend`:
+
+- Added `AccessRequest` ORM model and Alembic migration `0010_access_requests`.
+- Applied `alembic upgrade head` to the configured Postgres database; Alembic advanced from `0009_ai_feature_logs` to `0010_access_requests`.
+- Added public access request intake at `POST /api/v1/auth/access-request`.
+- Added automatic pending-request recording when a valid Supabase identity exists but no approved internal Trickee user mapping exists.
+- Added admin-only access review endpoints:
+  - `GET /api/v1/admin/access-requests`
+  - `POST /api/v1/admin/access-requests`
+  - `POST /api/v1/admin/access-requests/{request_id}/approve`
+  - `POST /api/v1/admin/access-requests/{request_id}/reject`
+  - `GET /api/v1/admin/fleets`
+  - `GET /api/v1/admin/drivers`
+- Approval validates role, fleet, and driver relationships server-side before creating/updating the internal `users` row.
+- Admin approval/rejection actions write `security_events` audit records.
+- Supabase identity remains separate from Trickee authorization: identity proves the person, the backend grants workspace access.
+
+Implemented in `production/trickee-frontend`:
+
+- Signup now captures requested access type: fleet manager or driver.
+- Signup and unmapped login paths submit a pending workspace access request.
+- Password login now falls back to the legacy demo account path only when `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=true`; this keeps pilot/demo users usable while preserving the Supabase approval gate for real workspace users.
+- Admin console now includes:
+  - workspace request queue
+  - manual request creation
+  - role selector
+  - fleet selector
+  - driver selector for driver access
+  - approve/reject actions
+  - recent review list
+- Removed visible public/product copy that said `Trickee AI` in auth/sidebar brand surfaces; public UI now uses `Trickee`.
+- Body/UI font is Inter.
+- Display/headline font is Space Grotesk for the large bold landing/auth/admin headings.
+- Removed the temporary `geist` package after switching to the requested Inter + Space Grotesk typography pair.
+
+Verification completed:
+
+- Backend focused auth suite: `3 passed`
+- Frontend lint: passed
+- Frontend production build: passed
+
+---
+
+## 24. Latest Deployment Runbook And Notification Channel Clarification
+
+Documentation added:
+
+- Created `Trickee/analysis/deploy_steps.md`.
+- The runbook now documents:
+  - Supabase Auth email setup through Resend SMTP
+  - Backend report email setup through Resend API
+  - Google OAuth setup in GCP
+  - Supabase redirect URLs
+  - Vercel production environment variables
+  - Render production environment variables
+  - Supabase custom email/password admin strategy
+  - demo user creation and role-mapping SQL for:
+    - `admin@trickee.ai` as `trickee_admin`
+    - `fleet@evify.in` as `fleet_operator`
+    - `driver1@evify.in` as `driver`
+
+Production env/config status:
+
+- Vercel production env values were updated for:
+  - `NEXT_PUBLIC_BACKEND_URL=https://trickee-evify-production.onrender.com/api/v1`
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=false`
+- `render.yaml` was expanded so Render has explicit production placeholders/defaults for:
+  - `ENVIRONMENT=production`
+  - `SUPABASE_JWT_SECRET`
+  - `SUPABASE_JWT_AUDIENCE=authenticated`
+  - `LEGACY_AUTH_ENABLED=false`
+  - H3 external-context settings
+  - AI/Groq rate/budget settings
+  - Resend report-email settings
+  - Redis URL
+- Live Render secret values still need to be entered in the Render dashboard or through an authenticated Render API/CLI session.
+- The critical backend auth variables are:
+  - `DATABASE_URL`
+  - `SECRET_KEY`
+  - `SUPABASE_JWT_SECRET`
+  - `SUPABASE_JWT_AUDIENCE=authenticated`
+  - `LEGACY_AUTH_ENABLED=false`
+
+WhatsApp decision:
+
+- WhatsApp is beneficial for pilot because drivers already use it and it can improve visibility for critical nudges.
+- WhatsApp is **not currently implemented** in the production notification layer.
+- Recommended role: opt-in fallback/high-priority delivery channel for:
+  - critical low-SOC warnings
+  - charging opportunities
+  - route-risk alerts
+  - daily fleet summaries
+  - driver coaching summaries
+  - future conversational EV assistant
+- It should not replace backend alert decisions, dashboard alerts, or FCM. The production shape should remain:
+
+```text
+Backend decision/alert engine
+  -> dashboard alert/feed
+  -> FCM/browser push when verified
+  -> WhatsApp fallback/high-priority channel when configured
+```
+
+WhatsApp constraints to plan for:
+
+- Driver opt-in/consent required.
+- Meta WhatsApp Business template approval required for proactive outbound messages.
+- 24-hour customer-service window applies.
+- Per-message cost applies.
+- Abuse controls and nudge frequency caps are required to avoid drivers muting alerts.
+
+Auth debugging improvement:
+
+- Backend auth now distinguishes between invalid/unverified credentials and valid Supabase identity without Trickee workspace approval.
+- `/api/v1/auth/me` now returns:
+  - `401` when the token cannot be validated, usually `SUPABASE_JWT_SECRET`, audience, missing authorization header, or Supabase project mismatch.
+  - `403` when the Supabase identity is valid but the internal Trickee `users` mapping is missing/inactive/deleted.
+- Frontend login copy now treats `403 Workspace access is pending approval` as the workspace approval case and treats other auth failures as session verification problems.
+- Verification completed:
+  - backend focused auth suite: `3 passed`
+  - frontend lint: passed
+  - frontend production build: passed
