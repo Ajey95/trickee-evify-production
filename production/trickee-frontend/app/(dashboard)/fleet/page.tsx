@@ -209,9 +209,11 @@ export default function FleetPage() {
           </CardHeader>
           <CardContent>
             {weeklyReport?.report?.narrative ? (
-              <ReactMarkdown className="text-sm text-text-primary leading-relaxed space-y-2 [&>ul]:list-disc [&>ul]:pl-5 [&>p]:mb-2">
-                {weeklyReport.report.narrative}
-              </ReactMarkdown>
+              <div className="text-sm text-text-primary leading-relaxed space-y-2 [&>ul]:list-disc [&>ul]:pl-5 [&>p]:mb-2">
+                <ReactMarkdown>
+                  {weeklyReport.report.narrative}
+                </ReactMarkdown>
+              </div>
             ) : (
               <p className="text-sm text-text-primary leading-relaxed">
                 Weekly report will appear after live telemetry metrics load.
