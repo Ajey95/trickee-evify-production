@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, Eye, EyeOff, Lock, Mail, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { resetApiClientState } from "@/lib/api";
+import { api, resetApiClientState } from "@/lib/api";
 import { homeForRole } from "@/lib/roles";
+import { UserRole } from "@/types";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient, isSupabaseConfigured } from "@/utils/supabase/client";
 
@@ -40,6 +41,7 @@ function StrengthBar({ password }: { password: string }) {
 export default function SignupPage() {
   const [fullName, setFullName] = useState("");
   const [company, setCompany] = useState("");
+  const [requestedRole, setRequestedRole] = useState<Exclude<UserRole, "trickee_admin">>("fleet_operator");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -116,6 +118,7 @@ export default function SignupPage() {
           data: {
             full_name: fullName.trim(),
             company: company.trim(),
+            requested_role: requestedRole,
             access_request_source: "trickee_web",
           },
         },
@@ -128,6 +131,13 @@ export default function SignupPage() {
       }
 
       resetApiClientState();
+      await api.auth.accessRequest({
+        email: email.trim(),
+        full_name: fullName.trim(),
+        company: company.trim(),
+        requested_role: requestedRole,
+        supabase_user_id: data.user?.id,
+      });
       if (data.session) {
         const mappedUser = await refreshUser();
         if (mappedUser) {
@@ -212,6 +222,31 @@ export default function SignupPage() {
                           required
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-text-dim">
+                      Access type
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        ["fleet_operator", "Fleet manager"],
+                        ["driver", "Driver"],
+                      ].map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setRequestedRole(value as Exclude<UserRole, "trickee_admin">)}
+                          className={`h-10 rounded-lg border text-sm font-medium transition ${
+                            requestedRole === value
+                              ? "border-accent-teal/60 bg-accent-teal/10 text-text-primary"
+                              : "border-white/[0.08] bg-white/[0.03] text-text-dim hover:text-text-primary"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
@@ -325,7 +360,7 @@ export default function SignupPage() {
               T
             </div>
             <div>
-              <p className="text-base font-semibold leading-tight">Trickee AI</p>
+              <p className="text-base font-semibold leading-tight">Trickee</p>
               <p className="text-sm text-text-dim">EV fleet intelligence</p>
             </div>
           </div>

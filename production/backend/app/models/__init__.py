@@ -1,5 +1,6 @@
 from app.models.entities import (
     Alert,
+    AccessRequest,
     AIInteractionLog,
     AssistantMessage,
     ChargingDecisionRecord,
@@ -25,6 +26,7 @@ from app.models.entities import (
 
 __all__ = [
     "Alert",
+    "AccessRequest",
     "AIInteractionLog",
     "AssistantMessage",
     "ChargingDecisionRecord",

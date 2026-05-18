@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.config import get_settings
-from app.models import DevicePushToken, User
+from app.models import AccessRequest, DevicePushToken, User
 from app.schemas.api import ok
 from app.services.audit import record_security_event
 from app.services.auth import create_access_token, get_current_user, verify_password
@@ -41,6 +41,16 @@ class FcmTokenRequest(BaseModel):
     token: str = Field(min_length=20, max_length=4096)
     platform: str = Field(default="web", pattern="^(web|android|ios)$")
     device_label: str | None = Field(default=None, max_length=120)
+
+
+class AccessRequestPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=255)
+    company: str | None = Field(default=None, max_length=255)
+    requested_role: str = Field(default="fleet_operator", pattern="^(fleet_operator|driver|trickee_admin)$")
+    supabase_user_id: str | None = Field(default=None, max_length=128)
 
 
 def _login_key(request: Request, email: str) -> str:
@@ -148,6 +158,39 @@ def firebase_login(
     record_security_event(db, event_type="firebase_login_success", request=request, user=user)
     db.commit()
     return ok(_session_payload(user))
+
+
+@router.post("/access-request")
+def request_workspace_access(
+    payload: AccessRequestPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(ip_rate_limit("access-request", lambda: get_settings().auth_rate_limit_per_minute)),
+):
+    email = payload.email.lower()
+    row = db.query(AccessRequest).filter(AccessRequest.email == email).first()
+    if not row:
+        row = AccessRequest(
+            email=email,
+            full_name=payload.full_name,
+            company=payload.company,
+            requested_role=payload.requested_role,
+            supabase_user_id=payload.supabase_user_id,
+        )
+        db.add(row)
+    elif row.status == "pending":
+        row.full_name = payload.full_name or row.full_name
+        row.company = payload.company or row.company
+        row.requested_role = payload.requested_role
+        row.supabase_user_id = payload.supabase_user_id or row.supabase_user_id
+    record_security_event(
+        db,
+        event_type="workspace_access_requested",
+        request=request,
+        metadata={"email_domain": email.split("@")[-1], "requested_role": payload.requested_role},
+    )
+    db.commit()
+    return ok({"status": "received"}, "Access request received")
 
 
 @router.get("/me")

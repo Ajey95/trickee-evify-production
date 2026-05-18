@@ -23,6 +23,23 @@ def user_dict(user) -> dict[str, Any]:
     }
 
 
+def access_request_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "email": row.email,
+        "supabase_user_id": row.supabase_user_id,
+        "full_name": row.full_name,
+        "company": row.company,
+        "requested_role": row.requested_role,
+        "status": row.status,
+        "reviewed_by_user_id": row.reviewed_by_user_id,
+        "review_note": row.review_note,
+        "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
+        "reviewed_at": iso(row.reviewed_at),
+    }
+
+
 def device_push_token_dict(row) -> dict[str, Any]:
     return {
         "id": row.id,

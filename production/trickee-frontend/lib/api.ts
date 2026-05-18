@@ -1,4 +1,6 @@
 import { 
+  AccessRequest,
+  Fleet,
   User, 
   Vehicle, 
   Prediction, 
@@ -209,6 +211,11 @@ export const api = {
       body: JSON.stringify({ email, password }),
       cacheTtlMs: 0,
     }),
+    accessRequest: (data: { email: string; full_name: string; company?: string; requested_role?: string; supabase_user_id?: string }) => fetcher<{ status: string }>("/auth/access-request", {
+      method: "POST",
+      body: JSON.stringify(data),
+      cacheTtlMs: 0,
+    }),
     wsTicket: () => fetcher<{ ticket: string; expires_in_seconds: number }>("/auth/ws-ticket", { cacheTtlMs: 0 }),
     registerFcmToken: (token: string, device_label?: string) => fetcher<any>("/auth/fcm-token", {
       method: "POST",
@@ -300,6 +307,24 @@ export const api = {
   admin: {
     metrics: () => fetcher<ModelMetrics>("/admin/metrics"),
     users: () => fetcher<User[]>("/admin/users"),
+    fleets: () => fetcher<Fleet[]>("/admin/fleets"),
+    drivers: () => fetcher<Driver[]>("/admin/drivers"),
+    accessRequests: () => fetcher<AccessRequest[]>("/admin/access-requests", { cacheTtlMs: 0 }),
+    createAccessRequest: (data: { email: string; full_name: string; company?: string; requested_role: string; supabase_user_id?: string }) => fetcher<AccessRequest>("/admin/access-requests", {
+      method: "POST",
+      body: JSON.stringify(data),
+      cacheTtlMs: 0,
+    }),
+    approveAccessRequest: (id: string, data: { role: string; fleet_id?: string; driver_id?: string; full_name?: string; review_note?: string }) => fetcher<{ access_request: AccessRequest; user: User }>(`/admin/access-requests/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      cacheTtlMs: 0,
+    }),
+    rejectAccessRequest: (id: string, data: { review_note?: string } = {}) => fetcher<AccessRequest>(`/admin/access-requests/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      cacheTtlMs: 0,
+    }),
   },
 
   intelligence: {

@@ -12,6 +12,7 @@ import { Vehicle } from "@/types";
 import { api } from "@/lib/api";
 import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 import { BatteryWarning, MapPin, Sparkles, UsersRound } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 export default function FleetPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -207,9 +208,15 @@ export default function FleetPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-text-primary leading-relaxed">
-              {weeklyReport?.report?.narrative || "Weekly report will appear after live telemetry metrics load."}
-            </p>
+            {weeklyReport?.report?.narrative ? (
+              <ReactMarkdown className="text-sm text-text-primary leading-relaxed space-y-2 [&>ul]:list-disc [&>ul]:pl-5 [&>p]:mb-2">
+                {weeklyReport.report.narrative}
+              </ReactMarkdown>
+            ) : (
+              <p className="text-sm text-text-primary leading-relaxed">
+                Weekly report will appear after live telemetry metrics load.
+              </p>
+            )}
           </CardContent>
         </Card>
 

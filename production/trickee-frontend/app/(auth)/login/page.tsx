@@ -60,11 +60,39 @@ export default function LoginPage() {
     resetApiClientState();
     const nextUser = await refreshUser();
     if (!nextUser) {
+      if (isSupabaseConfigured) {
+        const { data } = await createClient().auth.getUser();
+        const account = data.user;
+        if (account?.email) {
+          await api.auth.accessRequest({
+            email: account.email,
+            full_name: account.user_metadata?.full_name || account.user_metadata?.name || account.email.split("@")[0],
+            company: account.user_metadata?.company,
+            requested_role: account.user_metadata?.requested_role || "fleet_operator",
+            supabase_user_id: account.id,
+          });
+        }
+      }
       setError("This account is waiting for workspace access.");
       return false;
     }
     router.replace(homeForRole(nextUser.role));
     return true;
+  };
+
+  const signInWithLegacy = async (showError = true) => {
+    const result = await api.auth.legacyLogin(email.trim(), password);
+    if (!result.success || !result.data?.access_token) {
+      if (showError) {
+        setError(result.error || "Invalid email or password.");
+      }
+      return false;
+    }
+    if (isSupabaseConfigured) {
+      await createClient().auth.signOut();
+    }
+    writeLegacyToken(result.data.access_token);
+    return redirectAfterAuth();
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -74,6 +102,9 @@ export default function LoginPage() {
     setError("");
 
     try {
+      if (legacyAuthEnabled && (await signInWithLegacy(false))) {
+        return;
+      }
       if (isSupabaseConfigured) {
         const supabase = createClient();
         const { error: supabaseError } = await supabase.auth.signInWithPassword({
@@ -81,25 +112,27 @@ export default function LoginPage() {
           password,
         });
         if (supabaseError) {
+          if (legacyAuthEnabled && (await signInWithLegacy())) {
+            return;
+          }
           setError(supabaseError.message || "Invalid email or password.");
           setIsLoading(false);
           return;
         }
-      } else if (legacyAuthEnabled) {
-        const result = await api.auth.legacyLogin(email.trim(), password);
-        if (!result.success || !result.data?.access_token) {
-          setError(result.error || "Invalid email or password.");
-          setIsLoading(false);
+        if (!(await redirectAfterAuth()) && legacyAuthEnabled && (await signInWithLegacy(false))) {
           return;
         }
-        writeLegacyToken(result.data.access_token);
+        setIsLoading(false);
+        return;
+      } else if (legacyAuthEnabled) {
+        await signInWithLegacy();
+        setIsLoading(false);
+        return;
       } else {
         setError("Account access is unavailable right now.");
         setIsLoading(false);
         return;
       }
-
-      await redirectAfterAuth();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed. Please try again.");
       setIsLoading(false);
@@ -211,7 +244,7 @@ export default function LoginPage() {
               T
             </div>
             <div>
-              <p className="text-base font-semibold leading-tight">Trickee AI</p>
+              <p className="text-base font-semibold leading-tight">Trickee</p>
               <p className="text-sm text-text-dim">EV fleet intelligence</p>
             </div>
           </div>
@@ -250,7 +283,7 @@ export default function LoginPage() {
                 T
               </div>
               <div>
-                <p className="text-base font-semibold leading-tight">Trickee AI</p>
+                <p className="text-base font-semibold leading-tight">Trickee</p>
                 <p className="text-sm text-text-dim">EV fleet intelligence</p>
               </div>
             </div>

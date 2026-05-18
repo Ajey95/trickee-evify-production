@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import User
+from app.models import AccessRequest, User
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -79,6 +79,29 @@ def _find_supabase_user(db: Session, payload: dict[str, Any]) -> User | None:
     return user
 
 
+def record_supabase_access_request(db: Session, payload: dict[str, Any]) -> AccessRequest | None:
+    email = payload.get("email")
+    if not email:
+        return None
+    metadata = payload.get("user_metadata") or {}
+    requested_role = metadata.get("requested_role") or metadata.get("role") or "fleet_operator"
+    if requested_role not in {"fleet_operator", "driver", "trickee_admin"}:
+        requested_role = "fleet_operator"
+    full_name = metadata.get("full_name") or metadata.get("name") or email.split("@")[0]
+    company = metadata.get("company") or metadata.get("fleet") or metadata.get("organization")
+    row = db.query(AccessRequest).filter(AccessRequest.email == email).first()
+    if not row:
+        row = AccessRequest(email=email, full_name=full_name, company=company, requested_role=requested_role)
+        db.add(row)
+    row.supabase_user_id = str(payload.get("sub")) if payload.get("sub") else row.supabase_user_id
+    row.full_name = full_name or row.full_name
+    row.company = company or row.company
+    if row.status == "pending":
+        row.requested_role = requested_role
+    db.commit()
+    return row
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     settings = get_settings()
     credentials_error = _credentials_error()
@@ -87,6 +110,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if supabase_payload:
         user = _find_supabase_user(db, supabase_payload)
         if not user or not user.is_active or user.deleted_at is not None:
+            if not user:
+                record_supabase_access_request(db, supabase_payload)
             raise credentials_error
         return user
 

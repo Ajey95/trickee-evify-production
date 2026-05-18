@@ -10,6 +10,21 @@ export interface User {
   is_active?: boolean;
 }
 
+export interface AccessRequest {
+  id: string;
+  email: string;
+  supabase_user_id?: string;
+  full_name: string;
+  company?: string;
+  requested_role: UserRole;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewed_by_user_id?: string;
+  review_note?: string;
+  created_at?: string;
+  updated_at?: string;
+  reviewed_at?: string;
+}
+
 export interface Fleet {
   id: string;
   name: string;
@@ -69,6 +84,7 @@ export interface Vehicle {
 
 export interface Driver {
   id: string;
+  fleet_id?: string;
   driver_code: string;
   full_name: string;
   style_label: 'Aggressive' | 'Smooth' | 'Efficient' | 'Cautious' | 'Moderate';

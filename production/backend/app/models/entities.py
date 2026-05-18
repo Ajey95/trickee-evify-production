@@ -49,6 +49,23 @@ class User(Base):
     push_tokens: Mapped[list["DevicePushToken"]] = relationship(back_populates="user")
 
 
+class AccessRequest(Base):
+    __tablename__ = "access_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    supabase_user_id: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="Pending user")
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    requested_role: Mapped[str] = mapped_column(String(50), nullable=False, default="fleet_operator")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class DevicePushToken(Base):
     __tablename__ = "device_push_tokens"
 

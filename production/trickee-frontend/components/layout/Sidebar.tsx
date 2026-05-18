@@ -60,7 +60,7 @@ export const Sidebar = () => {
           <div className="w-8 h-8 bg-accent-teal rounded-lg flex items-center justify-center shadow-lg shadow-accent-teal/20">
             <span className="text-bg-primary font-bold text-lg">T</span>
           </div>
-          <span className="font-bold text-text-primary tracking-tight">Trickee AI</span>
+          <span className="font-bold text-text-primary tracking-tight">Trickee</span>
         </div>
       </div>
 
