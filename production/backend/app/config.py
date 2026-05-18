@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str | None = None
     supabase_url: str | None = None
     supabase_anon_key: str | None = None
+    supabase_jwks_url: str | None = None
     supabase_jwt_audience: str = "authenticated"
     legacy_auth_enabled: bool = False
     groq_api_key: str | None = None

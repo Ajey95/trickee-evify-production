@@ -1,8 +1,11 @@
+import base64
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
 from jose import jwt
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
 from app.models import User
@@ -28,9 +31,47 @@ def _supabase_token(secret: str, sub: str, email: str) -> str:
     )
 
 
+def _b64url_uint(value: int) -> str:
+    raw = value.to_bytes(32, "big")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _supabase_es256_token(sub: str, email: str, issuer: str, kid: str):
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_numbers = private_key.public_key().public_numbers()
+    public_jwk = {
+        "kty": "EC",
+        "crv": "P-256",
+        "kid": kid,
+        "use": "sig",
+        "alg": "ES256",
+        "x": _b64url_uint(public_numbers.x),
+        "y": _b64url_uint(public_numbers.y),
+    }
+    token = jwt.encode(
+        {
+            "sub": sub,
+            "email": email,
+            "aud": "authenticated",
+            "iss": issuer,
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+        },
+        private_pem,
+        algorithm="ES256",
+        headers={"kid": kid},
+    )
+    return token, public_jwk
+
+
 def test_supabase_token_maps_user_by_email(db_session, monkeypatch):
     _reset_settings(
         monkeypatch,
+        SUPABASE_URL="",
         SUPABASE_JWT_SECRET="supabase-secret",
         SUPABASE_JWT_AUDIENCE="authenticated",
         LEGACY_AUTH_ENABLED="false",
@@ -51,6 +92,42 @@ def test_supabase_token_maps_user_by_email(db_session, monkeypatch):
     assert current_user.id == user.id
     assert current_user.supabase_user_id == "supabase-user-1"
     assert current_user.auth_provider == "supabase"
+
+
+def test_supabase_es256_token_verified_with_project_jwks(db_session, monkeypatch):
+    project_url = "https://project-ref.supabase.co"
+    issuer = f"{project_url}/auth/v1"
+    token, public_jwk = _supabase_es256_token(
+        "supabase-user-es256",
+        "admin@example.com",
+        issuer,
+        "test-kid",
+    )
+    _reset_settings(
+        monkeypatch,
+        SUPABASE_URL=project_url,
+        SUPABASE_JWT_AUDIENCE="authenticated",
+        LEGACY_AUTH_ENABLED="false",
+    )
+    monkeypatch.setattr(
+        "app.services.auth._fetch_supabase_jwks",
+        lambda jwks_url, force_refresh=False: {"keys": [public_jwk]},
+    )
+    user = User(
+        email="admin@example.com",
+        full_name="Admin User",
+        role="trickee_admin",
+        auth_provider="supabase",
+        password_hash=None,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    current_user = get_current_user(token=token, db=db_session)
+
+    assert current_user.id == user.id
+    assert current_user.supabase_user_id == "supabase-user-es256"
+    assert current_user.role == "trickee_admin"
 
 
 def test_legacy_token_rejected_when_rollback_disabled(db_session, monkeypatch):

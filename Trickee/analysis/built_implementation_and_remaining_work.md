@@ -287,7 +287,7 @@ Endpoint:
 Implemented:
 
 - Supabase Auth as the primary production login/session path
-- Backend Supabase JWT verification using `SUPABASE_JWT_SECRET`
+- Backend Supabase JWT verification supports both legacy HS256 tokens via `SUPABASE_JWT_SECRET` and current Supabase asymmetric tokens (`ES256`/`RS256`) via project JWKS from `SUPABASE_URL`.
 - Internal user mapping by `users.supabase_user_id`, with email-link fallback for existing mapped users
 - New Supabase users without an approved Trickee user mapping are recorded in `access_requests` and remain blocked until a `trickee_admin` approves role/fleet/driver access.
 - Admin-managed access approval creates or updates the internal Trickee `users` mapping server-side; the frontend cannot self-assign admin, fleet, or driver permissions.
@@ -1321,6 +1321,8 @@ Production env/config status:
 - `render.yaml` was expanded so Render has explicit production placeholders/defaults for:
   - `ENVIRONMENT=production`
   - `SUPABASE_JWT_SECRET`
+  - `SUPABASE_URL`
+  - `SUPABASE_JWKS_URL`
   - `SUPABASE_JWT_AUDIENCE=authenticated`
   - `LEGACY_AUTH_ENABLED=false`
   - H3 external-context settings
@@ -1332,6 +1334,7 @@ Production env/config status:
   - `DATABASE_URL`
   - `SECRET_KEY`
   - `SUPABASE_JWT_SECRET`
+  - `SUPABASE_URL`
   - `SUPABASE_JWT_AUDIENCE=authenticated`
   - `LEGACY_AUTH_ENABLED=false`
 
@@ -1366,11 +1369,12 @@ WhatsApp constraints to plan for:
 Auth debugging improvement:
 
 - Backend auth now distinguishes between invalid/unverified credentials and valid Supabase identity without Trickee workspace approval.
+- Production Supabase Auth now handles the newer `ES256` Supabase access tokens by validating against the project's JWKS. This fixes the deployed `401 Could not validate credentials` case where the browser had a valid Supabase session but Render only had HS256 secret-based validation configured.
 - `/api/v1/auth/me` now returns:
-  - `401` when the token cannot be validated, usually `SUPABASE_JWT_SECRET`, audience, missing authorization header, or Supabase project mismatch.
+  - `401` when the token cannot be validated, usually missing/incorrect `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, audience, missing authorization header, or Supabase project mismatch.
   - `403` when the Supabase identity is valid but the internal Trickee `users` mapping is missing/inactive/deleted.
 - Frontend login copy now treats `403 Workspace access is pending approval` as the workspace approval case and treats other auth failures as session verification problems.
 - Verification completed:
-  - backend focused auth suite: `3 passed`
+  - backend focused auth suite: `4 passed`
   - frontend lint: passed
   - frontend production build: passed
