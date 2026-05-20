@@ -7,7 +7,7 @@ This repository contains:
 - a FastAPI backend for EV telemetry, AI prediction, auth, alerts, route intelligence, wait/order/charging intelligence, and V6-ready data capture;
 - a Next.js frontend for fleet, driver, route, alert, model, and admin dashboards;
 - analysis and roadmap documentation explaining what is built, what remains, and why the current architecture was chosen;
-- Render/Vercel/Supabase deployment configuration.
+- Render/Vercel/Supabase deployment configuration
 
 ---
 
