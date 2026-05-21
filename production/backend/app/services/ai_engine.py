@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import Prediction, Telemetry, Vehicle
 from app.services.physics import compute_range_factors
+from app.services.soc_quality import latest_plausible_soc_segment
 
 
 FEATURE_COLS = [
@@ -144,13 +145,27 @@ class AiEngine:
             db.query(Telemetry)
             .filter(Telemetry.vehicle_id == vehicle.id)
             .order_by(desc(Telemetry.recorded_at))
-            .limit(SEQ_LEN)
+            .limit(SEQ_LEN * 3)
             .all()
         )
         if len(rows) < SEQ_LEN:
             raise ValueError(f"Need {SEQ_LEN} telemetry rows for V4.1 inference; found {len(rows)}")
 
-        window = list(reversed(rows))
+        clean_segment, rejected_transitions = latest_plausible_soc_segment(list(reversed(rows)))
+        if rejected_transitions:
+            logger.warning(
+                "Skipped impossible SOC transition(s) before V4.1 inference vehicle_id=%s count=%s latest=%s",
+                vehicle.id,
+                len(rejected_transitions),
+                rejected_transitions[-1],
+            )
+        if len(clean_segment) < SEQ_LEN:
+            raise ValueError(
+                f"Need {SEQ_LEN} clean telemetry rows for V4.1 inference after SOC quality filtering; "
+                f"found {len(clean_segment)}"
+            )
+
+        window = clean_segment[-SEQ_LEN:]
         feature_matrix = np.array([self.telemetry_to_features(row) for row in window], dtype=np.float32)
         x_scaled = self.scaler.transform(feature_matrix).astype(np.float32)
         x_tensor = torch.tensor(x_scaled).unsqueeze(0)

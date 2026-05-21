@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Driver, NudgeEvent, Telemetry, WaitEvent
 from app.services.external_context import external_context
+from app.services.soc_quality import is_plausible_soc_transition
 
 SOC_RISE_CHARGE_THRESHOLD = 2.0
 LOW_SOC_THRESHOLD = 20.0
@@ -373,6 +374,8 @@ def _cluster_zones(rows: list[Telemetry], max_zones: int = 5) -> list[dict[str, 
 
 def detect_soc_rise_charging(prev: Telemetry | None, row: Telemetry) -> dict[str, Any] | None:
     if not prev:
+        return None
+    if not is_plausible_soc_transition(prev.soc, row.soc, prev.recorded_at, row.recorded_at):
         return None
     delta_soc = row.soc - prev.soc
     if delta_soc < SOC_RISE_CHARGE_THRESHOLD:

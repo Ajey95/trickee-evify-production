@@ -245,6 +245,7 @@ export const api = {
     me: () => fetcher<Driver>("/drivers/me"),
     get: (id: string) => fetcher<Driver>(`/drivers/${id}`),
     trips: (id: string, limit = 20) => fetcher<any[]>(`/drivers/${id}/trips?limit=${limit}`),
+    tripTrace: (id: string, tripId: string) => fetcher<any>(`/drivers/${id}/trips/${tripId}/trace`),
     profile: (id: string) => fetcher<any>(`/drivers/${id}/profile`),
     updateProfile: (id: string, data: any) => fetcher<any>(`/drivers/${id}/profile/update`, {
       method: "POST",

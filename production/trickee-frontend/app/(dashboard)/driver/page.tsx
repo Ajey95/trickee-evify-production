@@ -73,7 +73,7 @@ export default function DriverProfilePage() {
   }, [driver, vehicles]);
 
   return (
-    <RoleGuard allowedRoles={["driver", "trickee_admin"]}>
+    <RoleGuard allowedRoles={["driver"]}>
       <div className="space-y-8 pb-12">
         <div className="flex justify-between items-end">
           <div>

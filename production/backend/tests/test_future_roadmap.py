@@ -4,6 +4,7 @@ from app.services.external_context import ExternalContextService, external_conte
 from app.services.intelligence_history import persist_charging_decision, persist_order_assignment
 from app.services.live_intelligence import fleet_live_overview, live_driver_decision, live_map_context, weekly_live_metrics
 from app.services.live_driver_profile import classify_driver_archetype, detect_soc_rise_charging, live_driver_profile
+from app.services.soc_quality import is_plausible_eval_soc_delta, is_plausible_soc_transition, latest_plausible_soc_segment
 from app.services.order_assignment_engine import assign_order
 from app.services.route_scorer import route_scores
 from app.services.wait_time_estimator import estimate_wait_window
@@ -224,6 +225,37 @@ def test_soc_rise_charging_detection():
     assert result is not None
     assert result["method"] == "soc_rise"
     assert result["delta_soc"] == 3.2
+
+
+def test_impossible_soc_jump_is_not_marked_as_charging():
+    now = datetime.utcnow()
+    prev = Telemetry(vehicle_id="v1", driver_id="d1", recorded_at=now, soc=0, current=2, battery_voltage=50, speed=0, temp_max=35, soh=95)
+    row = Telemetry(vehicle_id="v1", driver_id="d1", recorded_at=now + timedelta(minutes=5), soc=100, current=2, battery_voltage=50, speed=0, temp_max=35, soh=95)
+
+    assert detect_soc_rise_charging(prev, row) is None
+    assert is_plausible_soc_transition(prev.soc, row.soc, prev.recorded_at, row.recorded_at) is False
+
+
+def test_eval_label_filter_rejects_impossible_five_minute_delta():
+    assert is_plausible_eval_soc_delta(4.9) is True
+    assert is_plausible_eval_soc_delta(-5.0) is True
+    assert is_plausible_eval_soc_delta(90.0) is False
+
+
+def test_latest_plausible_soc_segment_resets_after_bad_jump():
+    now = datetime.utcnow()
+    rows = [
+        Telemetry(vehicle_id="v1", recorded_at=now, soc=44, current=2, battery_voltage=50, speed=10, temp_max=35, soh=95),
+        Telemetry(vehicle_id="v1", recorded_at=now + timedelta(minutes=5), soc=43, current=2, battery_voltage=50, speed=10, temp_max=35, soh=95),
+        Telemetry(vehicle_id="v1", recorded_at=now + timedelta(minutes=10), soc=100, current=2, battery_voltage=50, speed=10, temp_max=35, soh=95),
+        Telemetry(vehicle_id="v1", recorded_at=now + timedelta(minutes=15), soc=99, current=2, battery_voltage=50, speed=10, temp_max=35, soh=95),
+    ]
+
+    segment, rejected = latest_plausible_soc_segment(rows)
+
+    assert [row.soc for row in segment] == [100, 99]
+    assert len(rejected) == 1
+    assert rejected[0]["delta_soc"] == 57.0
 
 
 def test_driver_archetype_classifier_uses_live_metrics_and_baseline():

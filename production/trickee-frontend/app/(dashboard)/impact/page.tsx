@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { BatteryCharging, CheckCircle2, Clock3, IndianRupee, PackageCheck, RefreshCcw, ShieldCheck, Sparkles } from "lucide-react";
+import { BatteryCharging, CheckCircle2, ChevronRight, Clock3, IndianRupee, PackageCheck, RefreshCcw, ShieldCheck, Sparkles, TrendingUp } from "lucide-react";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -57,6 +57,7 @@ export default function DailyImpactPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
 
   const load = useCallback(async (showLoading = false) => {
     if (showLoading) setIsLoading(true);
@@ -80,7 +81,15 @@ export default function DailyImpactPage() {
   const summary = report?.summary || {};
   const driverReports = useMemo(() => report?.driver_reports || [], [report]);
   const coverage = report?.tool_evidence || [];
-  const topDrivers = useMemo(() => driverReports.slice(0, 6), [driverReports]);
+  const topDrivers = useMemo(() => driverReports, [driverReports]);
+  const selectedDriver = useMemo(
+    () => driverReports.find((driver) => driver.driver_id === selectedDriverId) || driverReports[0],
+    [driverReports, selectedDriverId]
+  );
+  const maxDriverValue = useMemo(
+    () => Math.max(...topDrivers.map((row) => Number(row.metrics.operating_value_inr || 0)), 1),
+    [topDrivers]
+  );
 
   const kpis = [
     {
@@ -191,23 +200,35 @@ export default function DailyImpactPage() {
                 <div className="space-y-3">
                   {topDrivers.map((driver) => {
                     const value = Number(driver.metrics.operating_value_inr || 0);
-                    const maxValue = Math.max(...topDrivers.map((row) => Number(row.metrics.operating_value_inr || 0)), 1);
+                    const isSelected = selectedDriver?.driver_id === driver.driver_id;
                     return (
-                      <div key={driver.driver_id} className="rounded-xl border border-bg-border bg-bg-primary/40 p-4">
+                      <button
+                        key={driver.driver_id}
+                        type="button"
+                        onClick={() => setSelectedDriverId(driver.driver_id)}
+                        className={`w-full rounded-xl border p-4 text-left transition ${
+                          isSelected
+                            ? "border-accent-teal/60 bg-accent-teal/10"
+                            : "border-bg-border bg-bg-primary/40 hover:border-accent-teal/40"
+                        }`}
+                      >
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div>
                             <p className="font-semibold text-text-primary">{driver.driver_code} · {driver.driver_name}</p>
                             <p className="mt-1 text-sm text-text-dim">{driver.headline}</p>
                           </div>
-                          <div className="text-left md:text-right">
-                            <p className="font-mono text-lg font-semibold text-text-primary">{formatInr(value)}</p>
-                            <p className="text-[11px] uppercase tracking-[0.16em] text-text-dim">Value</p>
+                          <div className="flex items-center gap-3 text-left md:text-right">
+                            <ChevronRight className={`h-4 w-4 ${isSelected ? "text-accent-teal" : "text-text-dim"}`} />
+                            <div>
+                              <p className="font-mono text-lg font-semibold text-text-primary">{formatInr(value)}</p>
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-text-dim">Value</p>
+                            </div>
                           </div>
                         </div>
                         <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-bg-border">
                           <div
                             className="h-full rounded-full bg-accent-teal"
-                            style={{ width: `${Math.min(100, Math.max(6, (value / maxValue) * 100))}%` }}
+                            style={{ width: `${Math.min(100, Math.max(6, (value / maxDriverValue) * 100))}%` }}
                           />
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
@@ -228,7 +249,7 @@ export default function DailyImpactPage() {
                             <p className="text-text-dim">Actions</p>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -241,6 +262,60 @@ export default function DailyImpactPage() {
           </Card>
 
           <div className="space-y-6">
+            {selectedDriver && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <TrendingUp className="h-4 w-4 text-accent-teal" />
+                    Driver Detail
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div>
+                    <p className="font-semibold text-text-primary">{selectedDriver.driver_code} Â· {selectedDriver.driver_name}</p>
+                    <p className="mt-1 text-sm text-text-dim">{selectedDriver.headline}</p>
+                  </div>
+                  {[
+                    ["Operating value", selectedDriver.metrics.operating_value_inr, summary.operating_value_inr, "inr"],
+                    ["Time saved", selectedDriver.metrics.time_saved_min, summary.time_saved_min, "min"],
+                    ["Orders", selectedDriver.metrics.delivered_orders, summary.delivered_orders, ""],
+                    ["Useful top-ups", selectedDriver.metrics.optimized_charging_sessions, summary.optimized_charging_sessions, ""],
+                    ["Actions", selectedDriver.metrics.acknowledged_nudges, summary.acknowledged_nudges, ""],
+                  ].map(([label, rawValue, rawTotal, unit]) => {
+                    const value = Number(rawValue || 0);
+                    const total = Math.max(Number(rawTotal || 0), value, 1);
+                    const display = unit === "inr" ? formatInr(value) : formatNumber(value, unit === "min" ? " min" : "");
+                    return (
+                      <div key={String(label)} className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-text-dim">{String(label)}</span>
+                          <span className="font-mono font-semibold text-text-primary">{display}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-bg-border">
+                          <div
+                            className="h-full rounded-full bg-accent-teal"
+                            style={{ width: `${Math.min(100, Math.max(4, (value / total) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-text-dim">Telemetry</p>
+                      <p className="mt-1 font-mono text-lg font-semibold text-text-primary">
+                        {formatNumber(selectedDriver.metrics.telemetry_rows)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-text-dim">Confidence</p>
+                      <p className="mt-1 capitalize text-text-primary">{selectedDriver.confidence}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">

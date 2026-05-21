@@ -464,6 +464,58 @@ class ExternalContextService:
         if not api_key:
             return self._fallback_chargers(lat, lng, radius_m)
 
+        try:
+            chargers = self._fetch_chargers_places_new(lat, lng, radius_m, api_key)
+            if chargers:
+                return chargers
+            return self._fetch_chargers_legacy(lat, lng, radius_m, api_key)
+        except Exception as exc:
+            logger.warning("Google charger lookup failed; using fallback chargers: %s", exc)
+            return self._fallback_chargers(lat, lng, radius_m)
+
+    def _fetch_chargers_places_new(self, lat: float, lng: float, radius_m: int, api_key: str) -> list[dict[str, Any]]:
+        payload = {
+            "includedTypes": ["electric_vehicle_charging_station"],
+            "maxResultCount": 10,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": float(max(100, min(radius_m, 50_000))),
+                }
+            },
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": "places.displayName,places.location,places.rating,places.primaryType,places.types,places.googleMapsUri",
+        }
+        with httpx.Client(timeout=self.settings.external_api_timeout_seconds) as client:
+            resp = client.post("https://places.googleapis.com/v1/places:searchNearby", json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+        chargers = []
+        for place in data.get("places", [])[:10]:
+            loc = place.get("location", {})
+            place_lat = loc.get("latitude")
+            place_lng = loc.get("longitude")
+            if place_lat is None or place_lng is None:
+                continue
+            display = place.get("displayName") or {}
+            chargers.append(
+                {
+                    "name": display.get("text") or "EV charging station",
+                    "lat": place_lat,
+                    "lng": place_lng,
+                    "distance_m": int(haversine_km(lat, lng, float(place_lat), float(place_lng)) * 1000),
+                    "rating": place.get("rating"),
+                    "google_maps_uri": place.get("googleMapsUri"),
+                    "source": "google_places_new",
+                }
+            )
+        return sorted(chargers, key=lambda item: item["distance_m"])
+
+    def _fetch_chargers_legacy(self, lat: float, lng: float, radius_m: int, api_key: str) -> list[dict[str, Any]]:
         params = {
             "location": f"{lat},{lng}",
             "radius": radius_m,
@@ -475,6 +527,9 @@ class ExternalContextService:
                 resp = client.get("https://maps.googleapis.com/maps/api/place/nearbysearch/json", params=params)
                 resp.raise_for_status()
                 data = resp.json()
+            if data.get("status") not in {None, "OK", "ZERO_RESULTS"}:
+                logger.warning("Legacy Google Places charger lookup returned status=%s", data.get("status"))
+                return []
             chargers = []
             for result in data.get("results", [])[:10]:
                 loc = result.get("geometry", {}).get("location", {})
@@ -486,14 +541,14 @@ class ExternalContextService:
                         "lat": loc["lat"],
                         "lng": loc["lng"],
                         "distance_m": int(haversine_km(lat, lng, loc["lat"], loc["lng"]) * 1000),
+                        "rating": result.get("rating"),
                         "source": "google_places",
                     }
                 )
-            if not chargers:
-                return self._fallback_chargers(lat, lng, radius_m)
             return sorted(chargers, key=lambda item: item["distance_m"])
-        except Exception:
-            return self._fallback_chargers(lat, lng, radius_m)
+        except Exception as exc:
+            logger.warning("Legacy Google Places charger lookup failed: %s", exc)
+            return []
 
     def _fallback_chargers(self, lat: float, lng: float, radius_m: int = 500) -> list[dict[str, Any]]:
         chargers = []

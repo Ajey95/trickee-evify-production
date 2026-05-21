@@ -33,25 +33,34 @@ export default function DataQualityPage() {
   const rows = useMemo(() => {
     return vehicles.map((vehicle) => {
       const latest = vehicle.latest_telemetry || vehicle.latest;
-      const hasGps = latest?.lat != null && latest?.lng != null && latest.lat !== 0 && latest.lng !== 0;
-      const hasBattery = latest?.soc != null && latest?.battery_voltage != null;
-      const hasThermal = latest?.temp_max != null && Number(latest.temp_max) > 0;
+      const lat = Number(latest?.lat);
+      const lng = Number(latest?.lng);
+      const soc = Number(latest?.soc);
+      const current = Number(latest?.current);
+      const temp = Number(latest?.temp_max);
+      const voltage = Number(latest?.battery_voltage);
+      const hasGps = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0 && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+      const hasBattery = Number.isFinite(soc) && soc >= 0 && soc <= 100 && Number.isFinite(voltage) && voltage > 0;
+      const hasThermal = Number.isFinite(temp) && temp > 0 && temp < 90;
+      const hasCurrentSpike = Number.isFinite(current) && Math.abs(current) > 50;
       const ageMin = latest?.recorded_at ? (Date.now() - new Date(latest.recorded_at).getTime()) / 60000 : Infinity;
       const issues = [
         !latest ? "no latest telemetry" : "",
-        !hasGps ? "missing GPS" : "",
-        !hasBattery ? "missing battery" : "",
-        !hasThermal ? "missing temp" : "",
-        ageMin > 120 ? "stale" : "",
+        !hasGps ? "GPS invalid" : "",
+        !hasBattery ? "battery invalid" : "",
+        !hasThermal ? "thermal invalid" : "",
+        hasCurrentSpike ? "current spike" : "",
+        ageMin > 60 ? "stale >60m" : "",
       ].filter(Boolean);
-      return { vehicle, latest, hasGps, hasBattery, hasThermal, ageMin, issues };
+      const status = !latest ? "missing" : issues.length ? (ageMin > 60 ? "stale" : "review") : "clean";
+      return { vehicle, latest, hasGps, hasBattery, hasThermal, hasCurrentSpike, ageMin, issues, status };
     });
   }, [vehicles]);
 
   const total = rows.length || 1;
   const gpsCoverage = rows.filter((row) => row.hasGps).length / total;
   const batteryCoverage = rows.filter((row) => row.hasBattery).length / total;
-  const staleCount = rows.filter((row) => row.ageMin > 120).length;
+  const staleCount = rows.filter((row) => row.ageMin > 60).length;
   const issueCount = rows.filter((row) => row.issues.length).length;
   const kpis = [
     { label: "GPS Coverage", value: `${Math.round(gpsCoverage * 100)}%`, icon: MapPinOff, variant: gpsCoverage > 0.8 ? "success" : "warning" },
@@ -98,6 +107,7 @@ export default function DataQualityPage() {
                     <th>GPS</th>
                     <th>Temp</th>
                     <th>Age</th>
+                    <th>Tag</th>
                     <th>Issues</th>
                   </tr>
                 </thead>
@@ -109,6 +119,11 @@ export default function DataQualityPage() {
                       <td>{row.hasGps ? "yes" : "no"}</td>
                       <td>{row.latest?.temp_max != null ? `${Number(row.latest.temp_max).toFixed(1)}C` : "-"}</td>
                       <td>{Number.isFinite(row.ageMin) ? `${Math.round(row.ageMin)}m` : "-"}</td>
+                      <td>
+                        <Badge variant={row.status === "clean" ? "success" : row.status === "stale" ? "warning" : "outline"}>
+                          {row.status}
+                        </Badge>
+                      </td>
                       <td>
                         <Badge variant={row.issues.length ? "warning" : "success"}>
                           {row.issues.length ? row.issues.join(", ") : "clean"}

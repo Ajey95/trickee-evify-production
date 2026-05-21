@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from app.services.evify_adapter import normalize_evify_payload
 from app.services.physics import CAPACITY_WH, compute_r_internal_mohm, soc_to_ocv
+from app.services.soc_quality import is_plausible_eval_soc_delta
 
 BASE_FEATURE_COLS = [
     "soc",
@@ -217,6 +218,7 @@ def resample_v5a(df: pd.DataFrame) -> pd.DataFrame:
 
     windows = windows.sort_values(["vehicle_id", "time"]).reset_index(drop=True)
     windows[TARGET_COL] = windows.groupby("vehicle_id")["soc"].shift(-1) - windows["soc"]
+    windows = windows[windows[TARGET_COL].apply(is_plausible_eval_soc_delta)]
     windows = windows[windows["speed"] >= MIN_SPEED]
     windows = windows[windows["current"].abs() > 0.1]
     windows = windows.dropna(subset=V5A_FEATURE_COLS + [TARGET_COL])

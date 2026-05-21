@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import Driver, Trip, User
+from app.models import Driver, Telemetry, Trip, User
 from app.schemas.api import ok
 from app.services.access import assert_driver_access, assert_vehicle_access
 from app.services.ai_features import deterministic_driver_profile, driver_coaching
@@ -66,6 +67,65 @@ def driver_trips(
     driver = assert_driver_access(db, current_user, driver_id)
     rows = db.query(Trip).filter(Trip.driver_id == driver.id).order_by(Trip.started_at.desc()).limit(limit).all()
     return ok([trip_dict(row) for row in rows])
+
+
+@router.get("/{driver_id}/trips/{trip_id}/trace")
+def driver_trip_trace(
+    driver_id: str,
+    trip_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    driver = assert_driver_access(db, current_user, driver_id)
+    trip = db.get(Trip, trip_id)
+    if not trip or trip.driver_id != driver.id:
+        from fastapi import HTTPException, status
+
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+
+    end_at = trip.ended_at or (trip.started_at + timedelta(hours=12))
+    query = (
+        db.query(Telemetry)
+        .filter(
+            Telemetry.driver_id == driver.id,
+            Telemetry.vehicle_id == trip.vehicle_id,
+            Telemetry.recorded_at >= trip.started_at,
+            Telemetry.recorded_at <= end_at,
+            Telemetry.lat.isnot(None),
+            Telemetry.lng.isnot(None),
+            Telemetry.lat != 0,
+            Telemetry.lng != 0,
+        )
+        .order_by(Telemetry.recorded_at.asc())
+        .limit(2000)
+    )
+    rows = query.all()
+    if len(rows) > 600:
+        step = max(1, len(rows) // 600)
+        rows = rows[::step]
+    path = [
+        {
+            "lat": row.lat,
+            "lng": row.lng,
+            "soc": row.soc,
+            "speed": row.speed,
+            "recorded_at": row.recorded_at.isoformat(),
+        }
+        for row in rows
+    ]
+    fallback_path = [
+        {"lat": trip.origin_lat, "lng": trip.origin_lng, "soc": trip.soc_start, "speed": None, "recorded_at": trip.started_at.isoformat()},
+        {"lat": trip.dest_lat, "lng": trip.dest_lng, "soc": trip.soc_end, "speed": None, "recorded_at": trip.ended_at.isoformat() if trip.ended_at else None},
+    ]
+    fallback_path = [point for point in fallback_path if point["lat"] is not None and point["lng"] is not None]
+    return ok(
+        {
+            "trip": trip_dict(trip),
+            "path": path or fallback_path,
+            "sample_count": len(path),
+            "source": "telemetry" if path else "trip_endpoints",
+        }
+    )
 
 
 @router.get("/{driver_id}/profile")

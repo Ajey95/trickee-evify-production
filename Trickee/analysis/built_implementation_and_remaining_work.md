@@ -1,94 +1,207 @@
 # Trickee Implementation Status And Remaining Work
+**Last reconciled:** 2026-05-21
+**Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
+**Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
-**Date:** 2026-05-17
-**Scope:** Current FastAPI backend, Next.js frontend, Evify telemetry ingestion, live GPS/WebSocket flow, driver personalization, destination charge planning, dashboard presentation layer, recommender foundations, ML/intelligence services, deployment readiness, and remaining pilot gaps.
+---
 
-**Maintenance rule:** Whenever production code under `production/` changes, this file must be updated in the same work session so implementation status stays aligned with the actual codebase.
+## 0. Document Precedence
+
+The latest planning files are newer than the older PRDs and override conflicting historical claims:
+
+| Source | Last modified | How to treat it |
+|---|---:|---|
+| `latest_features_prd.md` | 2026-05-18 22:58 | Primary feature roadmap |
+| `chatfindings/2026-05-17_ev_mobility_intelligence_decision_findings.md` | 2026-05-18 22:57 | Primary strategy and EV intelligence reasoning |
+| `trickee_req.md` | 2026-05-01 11:24 | Original challenge brief only |
+| `trickee_platform_prd.md` | 2026-05-01 11:24 | Historical platform PRD; current stack differs in auth and deployment details |
+| `trickee_next_stage_analysis.md` | 2026-05-01 11:24 | Historical next-stage planning |
+| `future_roadmapv2.md` | 2026-05-01 11:24 | Historical roadmap |
+| `current_state_and_roadmap.md` | 2026-05-01 11:24 | Historical baseline; latest pilot architecture decisions supersede it |
+
+Resolved conflicts:
+
+- Current pilot architecture is **FastAPI REST ingest + Postgres + optional Redis + WebSocket**, not MQTT/TimescaleDB by default.
+- MQTT/TimescaleDB/worker architecture remains a post-pilot scale path for 500-600 vehicles.
+- Current production identity direction is **Supabase Auth plus backend workspace approval**, not NextAuth as the older PRD says.
+- Firebase is currently used/planned mainly for FCM/browser push and optional Firebase auth support, not as the primary production workspace authorization source.
+- Evify does not need to provide `trip_id`; Trickee should generate trips.
+- Evify Data 7.0 has no real `driver_id`; pilot can use `RegNo` or `VehicleId` as a temporary behavior-profile proxy, but this is not a true human-driver identity.
 
 ---
 
 ## 1. Current Architecture
 
-Trickee is now a backend-connected EV intelligence platform with live telemetry support.
-
-- **Frontend:** Next.js 14 App Router in `production/trickee-frontend`
-- **Backend:** FastAPI in `production/backend`
-- **Database:** SQLAlchemy relational schema, configured for Supabase/Postgres through `DATABASE_URL`
-- **Auth:** Supabase Auth is the primary identity layer; the backend verifies Supabase JWTs and maps them to internal Trickee users, roles, fleets, and drivers. Legacy backend JWT/Firebase login remain rollback/optional paths only.
-- **Live map:** OpenStreetMap/Leaflet with WebSocket updates and REST fallback
-- **Telemetry:** Evify payload ingestion plus historical/backfill utilities
-- **ML:** V4.1 SOC/range inference with V5/V6 learning foundations
-- **Personalization:** Dynamic driver archetypes derived from live driver profile metrics
-- **Destination charging:** Route/live decisions can tell a driver exactly how much SOC is needed, how many minutes to charge, and which charger to use before committing to a destination.
-- **Notifications:** Dashboard alert feed is the reliable pilot channel; FCM/browser push foundations exist but need production receipt verification; WhatsApp is not implemented yet and is tracked as a future/fallback driver channel; Resend is used for report email, not live driver alerts.
-- **Deploy targets:** Vercel frontend and Render backend
-
-Current live-state principle:
+Current production/pilot architecture:
 
 ```text
-Fresh incoming GPS -> WebSocket vehicle_point -> frontend map
-DB latest row      -> reload/reconnect/fallback/history/analytics
+Evify JSON telemetry
+  -> FastAPI telemetry ingest
+  -> Evify adapter normalization
+  -> derived physics fields
+  -> Postgres telemetry/history tables
+  -> optional Redis cache/pub-sub/rate-limit layer
+  -> dashboard APIs, WebSocket live map, predictions, alerts, intelligence services
 ```
 
-So fresh telemetry GPS no longer needs to be re-fetched from DB before moving the map. The DB remains the durable source for reporting, history, trips, zones, analytics, and fallback state.
+Current scale architecture decision:
+
+- Use current REST/Postgres stack for 50-100 vehicle pilot after hardening and load testing.
+- Do not build MQTT/TimescaleDB before pilot unless load testing proves the current stack cannot handle pilot load.
+- For 500-600 vehicles, upgrade to broker/queue ingestion, Redis latest state, partitioned Postgres or TimescaleDB, and worker-based inference/alerts.
 
 ---
 
-## 2. Backend Implemented
+## 2. Backend Current State
 
-### 2.1 Core API
+### 2.1 Framework And App Surface
 
 Implemented:
 
-- FastAPI app with REST API under `/api/v1`
-- Health endpoint at `/health`
-- CORS configuration including production Vercel origin
-- Central request/security middleware with request IDs, secure response headers, request-size limits, generic internal-error responses, and API rate limiting
-- Redis-backed rate limiting when `REDIS_URL` is configured, with local in-process fallback
-- SQLAlchemy ORM models
-- Alembic migrations
-- Dockerfile and Render blueprint
-- Environment templates
-- Role-based backend guards
+- FastAPI app in `production/backend/app/main.py`.
+- API prefix from config: `/api/v1`.
+- Registered routers:
+  - `auth`
+  - `vehicles`
+  - `drivers`
+  - `intelligence`
+  - `telemetry`
+  - `predictions`
+  - `routes`
+  - `alerts`
+  - `admin`
+  - `notifications`
+  - `assistant`
+  - `battery`
+  - `chargers`
+  - `fleet`
+  - `ws` without `/api/v1` prefix for WebSocket handshake compatibility
 
-Mounted routers:
+### 2.2 Auth And Authorization
 
-- `auth`
-- `vehicles`
-- `drivers`
-- `intelligence`
-- `telemetry`
-- `predictions`
-- `routes`
-- `alerts`
-- `admin`
-- `notifications`
-- `assistant`
-- `battery`
-- `chargers`
-- `fleet`
-- `ws`
+Implemented:
 
-### 2.2 Database Schema
+- Supabase JWT validation with JWKS support for ES256 tokens.
+- Legacy password auth supported only when `LEGACY_AUTH_ENABLED=true`.
+- Production config refuses legacy auth when `ENVIRONMENT=production`.
+- Backend workspace authorization remains separate from Supabase identity.
+- User roles:
+  - `trickee_admin`
+  - `fleet_operator`
+  - `driver`
+- Admin access approval workflow:
+  - `POST /api/v1/auth/access-request`
+  - `GET /api/v1/admin/access-requests`
+  - `POST /api/v1/admin/access-requests`
+  - `POST /api/v1/admin/access-requests/{request_id}/approve`
+  - `POST /api/v1/admin/access-requests/{request_id}/reject`
+- Server-side scope checks for fleet, driver, vehicle, and role-sensitive endpoints.
+- Security event table and admin approval audit events.
 
-Implemented tables/foundations:
+Production requirements still open:
+
+- Confirm Render has correct `SUPABASE_URL`, `SUPABASE_JWKS_URL`, `SUPABASE_JWT_SECRET`, and `SUPABASE_JWT_AUDIENCE=authenticated`.
+- Keep `LEGACY_AUTH_ENABLED=false` in production.
+- Seed/approve production admin through Supabase Auth plus internal `users` role mapping.
+
+### 2.3 Telemetry Ingestion
+
+Implemented:
+
+- Single ingest: `POST /api/v1/telemetry/evify`.
+- Bulk ingest: `POST /api/v1/telemetry/evify/bulk`.
+- Bulk cap: `MAX_BULK_TELEMETRY_ROWS = 500`.
+- Single and bulk ingest require `trickee_admin` or `fleet_operator`.
+- Per-user rate limiting is applied.
+- Duplicate vehicle/timestamp rows are skipped by lookup before insert.
+- Ingest computes derived physics fields and updates trip/wait/alert foundations.
+- Pilot debug logs are emitted for single and bulk ingest with request ID, user ID, row count, vehicle/driver counts, alert flag, rejection reason, and elapsed milliseconds.
+- Oversized bulk batches log `telemetry_bulk_rejected` before returning `413`.
+
+Important current gap for Evify Data 7.0:
+
+- Evify Data 7.0 has `RegNo` and `VehicleId`, but no `driver_id`.
+- Current `telemetry_ingest.py` creates a Driver only when `driver_code` exists.
+- Current `trip_inference.py` returns early when `row.driver_id` is missing.
+- Therefore, with Evify 7.0 as-is, telemetry can ingest as vehicle data, but driver profiles and trip inference will not fully populate unless we implement the pilot vehicle-proxy driver rule.
+
+Required pilot fix:
+
+```text
+if Evify driver_id is missing:
+  driver_code = RegNo or VehicleId
+  profile_source = vehicle_proxy
+```
+
+This must be labeled as vehicle-attached behavior, not true human-driver identity.
+
+### 2.4 Evify Adapter Readiness
+
+Implemented:
+
+- `evify_adapter.py` normalizes Evify JSON/Mongo-style payloads into canonical telemetry fields.
+- Handles `RegNo`, `eventTime`, `Latitude`, `Longitude`, `Speed`, `IgnitionOn`, `soc`, `soH`, and several CAN aliases.
+- Caps unusable current spikes by falling back between pack current and MCU DC current.
+
+Important current gap for Evify Data 7.0:
+
+- Evify 7.0 CAN keys include snake_case fields such as:
+  - `current`
+  - `battery_voltage`
+  - `vehicle_speed`
+  - `charge_plug_status`
+  - `cell_temperature_01`
+  - `maximum_temperature`
+  - `bms_chargingcycles`
+  - `cellvoltage_mismatch`
+- Current adapter aliases do not fully cover all of these exact key names.
+- Result: some Evify 7.0 fields may normalize to defaults even though the raw data has usable values.
+
+Required pilot fix:
+
+- Add Evify 7.0 aliases before load testing or replay:
+  - `BatteryVoltage`, `battery_voltage`
+  - `current`
+  - `vehicle_speed`
+  - `charge_plug_status`
+  - `cell_temperature_01`, `maximum_temperature`
+  - `bms_chargingcycles`
+  - `cellvoltage_mismatch`
+- Keep current spike guards.
+
+### 2.5 Database And Migrations
+
+Implemented migrations:
+
+- `0001_initial.py`
+- `0002_v5_v6_foundations.py`
+- `0003_wait_events.py`
+- `0004_firebase_auth_fcm.py`
+- `0005_timeseries_pilot_indexes.py`
+- `0006_archetype_history.py`
+- `0007_supabase_schema_hardening.py`
+- `0008_security_events_and_supabase_rls.py`
+- `0009_ai_feature_logs.py`
+- `0010_access_requests.py`
+
+Key tables/foundations:
 
 - `fleets`
 - `users`
 - `access_requests`
+- `device_push_tokens`
+- `security_events`
 - `vehicles`
 - `drivers`
 - `telemetry`
 - `predictions`
-- `alerts`
 - `trips`
-- `device_push_tokens`
-- `security_events`
 - `driver_behavior_snapshots`
 - `nudge_events`
 - `order_assignment_decisions`
 - `charging_decision_records`
 - `wait_events`
+- `alerts`
 - `ai_interaction_logs`
 - `tool_call_logs`
 - `notification_personalization_logs`
@@ -97,430 +210,345 @@ Implemented tables/foundations:
 - `driver_coaching_events`
 - `fleet_summary_logs`
 
-Telemetry rows store `lat` and `lng`. These coordinates are used for DB-backed latest-location fallback, trip inference, wait classification, charger context, low-SOC zones, and historical analysis.
+Pilot indexes already exist in migration `0005_timeseries_pilot_indexes.py`:
 
-### 2.3 Evify Telemetry Ingestion
+- `ix_telemetry_vehicle_recorded_at_desc`
+- `ix_telemetry_driver_recorded_at_desc`
+- `ix_telemetry_recorded_at_desc`
+- `ix_telemetry_recorded_at_brin`
 
-Implemented:
+Production requirement:
 
-- Evify payload normalization
-- Single ingest endpoint: `POST /api/v1/telemetry/evify`
-- Bulk ingest endpoint: `POST /api/v1/telemetry/evify/bulk`
-- Vehicle and driver creation from payload identity
-- Duplicate protection by `vehicle_id + recorded_at`
-- Derived physics fields
-- Trip inference
-- Wait event update
-- Charging alert creation
-- SOC-rise charging detection
-- Direct live GPS WebSocket broadcast after successful DB commit
+- Run and verify `alembic upgrade head` on the deployed database.
+- Confirm production DB is actually at migration `0010_access_requests`.
 
-Current live GPS flow:
-
-```text
-Evify payload
-  -> normalize
-  -> persist Telemetry row
-  -> build vehicle_point from fresh row
-  -> scope by role/fleet/driver
-  -> WebSocket broadcast
-  -> frontend patches map marker
-```
-
-### 2.4 Live Map And WebSockets
+### 2.6 External Context
 
 Implemented:
 
-- WebSocket endpoint:
-  - `/ws/live-map?ticket=<short-lived-ws-ticket>`
-  - `/ws/live-map?ticket=<short-lived-ws-ticket>&driver_id=<driver-id>`
-- DB-backed `live_map` snapshots
-- Direct `vehicle_point` updates from telemetry ingest
-- In-memory connection manager
-- Connection scope filters:
-  - admin can see all
-  - fleet operator sees own fleet
-  - driver sees own driver ID
-  - selected-driver filter narrows updates
-- REST fallback via `GET /api/v1/intelligence/live-map`
+- `external_context.py` supports:
+  - Google Places API (New) charger search with fallback chargers
+  - Google Directions/traffic context with fallback travel time
+  - Google Elevation with fallback
+  - OpenWeather with fallback
+- H3 spatial bucketing is implemented when `h3` is available.
+- In-memory TTL caches exist.
+- Optional Redis persistent cache exists when `REDIS_URL` is configured.
+- Daily quota guards exist:
+  - Google external daily limit
+  - OpenWeather daily limit
+- Config includes H3 resolution and weather H3 resolution.
 
-Message types:
+Production requirements:
 
-```json
-{ "type": "live_map", "data": { "vehicle_points": [], "charger_points": [] } }
-```
+- Configure production API keys only on Render, not frontend.
+- Verify cache hit rates under replay/load.
+- Confirm external calls stay event-triggered, not per telemetry row.
+- 2026-05-21 smoke test confirmed Directions and Elevation use Google sources, and charger lookup returns `google_places_new` after upgrading the backend call path from legacy Places nearby search to Places API (New).
 
-```json
-{ "type": "vehicle_point", "data": { "driver_id": "...", "vehicle_id": "...", "lat": 21.17, "lng": 72.83 } }
-```
-
-Scale note:
-
-- WebSocket connections are held in-memory per worker. Redis pub/sub fanout is implemented behind `REDIS_URL` so live GPS events can reach clients across multi-worker backends; production still needs Redis provisioning and fanout load testing.
-
-### 2.5 V4.1 Prediction
+### 2.7 WebSocket Live Map
 
 Implemented:
 
-- V4.1 model loading from `models_ml`
-- PyTorch/joblib artifact support
-- 20-step feature window
-- No `delta_soc` input leakage
-- Dynamic range physics adjustment
-- Prediction persistence
-- Prediction history endpoint
+- WebSocket endpoint: `/ws/live-map`.
+- WebSocket ticket endpoint: `GET /api/v1/auth/ws-ticket`.
+- Authenticated connection scopes by role/fleet/driver.
+- Redis listener background task exists when `REDIS_URL` is configured.
+- Frontend has WebSocket hook with reconnect and REST fallback.
 
-V4.1 remains the production serving model.
+Known risk:
 
-### 2.6 Intelligence And Recommender Foundations
+- Single-row ingest can still publish live-map events as part of the request path.
+- Need load test to confirm slow WebSocket clients do not block ingest latency.
+- Bulk ingest does not broadcast every row because it calls ingest with `commit=False` and commits once.
 
-Implemented:
+Required pilot verification:
 
-- Live driver profile
-- Fleet live overview
-- Live map context
-- Weekly live metrics
-- Driver behavior metrics
-- Wait classifier and wait estimator
-- Order assignment engine
-- Charging decision engine
-- Route scorer and reroute
-- Destination charge planner in `charge_plan.py`
-- Nudge/event persistence
-- Intelligence history endpoints
+- Test single-row ingest with 10, 50, and 100 dashboard/WebSocket clients.
+- If fanout blocks ingest, move publish/fanout fully to background task or Redis queue.
 
-These are currently deterministic/rule-scoring recommenders, not trained collaborative-filtering or reinforcement-learning recommenders.
-
-Destination charge planning now produces messages in this shape:
-
-```text
-Destination needs 18.0% SOC. You have 22.0%. Charge for 9 min at Charger X to reach with 10% buffer.
-```
-
-Implementation details:
-
-- `route_scorer.py` attaches `destination_charge_plan`, `charge_minutes_required`, and `top_up_soc_required_pct` to scored routes.
-- `live_intelligence.py` uses personalized range to estimate destination SOC requirement and converts `charge_first` nudges into exact top-up guidance.
-- If a route is infeasible or too tight, the nudge is no longer generic; it names the needed SOC, current SOC, charge minutes, charger, and buffer.
-- The planner defaults to a 10% arrival buffer and a conservative charging-rate estimate, with charger metadata passed through when available.
-
-### 2.7 Driver Archetype Personalization
-
-Implemented now:
-
-- Dynamic driver archetype classifier in `live_driver_profile.py`
-- Archetype returned from `live_driver_profile()`
-- Archetype included in fleet live overview rows
-- Archetype included in live driver decision payloads
-- Archetype included in persisted live personalization nudge payloads
-- Archetype label included in live map vehicle points
-- Archetype-aware charging thresholds
-- Archetype-aware route range buffers
-- Archetype-aware order assignment scoring when caller includes driver archetype
-
-Current archetypes:
-
-- `range_saver`
-- `aggressive_drainer`
-- `late_charger`
-- `stop_wait_optimizer`
-- `heat_stress_rider`
-- `route_sensitive`
-- `moderate`
-- `data_poor`
-
-Classifier inputs already computed by `live_driver_profile()`:
-
-- `sample_count`
-- `avg_current_a`
-- `regen_ratio_pct`
-- `low_soc_pct`
-- `stop_wait_pct`
-- `thermal_load`
-- `avg_temp_c`
-- `battery_risk_score`
-- `soc_rise_events`
-- `gps_coverage_pct`
-- baseline seeds for D2-D5
-
-Returned archetype shape:
-
-```json
-{
-  "label": "late_charger",
-  "display_name": "Late Charger",
-  "confidence": 0.64,
-  "source": "baseline_seed",
-  "reasons": ["baseline has frequent low-SOC events"],
-  "policy": {
-    "soc_warning_adjust_pct": 8,
-    "route_buffer_multiplier": 1.12,
-    "order_assignment_hint": "early_charging_nudge",
-    "nudge_style": "early_warning"
-  }
-}
-```
-
-Important design decision:
-
-- No `Driver.archetype` DB column was added yet.
-- Archetype is derived dynamically because driver behavior can drift.
-- The right persistent home for now is JSON payloads on nudges/decisions and future behavior snapshots, not a static driver column.
-
-### 2.8 Weekly Reports
+### 2.8 AI/LLM Infrastructure
 
 Implemented:
 
-- Deterministic weekly report fallback
-- Optional Groq-generated narrative
-- Metric sanitization before LLM calls
-- Optional Resend email delivery
-- `send_email` query parameter on weekly report endpoint
+- Shared LLM client in `app/services/ai/llm_client.py`.
+- Provider: Groq OpenAI-compatible API.
+- Default model: `llama-3.1-8b-instant`.
+- Fallback behavior when `GROQ_API_KEY` is missing or call fails.
+- Timeout, retry cap, max input chars, max output tokens in config.
+- Safe logging through AI interaction logs.
+- Prompt instruction: use only provided facts; do not invent numbers, places, availability, traffic, SOC, range, or safety claims.
+- Shared tool registry in `app/services/ai/tool_registry.py`.
+- Tool call logs are persisted.
 
-Endpoint:
+Current tool registry:
 
-- `GET /api/v1/intelligence/reports/weekly?days=7`
-- `GET /api/v1/intelligence/reports/weekly?days=7&send_email=true`
+- `get_driver_profile`
+- `get_vehicle_state`
+- `get_battery_prediction`
+- `get_nearest_charger`
+- `get_route_score`
+- `get_trip_history`
+- `get_fleet_status`
+- `get_driver_baseline`
+- `get_environment_context`
+- `risk_analyzer`
 
-### 2.9 Auth, Roles, And Notifications
+Production constraints:
 
-Implemented:
-
-- Supabase Auth as the primary production login/session path
-- Backend Supabase JWT verification supports both legacy HS256 tokens via `SUPABASE_JWT_SECRET` and current Supabase asymmetric tokens (`ES256`/`RS256`) via project JWKS from `SUPABASE_URL`.
-- Internal user mapping by `users.supabase_user_id`, with email-link fallback for existing mapped users
-- New Supabase users without an approved Trickee user mapping are recorded in `access_requests` and remain blocked until a `trickee_admin` approves role/fleet/driver access.
-- Admin-managed access approval creates or updates the internal Trickee `users` mapping server-side; the frontend cannot self-assign admin, fleet, or driver permissions.
-- Backend-owned RBAC/ABAC checks using `users.role`, `fleet_id`, and `driver_id`
-- Legacy backend password login only when `LEGACY_AUTH_ENABLED=true`
-- Optional Firebase ID token login when Firebase auth is enabled
-- Short-lived WebSocket tickets for live-map connections
-- Security event audit records for legacy/Firebase login success and failure paths
-- `trickee_admin`, `fleet_operator`, and `driver` role guards
-- FCM token registration foundation
-- LLM-grounded notification personalization endpoint at `POST /api/v1/notifications/personalize`
-- Notification personalization logs with fallback tracking
-- Alert feed and resolve endpoint
-- Charging/low-SOC alert foundations
-- Current pilot notification channel is the dashboard alert/feed surface.
-- WhatsApp/Twilio delivery is not implemented in production code yet. It is a recommended future fallback/high-priority channel for critical low-SOC alerts, charging opportunities, route-risk nudges, daily fleet summaries, and the conversational assistant.
-
-Current LLM configuration:
-
-- Trickee uses Groq through an OpenAI-compatible chat-completions endpoint when `GROQ_API_KEY` is configured.
-- The configured model name is `GROQ_MODEL`; the current env/templates default to `llama-3.1-8b-instant`.
-- If `GROQ_API_KEY` is blank or the model call fails/times out, all AI features fall back to deterministic backend wording.
-- LLM output is used only for wording, explanations, summaries, and conversational composition. Backend services still compute decisions, ranks, risk, charger scoring, and driver/fleet facts.
-
-### 2.10 AI Features 1-8
-
-Implemented in `production/`:
-
-- Shared AI service in `app/services/ai/llm_client.py`
-  - model timeout
-  - retry cap
-  - token/output budget
-  - prompt versioning
-  - deterministic fallback text
-  - safe logging without credentials
-- Shared tool registry in `app/services/ai/tool_registry.py`
-  - driver profile
-  - vehicle state
-  - battery prediction/range fallback
-  - nearest charger
-  - route score
-  - trip history
-  - fleet status
-  - driver baseline
-  - environment context
-  - vehicle risk analysis
-- Prompt-injection guard in `app/services/ai/safety.py`
-- AI interaction/tool-call observability tables through Alembic migration `0009_ai_feature_logs`
-- Database migration has been applied to the configured Postgres database; Alembic is now at `0009_ai_feature_logs (head)`.
-
-Feature endpoints implemented:
-
-- Feature 1: `POST /api/v1/notifications/personalize`
-- Feature 2: `POST /api/v1/assistant/message`
-- Feature 3: `POST /api/v1/routes/explain`
-- Feature 4: `POST /api/v1/battery/insight`
-- Feature 5: `POST /api/v1/chargers/recommend`
-- Feature 6: `GET /api/v1/drivers/{driver_id}/profile`
-- Feature 6: `POST /api/v1/drivers/{driver_id}/profile/update`
-- Feature 7: `POST /api/v1/fleet/summary`
-- Feature 8: `POST /api/v1/drivers/{driver_id}/coaching`
-
-Production behavior:
-
-- All endpoints require authenticated backend access.
-- Driver/vehicle/fleet IDs are checked server-side before tool calls run.
-- Unknown request fields are rejected through Pydantic `extra="forbid"` models.
-- Assistant messages, notification personalization, route explanations, charger recommendations, fleet summaries, and coaching generation have Redis-backed rate limits with local fallback.
-- Charger recommendations explicitly mark real-time availability as unconfirmed unless a real availability provider is integrated.
-- Safety-critical assistant messages are escalated without LLM-generated mechanical advice.
-- LLM-generated text is clamped and grounded in tool outputs; if no tool succeeds, assistant returns a safe fallback.
-
-Current implementation caveat:
-
-- This is production-safe AI orchestration and deterministic recommendation support, not a fully trained recommender system deployment. For pilot/pitch, use these as grounded assistive features and mark learned recommender/RL behavior as locked future learning until real outcome data exists.
+- LLM never decides send/no-send, route ranking, charging ranking, dispatch, fleet risk, or driver score.
+- LLM is only for wording, explanation, summary, and conversational response after backend facts/tools.
 
 ---
 
-## 3. Frontend Implemented
+## 3. Frontend Current State
 
-### 3.1 App Shell
+Implemented Next.js app routes:
 
-Implemented:
+- `/`
+- `/login`
+- `/signup`
+- `/admin`
+- `/ai`
+- `/alerts`
+- `/data-quality`
+- `/decisions`
+- `/driver`
+- `/fleet`
+- `/impact`
+- `/map`
+- `/model-drift`
+- `/observability`
+- `/reports`
+- `/routes`
+- `/schedule`
+- `/scorecards`
+- `/vehicle`
+- `/vehicle/[id]`
 
-- Login page
-- Supabase-backed auth provider
-- Firebase client setup
-- Role-aware dashboard layout
-- Sidebar/topbar
-- Protected pages through `RoleGuard`
-- Global floating live SOC badge on dashboard pages
-- Subtle dashboard/card watermark treatment across production pages
-- Frontend API request layer now caches the Supabase access token briefly, deduplicates concurrent GET calls, keeps short-lived GET responses, returns stale cached GET data immediately while refreshing in the background, applies a request timeout, and converts fetch/network failures into structured API errors instead of unhandled React runtime crashes.
+Implemented frontend foundations:
 
-### 3.2 Fleet And Vehicle Views
+- Supabase session token retrieval.
+- Legacy token fallback only when configured.
+- Request timeout handling.
+- GET caching/stale-while-revalidate for selected API calls.
+- Role-based route/sidebar access.
+- Premium public landing page.
+- Auth pages and access-request flow.
+- Admin workspace approval UI.
+- FCM token registration helper.
+- AI workspace for assistant/notification/route/battery/charger/fleet/coaching flows.
+- Dashboard pages for live map, fleet, decisions, routes, reports, scorecards, alerts, impact, data quality, observability, and model health.
+- Fleet carousel now shows a center-highlighted, side-faded vehicle carousel without duplicated vehicle-card stack below it.
+- Daily Impact now supports selecting a driver and viewing a detailed driver panel with value, time, orders, top-ups, actions, telemetry count, confidence, and proportional bars.
+- Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`.
+- Data Quality now separates feed tags from issue text and checks GPS validity, battery validity, thermal validity, stale feed age, and current spikes.
+- Live Map charger list shows all charger points returned by backend and explains that chargers are ranked from current visible driver/fleet GPS context.
 
-Implemented:
+Role route status:
 
-- Fleet overview from backend
-- Fleet KPI bar
-- Vehicle cards
-- 3D horizontal vehicle carousel for fleet manager review
-- Vehicle detail page
-- V4.1 prediction trigger
-- SOC/prediction chart
-- Dynamic range and penalty breakdown
-- Weekly report loading is no longer on the fleet page's critical first-render path; core fleet status renders first and the report fills in after.
+- `trickee_admin`: full operational/admin access.
+- `fleet_operator`: fleet, vehicle, map, assistant, decisions, routes, impact, scorecards, reports, alerts, data quality.
+- `driver`: driver profile, map, assistant, route intel, schedule, impact, alerts.
 
-### 3.3 Driver View
+Admin profile correction:
 
-Implemented:
-
-- Driver profile view
-- Current vehicle status
-- Live decision/nudge display
-- Destination charge plan panel in nudges, including destination SOC need, current SOC, top-up SOC, charge time, and charger
-- Driver behavior cards
-- Trip history layout
-- Driver role support through driver-scoped APIs
-
-Remaining:
-
-- Surface archetype label and confidence clearly in the driver profile UI.
-- Bind active nudge card to latest persisted nudge event.
-
-### 3.4 Route Intelligence
-
-Implemented:
-
-- Backend route scoring
-- Admin/fleet driver selection
-- Driver-scoped context
-- Origin/destination coordinates from the map picker are now sent into `/routes/score`
-- Selected-point route alternatives are generated from the chosen map points instead of always using the static Surat fallback names
-- Ranked route cards
-- Energy chart
-- Reroute simulation
-- Destination charge plan surfaced on route cards when the driver must top up before reaching the destination
-
-Current backend route decisions now account for archetype-aware range buffers and exact destination charge plans in live driver decisions. The standalone `/routes/score` endpoint remains deterministic route scoring, but now returns charge minutes/top-up context when a route needs charging.
-
-Important feasibility behavior:
-
-- If `soc_start` is `0`, or every route would arrive below the safety buffer, the backend returns `route_status: "charge_required"`, `all_routes_infeasible: true`, and `recommended_route: null`.
-- In that case, the ranked route cards are informational only and the nudge becomes the destination charge plan.
-- `best_informational_route` is returned so the UI can still show the best comparison candidate without labeling it as a dispatch recommendation.
-- The frontend now also infers infeasible state defensively if an older backend response omits `is_feasible`.
-
-### 3.5 Live Fleet Map
-
-Implemented:
-
-- `/map` page
-- `useDriverLocationWS`
-- OpenStreetMap/Leaflet map using CARTO dark tiles for clearer production display
-- OpenStreetMap iframe fallback behind the live overlay, so the user still sees a real map if Leaflet cannot initialize
-- Leaflet dynamic imports are normalized for Next.js module/default export behavior, preventing the map from falling back to the projected grid when the module loads under `default`.
-- Leaflet now has a CDN script/CSS fallback if the bundled dynamic import fails in production.
-- Leaflet map containers, panes, and tiles have global CSS guards plus delayed `invalidateSize()` calls after dashboard layout settles, preventing collapsed tile panes during zoom/pan.
-- Vehicle, charger, low-SOC, and stop-zone layers
-- Selected-driver filter
-- WebSocket status card
-- REST polling fallback when WebSocket is disconnected
-- Map REST fallback polling is non-overlapping, uses a longer timeout, and suppresses transient timeout/network messages when stale map data is already visible.
-- Direct `vehicle_point` merge for fresh live GPS
-- Latest DB row display when no live GPS event is arriving
-
-### 3.6 Alerts, Scorecards, Admin, Reports
-
-Implemented:
-
-- Alerts page
-- Scorecards page
-- Admin/model metrics page
-- 3D horizontal admin signal carousel for model/platform health
-- Reports page
-- Push-token registration UI foundation
-
-### 3.7 AI Workspace
-
-Implemented:
-
-- `/ai` dashboard workspace for admin, fleet operator, and driver roles
-- Assistant chat surface
-- Notification personalization preview
-- Route explanation runner
-- Battery insight runner
-- Charger recommendation runner
-- Driver profile memory view/update runner
-- Fleet summary runner
-- Driver coaching runner
-- Loading, empty, error, fallback, driver selection, and vehicle selection states
-- Frontend API client support for all Feature 1-8 endpoints
-- Sidebar/topbar navigation entry as `Assistant`
-
-Design note:
-
-- The UI exposes product outcomes and grounded results. It does not expose internal prompts, system instructions, API keys, service role secrets, or raw model internals.
-
-Remaining:
-
-- Surface archetype distribution in fleet/scorecard pages.
-- Verify browser push notifications end to end in production.
+- `/driver` and "My Profile" are driver-only now. Admins should use fleet, impact, scorecards, reports, observability, model health, and admin pages instead of seeing a driver profile as their own profile.
 
 ---
 
-## 4. Active API Surface
+## 4. Feature Status Against Latest PRD
 
-### Auth
+| # | Feature | Current status | What is real now | Remaining / limitation |
+|---|---|---|---|---|
+| 1 | LLM-personalized push notifications | Backend built, delivery not fully verified | `POST /api/v1/notifications/personalize`, logs, fallback templates, FCM token store | FCM production receipt on Vercel still needs live verification; WhatsApp not implemented |
+| 2 | Conversational EV Assistant | Initial backend + UI built | `POST /api/v1/assistant/message`, intent classifier, tool registry, safety-critical fallback | Destination/order questions need user input or order feed; WhatsApp delivery not built |
+| 3 | Route Reasoning Agent | Built | `POST /api/v1/routes/explain`, route scorer wrapper, tool-grounded explanation | Needs real route/traffic calibration in production |
+| 4 | Battery Insight Agent | Built | `POST /api/v1/battery/insight`, baseline/prediction/environment-aware fallback | Accuracy depends on clean telemetry and populated profiles |
+| 5 | Charging Recommendation Agent | Built with deterministic ranking | `POST /api/v1/chargers/recommend`, Google/fallback charger context, "availability not confirmed" guard | Real slot availability requires Bolt/Pulse/UBC or partner API |
+| 6 | Driver Profile Memory | Partially built | `GET/POST /api/v1/drivers/{id}/profile`, snapshots, rolling metrics, archetype logic | Evify 7.0 needs vehicle-proxy driver creation before live profiles populate |
+| 7 | Fleet Monitoring Agent | Built foundation | `POST /api/v1/fleet/summary`, fleet live overview, LLM summary with backend facts | Daily email/WhatsApp summary delivery not built |
+| 8 | Driver Coaching Agent | Built foundation | `POST /api/v1/drivers/{id}/coaching`, metrics, coaching events | Needs better trip/session metrics and true driver identity for production-grade coaching |
+| 9 | Smart Order Assignment | Backend built | `POST /api/v1/intelligence/orders/assign`, persistence/history | Needs real order feed and frontend operator workflow validation |
+| 10 | True Wait Time Model | Backend built | `POST /api/v1/intelligence/wait-time`, travel/prep/buffer calculation | Needs restaurant location, prep time, order assignment timestamp |
+| 11 | 3-Option Charging Decision | Backend built | `POST /api/v1/intelligence/charging/decision`, records/history | Needs real order feed and real charger availability for production claims |
+| 12 | V5-A Driver Behavioral Model | Training foundation built | `app/ml/v5a_training.py`, 24-feature list, SOC-quality filtering | Not promoted to production inference; Evify 7.0 needs adapter/proxy fixes first |
+| 13 | External APIs | Built foundation | Weather/elevation/directions/places service with H3/cache/quota/fallback; map charger points are ranked from current live driver/fleet GPS context and capped to relevant returned points | Needs production keys, quota monitoring, and real charger inventory/slot provider for full-city availability claims |
+| 14 | Personalized Departure Nudge | Partial | route scoring and personal_factor foundations exist | No full ignition-triggered FCM/WhatsApp pipeline yet |
+| 15 | Opportunistic Charging Alert | Partial | alert service, wait classifier, charger lookup, stop/SOC foundations | Needs context-aware stop engine and push verification |
+| 16 | Trip Digital Twin | Partial | `trips` table, GPS trip inference, and click-to-view trip trace endpoint/UI exist | Current trip inference requires `driver_id`; vehicle-proxy trip generation must be implemented before Evify 7.0 fully populates trips |
+| 17 | Driver Scorecard & Fleet Intelligence | Partial | `/scorecards`, fleet live, driver behavior history | Formula is basic; needs trip-twin and profile confidence improvements |
+| 18 | RL Nudge Optimizer | Future | `nudge_events` outcome fields exist | Needs months of A/B outcome data |
+| 19 | V6 Driver Embedding Model | Future | Tables and outcome data path exist | Needs stable driver IDs and 3+ months/500+ trips per driver |
+| 20 | Real-Time Streaming Architecture | Future scale path | Current pilot indexes and bulk ingest exist | Build after pilot success or load-test failure |
+| 21 | Driver Archetype Classifier | Built | live driver profile archetype output and snapshot fields | Needs vehicle-proxy driver support for Evify 7.0 |
+| 22 | Platform Integrations | Not built | Docs only | Swiggy/Zomato/Twilio/Bolt/Pulse/UBC access required |
+| 23 | ETA Personalization | Built foundation | personal_factor update from trip outcome | Needs trip inference to populate reliably with proxy driver |
+| 24 | Agent vs Backend Framework | Implemented in design | deterministic backend decisions + LLM wording/explanation only | Continue enforcing tool boundary |
+| 25 | Pitch Demo Requirements | Partially supported | landing page, map, decisions, routes, reports, AI workspace | Demo recordings and FCM verification still needed |
+| 26 | Context Signal Intelligence | Partial | ignition, speed, GPS, SOC, weather/traffic/elevation, H3 cache, wait classifier | Need persistent H3/area intelligence and stop reason confidence |
+
+---
+
+## 5. Evify Data 7.0 Readiness
+
+Observed dataset:
+
+- 48 JSON files.
+- 90,833 telemetry rows.
+- `RegNo` present.
+- `VehicleId` present.
+- `Latitude` and `Longitude` present.
+- `eventTime` and `DateTimeOfLog` present.
+- `soc` and `soH` mostly present.
+- `Speed` and `IgnitionOn` present.
+- CAN data includes current, voltage, regen, throttle, temperature, capacity, DTE, and charge-plug status.
+- `charge_plug_status` is present but all observed values are `0`.
+
+Missing from Evify 7.0:
+
+- no real `driver_id`
+- no `trip_id`
+- no planned destination
+- no order ID
+- no restaurant/customer destination
+- no prep time
+- no charger slot availability
+
+What Evify 7.0 can support now:
+
+- pilot load testing
+- vehicle-level live fleet monitoring
+- vehicle-proxy behavior profiles after code fix
+- generated trip/session IDs after code fix
+- GPS trip reconstruction
+- stop/wait window analysis
+- battery drain baseline analysis
+- H3 area clustering
+- context-aware opportunistic charging
+- scorecards/coaching using vehicle proxy
+
+What Evify 7.0 cannot honestly support alone:
+
+- true human-driver personalization
+- full food-order assignment intelligence
+- true restaurant wait-time intelligence
+- customer destination planning
+- real charger slot availability
+- V6 driver embeddings
+- RL nudge optimization
+
+---
+
+## 6. Pilot Intelligence Decision
+
+### Trip IDs
+
+Evify does not need to provide `trip_id`.
+
+Trickee should generate trip/session IDs:
+
+```text
+trip starts = ignition ON + speed above movement threshold + valid GPS
+trip continues = same vehicle session while moving or briefly stopped
+trip ends = ignition OFF or stopped beyond configured timeout
+trip_id = vehicle_or_regno + start_timestamp + short hash/sequence
+```
+
+Current code status:
+
+- `trips.id` exists and defaults to UUID.
+- `trip_inference.py` creates trip rows from ignition/speed/GPS.
+- Gap: it currently requires `row.driver_id`; Evify 7.0 does not provide one.
+
+Required pilot implementation:
+
+- create/use vehicle-proxy driver when no real driver ID exists
+- persist `trip_source = gps_inferred` or equivalent metadata later if schema is expanded
+- preserve migration path to real driver IDs
+
+### Driver Profiles
+
+Pilot decision:
+
+- Use `RegNo` or `VehicleId` as temporary profile key when no real driver ID exists.
+- Label it as vehicle-attached behavior.
+- Do not claim it is a true driver identity.
+
+Production target:
+
+```text
+vehicle_behavior_profile
+  -> driver_behavior_profile after Evify provides driver mapping
+```
+
+### Opportunistic Wait/Charging Intelligence
+
+Use this product name for pilot:
+
+```text
+Context-aware opportunistic charging intelligence
+```
+
+Do not call it full order wait-time intelligence unless order feed data exists.
+
+Inputs available now:
+
+- ignition status
+- ignition ON/OFF duration
+- speed near zero
+- SOC and SOC trend
+- GPS stop location
+- area/H3 zone
+- nearby chargers
+- traffic/road context
+- historical stop pattern
+
+Stop classification target:
+
+```text
+charging_wait
+restaurant_or_pickup_wait
+traffic_wait
+crossroad_or_signal_wait
+idle_wait
+depot_wait
+unknown_stop
+```
+
+Recommendation rule:
+
+- recommend charging only when stop confidence and charging value are high
+- do not recommend charging for short traffic/crossroad/signal stops
+- do not invent restaurant/order wait time without order context
+- always mark charger slot availability as unconfirmed unless a real slot API is connected
+
+---
+
+## 7. Current API Surface
+
+Core:
 
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/firebase-login`
 - `POST /api/v1/auth/access-request`
 - `GET /api/v1/auth/me`
+- `GET /api/v1/auth/ws-ticket`
 - `POST /api/v1/auth/fcm-token`
 - `DELETE /api/v1/auth/fcm-token`
 - `POST /api/v1/auth/logout`
-- `GET /api/v1/admin/access-requests`
-- `POST /api/v1/admin/access-requests`
-- `POST /api/v1/admin/access-requests/{request_id}/approve`
-- `POST /api/v1/admin/access-requests/{request_id}/reject`
-- `GET /api/v1/admin/fleets`
-- `GET /api/v1/admin/drivers`
 
-### Vehicles
+Telemetry:
+
+- `POST /api/v1/telemetry/evify`
+- `POST /api/v1/telemetry/evify/bulk`
+
+Vehicles and drivers:
 
 - `GET /api/v1/vehicles`
 - `GET /api/v1/vehicles/me`
 - `GET /api/v1/vehicles/{vehicle_id}`
 - `GET /api/v1/vehicles/{vehicle_id}/telemetry`
-
-### Drivers
-
 - `GET /api/v1/drivers`
 - `GET /api/v1/drivers/me`
 - `GET /api/v1/drivers/{driver_id}`
@@ -529,28 +557,15 @@ Remaining:
 - `POST /api/v1/drivers/{driver_id}/profile/update`
 - `POST /api/v1/drivers/{driver_id}/coaching`
 
-### Telemetry
-
-- `POST /api/v1/telemetry/evify`
-- `POST /api/v1/telemetry/evify/bulk`
-
-### Predictions
+Prediction and routes:
 
 - `POST /api/v1/predictions/infer/{vehicle_id}`
 - `GET /api/v1/predictions/{vehicle_id}/history`
-
-### Routes
-
 - `POST /api/v1/routes/score`
 - `POST /api/v1/routes/reroute`
 - `POST /api/v1/routes/explain`
 
-### Alerts
-
-- `GET /api/v1/alerts`
-- `POST /api/v1/alerts/{alert_id}/resolve`
-
-### Intelligence
+Intelligence:
 
 - `GET /api/v1/intelligence/drivers/{driver_id}/behavior`
 - `GET /api/v1/intelligence/drivers/{driver_id}/live-profile`
@@ -559,13 +574,19 @@ Remaining:
 - `GET /api/v1/intelligence/fleet/live`
 - `GET /api/v1/intelligence/live-map`
 - `GET /api/v1/intelligence/reports/weekly`
+- `GET /api/v1/intelligence/reports/charts`
+- `GET /api/v1/intelligence/reports/daily-impact`
 - `POST /api/v1/intelligence/context`
 - `POST /api/v1/intelligence/wait-time`
 - `POST /api/v1/intelligence/orders/assign`
 - `POST /api/v1/intelligence/charging/decision`
-- history endpoints for driver behavior, nudges, order assignments, charging decisions, and waits
+- `GET /api/v1/intelligence/history/driver-behavior`
+- `GET /api/v1/intelligence/history/nudges`
+- `GET /api/v1/intelligence/history/order-assignments`
+- `GET /api/v1/intelligence/history/charging-decisions`
+- `GET /api/v1/intelligence/history/waits`
 
-### AI Features
+AI features:
 
 - `POST /api/v1/notifications/personalize`
 - `POST /api/v1/assistant/message`
@@ -573,808 +594,240 @@ Remaining:
 - `POST /api/v1/chargers/recommend`
 - `POST /api/v1/fleet/summary`
 
-### WebSocket
-
-- `/ws/live-map?ticket=<short-lived-ws-ticket>`
-- `/ws/live-map?ticket=<short-lived-ws-ticket>&driver_id=<driver-id>`
-
-### Admin
+Admin and ops:
 
 - `GET /api/v1/admin/metrics`
 - `GET /api/v1/admin/users`
+- `GET /api/v1/admin/fleets`
+- `GET /api/v1/admin/drivers`
+- `GET /api/v1/admin/access-requests`
+- `POST /api/v1/admin/access-requests`
+- `POST /api/v1/admin/access-requests/{request_id}/approve`
+- `POST /api/v1/admin/access-requests/{request_id}/reject`
+- `GET /api/v1/alerts`
+- `POST /api/v1/alerts/{alert_id}/resolve`
+- `/ws/live-map`
 
 ---
 
-## 5. Verification Status
-
-Latest checks run locally on 2026-05-17:
-
-- Backend full suite through local `.venv`: `41 passed`
-- Focused H3/external-context + AI feature suite: `27 passed`
-- Backend syntax compile: passed
-- Frontend `npm run lint`: passed with no warnings or errors
-- Frontend `npm run build`: previously passed; latest local rerun hit the Windows `.next/trace` file-lock issue while local Next dev processes were active, before reaching a source compile error.
-- Alembic migration against configured Postgres: upgraded to `0009_ai_feature_logs (head)`
-- AI log table existence check: `ai_interaction_logs`, `tool_call_logs`, `notification_personalization_logs`, `assistant_messages`, `driver_profile_snapshots`, `driver_coaching_events`, and `fleet_summary_logs` all exist
-- Deployed Vercel frontend `/login`: HTTP 200
-- Deployed Vercel Firebase service worker `/firebase-messaging-sw.js`: HTTP 200 and contains Firebase messaging code
-- Full production FCM receipt remains unverified because it requires an authenticated deployed browser session, notification permission, FCM token registration, and a live push event
-
-Warnings still present:
-
-- Python deprecation warnings around `datetime.utcnow()`
-
-New backend coverage added:
-
-- `/routes/score` returns charge-required/no-recommendation state at zero SOC
-- `/routes/score` uses selected origin/destination coordinates instead of only static fallback route names
-- Driver archetype classifier baseline/live behavior
-- Archetype-aware order assignment hint
-- Live driver profile archetype response
-- WebSocket role/driver scoping
-- Weekly report email test isolation from local Resend env vars
-- Destination charge plan assertions in route scoring and live driver decisions
-- AI feature evals:
-  - notification sentence limit
-  - prompt-injection detection
-  - assistant battery intent tool usage
-  - safety-critical escalation
-  - battery insight grounding
-  - charger availability honesty
-  - driver profile confidence scoring
-  - fleet summary fact alignment
-  - non-shaming driver coaching
-- External-context H3/cache evals:
-  - H3 bucket is used when the H3 library is available
-  - nearby route calls reuse one cached Directions result
-  - provider quota guard blocks new Google calls after the configured daily limit
-
----
-
-## 6. Covered For Demo/Pilot
-
-Strongly covered:
-
-- Backend-connected frontend
-- Role-based auth
-- Vehicle/fleet dashboard
-- Fleet manager 3D vehicle carousel
-- Admin 3D model/platform signal carousel
-- Global live SOC overlay across dashboard pages
-- Premium watermark treatment on dashboard shell/cards
-- V4.1 prediction
-- Live driver profile
-- Dynamic driver archetypes
-- Archetype-aware live decisions
-- Route scoring/reroute
-- Exact destination charge planning with charge minutes, top-up SOC, charger, and arrival buffer
-- Alerts feed
-- Intelligence history foundations
-- Wait/order/charging backend logic
-- Live map with WebSocket plus REST fallback
-- Direct live GPS map patching from telemetry ingest
-- DB fallback for latest known location
-- Dedicated wait/order/charging decision UI at `/decisions`
-- 7-day route schedule UI at `/schedule`
-- Real origin/destination map picker in route planning and schedule flows
-- Archetype panels in driver and fleet dashboards
-- Archetype confidence history persisted on `driver_behavior_snapshots`
-- Optional Redis pub/sub live-map broadcast layer for multi-worker backends
-- Production observability dashboard at `/observability`
-- Data quality dashboard at `/data-quality`
-- Model drift dashboard at `/model-drift`
-- Pitch-style Evify/ABZO chart visuals and live Recharts equivalents in frontend
-- Weekly report generation and optional email delivery
-- Driver nudge UI for "charge to complete destination" guidance
-- Grounded AI Feature 1-8 backend endpoints
-- `/ai` Assistant workspace for running assistant, notifications, route reasoning, battery insight, charger recommendation, driver profile memory, fleet summary, and driver coaching flows
-- AI/tool observability tables applied in Postgres
-
-Partially covered:
-
-- True production streaming: in-memory WebSocket remains the default, with optional Redis fanout enabled by `REDIS_URL`.
-- Live GPS source: backend can push when telemetry arrives, but still depends on Evify or a runner sending fresh telemetry.
-- Archetype drift: confidence history is now persisted; automated confidence decay policy is still future work.
-- Push notifications: FCM service worker is deployed and token registration foundation exists; full push receipt on the deployed domain still needs interactive validation.
-- Trips: inference exists, but quality depends on continuous telemetry and GPS quality.
-- Nudges: destination charge-plan context is now visible in the route/driver UI, but latest persisted nudge binding and outcome capture remain incomplete.
-- Recommender systems: deterministic scoring/profile/recommendation services are implemented; learned recommender/RL behavior should remain soft-locked until pilot outcome data exists.
-
-Not fully built:
-
-- Production log ingestion/source integration for the observability dashboard
-- Full outcome capture forms for nudge/order/charging follow-through
-- Automated archetype confidence decay and flip auditing
-- Scorecard archetype coaching notes
-- V6 training pipeline on longitudinal real outcomes
-
----
-
-## 7. Remaining Work Before Pilot
-
-### Highest Priority
-
-1. **Verify live GPS end to end**
-   - Send/replay Evify payload with changed non-zero GPS.
-   - Confirm DB row is stored.
-   - Confirm WebSocket sends `vehicle_point`.
-   - Confirm map marker moves without waiting for REST polling.
-   - Confirm reload shows latest DB row.
-
-2. **Finish archetype coaching polish**
-   - Driver profile and fleet page now show archetype panels.
-   - `driver_behavior_snapshots` now stores archetype label/confidence/source/payload.
-   - Remaining: scorecard coaching notes and explicit confidence-decay audit rules.
-
-3. **Validate new dashboard flows with real data**
-   - `/decisions`: wait/order/charging stack.
-   - `/schedule`: 7-day route planning.
-   - `/observability`: runtime counters and event history.
-   - `/data-quality`: GPS/battery/freshness checks.
-   - `/model-drift`: prediction error and archetype stability.
-
-4. **Validate production backend URL**
-   - Confirm Render `/health`.
-   - Confirm Vercel `NEXT_PUBLIC_BACKEND_URL`.
-   - Confirm WebSocket path works in deployed environment.
-
-5. **Verify production auth and FCM**
-   - Supabase login/session refresh.
-   - Backend Supabase JWT mapping to Trickee user scope.
-   - Optional Firebase login path if enabled.
-   - Browser token registration.
-   - Push alert receipt on deployed domain.
-   - Current status: Vercel `/login` and `/firebase-messaging-sw.js` are reachable; actual push receipt still requires a logged-in browser, notification permission, registered token, and live alert send.
-
-### Medium Priority
-
-6. **Add telemetry replay/live runner if Evify live feed is not available**
-   - Should post to `/api/v1/telemetry/evify`.
-   - Useful for demoing map movement and archetype updates.
-
-7. **Improve wait/order/charging UI**
-   - Add manual outcome update controls.
-   - Bind latest active nudge directly into driver view.
-   - Add operator comments for ignored/followed decisions.
-   - Validate destination charge-plan display against real charger rates and real route distance/ETA data.
-
-8. **Improve live map context**
-   - Add stale marker indication.
-   - Show last live event timestamp per vehicle.
-   - Preserve richer risk/archetype metadata on direct `vehicle_point` events.
-
-9. **Outcome logging for V6**
-   - Add or populate fields for:
-     - followed/ignored
-     - SOC before/after
-     - route taken
-     - delivery outcome
-     - charging outcome
-   - These become training labels for V6.
-
-### Later Scale Work
-
-10. **Shared live event bus hardening**
-    - Optional Redis pub/sub exists through `REDIS_URL`.
-    - Remaining: production Redis provisioning, retry metrics, and fanout load test.
-
-11. **Time-series upgrade**
-    - TimescaleDB or managed time-series storage when telemetry volume grows.
-
-12. **V6 learning**
-    - Driver embeddings.
-    - Trip digital twin.
-    - Outcome-learning personalization.
-    - Bandit/RL-style nudge optimizer only after enough A/B outcome data.
-
----
-
-## 8. V6 Direction
-
-V6 is not needed for current personalization. Current archetypes provide immediate, explainable personalization.
-
-V6 should come later, after enough longitudinal data exists:
-
-- consistent `driver_id`
-- GPS traces
-- trip boundaries
-- route outcomes
-- charging outcomes
-- nudge acknowledged/followed outcomes
-- order assignment outcomes
-
-Future V6 target:
-
-```text
-telemetry window + trip context + driver embedding -> personalized SOC/range/risk prediction
-```
-
-The current archetype layer is intentionally compatible with V6:
-
-```text
-current telemetry -> archetype -> policy weights -> recommendation -> outcome logging
-future telemetry  -> embedding  -> policy weights -> recommendation -> outcome logging
-```
-
-So V6 can replace the classifier later without replacing the whole recommendation pipeline.
-
----
-
-## 9. Deployment Notes
-
-Frontend:
-
-- Vercel app target remains `trickee-evify-live`.
-- Production frontend URL referenced in config:
-  - `https://trickee-evify-live.vercel.app`
-
-Backend:
-
-- Render remains the deployment target.
-- Required env vars include:
-  - `DATABASE_URL`
-  - `SECRET_KEY`
-  - `ALLOWED_ORIGINS`
-  - `ENVIRONMENT`
-  - `SUPABASE_JWT_SECRET`
-  - `SUPABASE_JWT_AUDIENCE`
-- `MAX_REQUEST_BODY_BYTES`
-- rate-limit settings for auth, telemetry, intelligence, AI, and WebSocket tickets
-  - AI settings:
-    - `GROQ_API_KEY`
-    - `GROQ_MODEL`
-    - `AI_REQUEST_TIMEOUT_SECONDS`
-    - `AI_MAX_RETRIES`
-    - `AI_MAX_INPUT_CHARS`
-    - `AI_MAX_OUTPUT_TOKENS`
-    - `ASSISTANT_RATE_LIMIT_PER_HOUR`
-    - `NOTIFICATION_PERSONALIZATION_RATE_LIMIT_PER_HOUR`
-    - `CHARGER_RECOMMENDATION_RATE_LIMIT_PER_HOUR`
-    - `ROUTE_EXPLANATION_RATE_LIMIT_PER_HOUR`
-    - `FLEET_SUMMARY_RATE_LIMIT_PER_HOUR`
-    - `COACHING_RATE_LIMIT_PER_DAY`
-  - external-context cache/quota settings for Google/OpenWeather API cost control:
-    - `EXTERNAL_CONTEXT_H3_ENABLED`
-    - `EXTERNAL_CONTEXT_H3_RESOLUTION`
-    - `EXTERNAL_CONTEXT_WEATHER_H3_RESOLUTION`
-  - `FIREBASE_PROJECT_ID`
-  - `FIREBASE_SERVICE_ACCOUNT_JSON` or path equivalent
-  - `FIREBASE_AUTH_ENABLED`
-  - `FIREBASE_FCM_ENABLED`
-  - optional `OPENWEATHER_API_KEY`
-  - optional `GOOGLE_MAPS_API_KEY`
-  - optional `GOOGLE_PLACES_API_KEY`
-  - optional `RESEND_API_KEY`
-  - optional report email vars
-  - optional `REDIS_URL` for multi-worker live-map fanout
-
-Important:
-
-- WebSockets must be supported by the deployed backend service.
-- If backend is scaled to multiple workers/instances, set `REDIS_URL` so live GPS events fan out across workers.
-
----
-
-## 10. Recommended Pilot Demo Flow
-
-1. Login as admin/fleet operator.
-2. Show Fleet Overview with latest backend telemetry.
-3. Open Live Fleet Map.
-4. Send/replay a telemetry payload with changed GPS.
-5. Show marker move via direct WebSocket `vehicle_point`.
-6. Refresh page and show latest DB row still appears.
-7. Open Driver Profile and show archetype label/confidence.
-8. Explain how archetype changes charging thresholds/range buffers.
-9. Run V4.1 prediction on a vehicle.
-10. Score a route and run reroute simulation.
-11. Show weekly report.
-12. Open `/ai` and show assistant, route explanation, battery insight, charger recommendation, fleet summary, and coaching outputs.
-13. Explain V6 path: archetype/outcome logs become the training memory for embeddings later.
-
-Pitch guidance:
-
-- Do not mock learned recommender/RL behavior as deployed. Soft-lock it as "learning mode" or "pilot data collection" and show the deterministic grounded decision stack that is actually implemented.
-- For demoing future recommender UX, label screens as simulation/pilot preview and keep outputs tied to real backend facts.
-- The current website can be used on mobile Chrome as a PWA-style responsive web app. Mobile Chrome can request GPS through the browser Geolocation API on HTTPS, but driver background tracking, reliable push behavior, and OS-level location permissions are better handled by a native wrapper or dedicated mobile app later.
-- H3 spatial indexing is now implemented in the backend external-context cache layer. It reduces Places/Directions/Elevation/OpenWeather cost by caching nearby requests per hex cell and deduplicating moving-vehicle requests. It does not reduce the price of a single Google call, but it reduces call volume when many nearby requests hit the same cell.
-
----
-
-## 11. Final Interpretation
-
-The product now has a practical personalization bridge:
-
-```text
-Live telemetry -> driver profile -> archetype -> personalized rules -> persisted outcomes -> V6 later
-```
-
-This gives Trickee real driver personalization immediately, without pretending there is enough longitudinal data for a learned recommender. The next step is UI surfacing plus outcome logging, not a premature V6 model.
-
----
-
-## 12. Latest Production Fixes - Real-Time Reports And PWA
-
-Implemented in `production/`:
-
-- Added backend `GET /api/v1/intelligence/reports/charts` for DB-backed reporting data scoped to admin/fleet roles.
-- Replaced static report chart images with live Recharts views using telemetry, prediction, wait, and charging-decision data from the database.
-- Added report time-window filters: 24 hours, 7 days, 10 days, 14 days, and 30 days.
-- Updated the embedded telemetry chart component to use the same live chart endpoint instead of generated/static chart arrays.
-- Added PWA support with a Next manifest, production service worker registration, and a conservative shell cache.
-- Kept live/report refreshes on a 30-second visibility-aware polling path, matching the production rule against fast blind polling.
-
-Verification completed:
-
-- Backend tests: `28 passed`
-- Frontend lint: passed
-- Frontend production build: passed
-- Production diff whitespace check: passed
-
----
-
-## 13. Latest Production Fixes - Auth Page UX
-
-Implemented in `production/trickee-frontend`:
-
-- Rebuilt `/login` with a restrained premium UI, accessible form controls, password visibility toggle, clear auth errors, and role-aware post-login routing.
-- Added `/signup` as a Supabase-backed account creation flow with full name, company/fleet, work email, password validation, confirmation handling, and explicit pending-role-mapping state.
-- Preserved the production auth boundary: Supabase owns identity, while the Trickee backend still owns role, fleet, and driver authorization.
-- Kept legacy password login only as the existing rollback path when the environment flag enables it.
-- Revised visible auth-page copy to remove implementation terms and keep the product UI concise, human, and operations-focused.
-
-Verification completed:
-
-- Frontend lint: passed
-- Frontend production build: passed
-
----
-
-## 14. Latest Production Fixes - Product Copy Pass
-
-Implemented in `production/trickee-frontend`:
-
-- Applied the premium product-copy rule across the main dashboard pages and shared components.
-- Removed visible implementation wording such as backend, API, WebSocket, fallback, endpoint, V6, and AI-error phrasing from user-facing UI.
-- Renamed operational navigation and page labels toward clearer product language:
-  - AI Predictions -> Vehicle Forecasts
-  - Report Charts -> Reports
-  - Observability -> Operations Health
-  - Model Drift -> Model Health
-- Reworked route, map, driver, vehicle, data quality, admin, scorecard, and decision-page helper copy to be shorter, calmer, and user-outcome focused.
-
-Verification target:
-
-- Frontend lint
-- Frontend production build
-
----
-
-## 15. Latest Production Fixes - Google And Code Sign-In
-
-Implemented in `production/trickee-frontend`:
-
-- Added Google sign-in to `/login` and `/signup`.
-- Added one-time-code sign-in on `/login` for work email and mobile number.
-- Added verification-code entry and session handoff after successful code verification.
-- Added `/auth/callback` route for completing Google sign-in and returning users to the workspace.
-- Kept product UI copy clean: no provider architecture, token, or implementation wording is shown to users.
-
-Operational note:
-
-- Google and mobile-code sign-in require the corresponding providers to be enabled in the Supabase project dashboard.
-
-Verification completed:
-
-- Frontend lint: passed
-- Frontend production build: passed
-
----
-
-## 16. Latest Production Feature - Daily Impact Report
-
-Implemented in `production/`:
-
-- Added backend daily impact generation at `GET /api/v1/intelligence/reports/daily-impact`.
-- Added deterministic impact calculation from persisted operational records:
-  - completed trips
-  - charging decision records
-  - order assignment decisions
-  - alerts
-  - nudge events
-  - wait events
-  - telemetry row coverage
-- Added per-driver and fleet-level summaries for:
-  - operating value
-  - time saved
-  - orders delivered
-  - useful charging minutes
-  - charging value captured
-  - extra order capacity
-  - low-SOC risks cleared
-  - acknowledged driver actions
-- Added evidence metadata so report values are grounded in database records instead of free-form generated text.
-- Added `Daily Impact` dashboard page at `/impact` for admin, fleet operator, and driver roles.
-- Added sidebar and topbar navigation for `Daily Impact`.
-- Added frontend API client support through `api.intelligence.dailyImpact(reportDate)`.
-- Kept UI copy concise and product-facing, with no backend/tooling terminology exposed to users.
-
-Production behavior:
-
-- Admin users see all scoped drivers.
-- Fleet operators see their fleet drivers.
-- Drivers see their own impact report.
-- The report uses 30-second visibility-aware refresh through the existing frontend polling helper.
-- No new database table was added in this pass; the feature is computed from existing operational records for rollback safety.
-
-Verification completed:
-
-- Backend focused test: passed
-- Backend full test suite: `31 passed`
-- Frontend lint: passed
-- Frontend production build: passed
-
----
-
-## 17. Latest Production Hardening - Security, Abuse Controls, And Auth Truth-Up
-
-Implemented in `production/`:
-
-- Added backend security middleware for request IDs, secure response headers, request-size limits, generic internal-error responses, and response timing headers.
-- Restricted backend CORS methods/headers to the methods and headers actually used by the app.
-- Added Redis-backed rate limiting with local fallback:
-  - global API limit
-  - auth/login limit
-  - telemetry ingest limits
-  - prediction inference limit
-  - intelligence workflow limits
-  - WebSocket ticket limit
-  - FCM token registration limit
-- Added external-context cost protection for Google/OpenWeather calls:
-  - Google Places, Directions, and Elevation calls share a daily provider quota guard.
-  - OpenWeather calls have a separate daily provider quota guard.
-  - Google/OpenWeather results are cached in-process and, when `REDIS_URL` is configured, cached across workers.
-  - Directions use a 5-minute spatial cache, charger lookups use a 20-minute spatial cache, elevation uses a 24-hour spatial cache, and weather uses a 10-minute spatial cache.
-  - Cache keys now use Uber H3 hex cells when `h3` is installed and `EXTERNAL_CONTEXT_H3_ENABLED=true`; they fall back to rounded lat/lng grid keys if H3 is unavailable during a partial deploy.
-  - Default H3 settings: `EXTERNAL_CONTEXT_H3_RESOLUTION=10` for chargers/directions/elevation and `EXTERNAL_CONTEXT_WEATHER_H3_RESOLUTION=6` for weather. Lowering charger/directions resolution to 8-9 can reduce API calls further but may serve coarser context.
-  - When quota is exhausted, the backend serves stale cached context if available, otherwise deterministic fallback context.
-  - The 5-second live-map WebSocket path does not call Google APIs; it uses DB telemetry, clustering, and static charger context.
-- Shortened legacy backend JWT expiry to 15 minutes and blocked `LEGACY_AUTH_ENABLED=true` when `ENVIRONMENT=production`.
-- Added strict Pydantic request contracts with unknown-field rejection for auth, route scoring, wait-time, order-assignment, charging-decision, live-decision, and telemetry wrapper payloads.
-- Normalized the decision API contract so frontend `current_location`/`pickup_location` payloads safely map to the charging engine's server-side `location`/`restaurant_location` contract.
-- Added server-side scope validation for order-assignment and charging-decision driver/vehicle references before decisions are persisted.
-- Added `security_events` audit table and login security-event recording for legacy/Firebase auth paths.
-- Added Supabase-only RLS baseline migration when the target database exposes the `auth` schema.
-- Added secure frontend headers and CSP through Next.js config, with production browser source maps disabled.
-- Removed React fallback-map `dangerouslySetInnerHTML` usage; Leaflet marker HTML remains generated server-trusted/sanitized for `divIcon`.
-- Gated legacy `localStorage` token usage behind `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=true`.
-- Hardened Docker runtime by running the backend container as a non-root user.
-- Updated backend env templates and README for the new production controls.
-
-Verification completed:
-
-- Backend full test suite: `31 passed`
-- External-context cache/quota regression tests: passed as part of backend suite
-- Backend syntax compile: passed
-- Frontend lint: passed
-- Frontend production build: passed
-
----
-
-## 18. Latest Production Feature - Grounded AI Features 1-8
-
-Implemented in `production/`:
-
-- Added shared AI infrastructure:
-  - `app/services/ai/llm_client.py`
-  - `app/services/ai/safety.py`
-  - `app/services/ai/tool_registry.py`
-  - `app/services/ai_features.py`
-- Added grounded AI/product endpoints:
-  - `POST /api/v1/notifications/personalize`
-  - `POST /api/v1/assistant/message`
-  - `POST /api/v1/routes/explain`
-  - `POST /api/v1/battery/insight`
-  - `POST /api/v1/chargers/recommend`
-  - `GET /api/v1/drivers/{driver_id}/profile`
-  - `POST /api/v1/drivers/{driver_id}/profile/update`
-  - `POST /api/v1/fleet/summary`
-  - `POST /api/v1/drivers/{driver_id}/coaching`
-- Added AI observability/storage migration `0009_ai_feature_logs`.
-- Applied migrations to the configured Postgres database; Alembic is at `0009_ai_feature_logs (head)`.
-- Added frontend `/ai` workspace and navigation entry.
-- Added frontend API client methods for Feature 1-8 flows.
-- Added focused AI eval tests in `backend/tests/test_ai_features.py`.
-
-LLM in use:
-
-- Provider path: Groq OpenAI-compatible chat-completions endpoint.
-- Model setting: `GROQ_MODEL`.
-- Current default: `llama-3.1-8b-instant`.
-- Fallback: deterministic backend wording when `GROQ_API_KEY` is absent, the call times out, or model output fails safety/grounding constraints.
-
-Security and production rules enforced:
-
-- LLM never decides send/no-send, route ranking, charging rank, fleet risk, or driver score.
-- Tool outputs ground notification wording, assistant answers, route explanations, battery insight, charger explanations, fleet summaries, and coaching messages.
-- Assistant safety-critical messages escalate without mechanical advice.
-- Prompt-injection text is treated as untrusted.
-- Charger availability is never faked; responses say availability is not confirmed unless a real slot provider is integrated.
-- AI/tool calls are logged with latency, fallback, success/failure, feature name, and tool names.
-- Redis-backed rate limits are used when `REDIS_URL` is set, with local fallback.
-
-FCM deployment status checked:
-
-- `https://trickee-evify-live.vercel.app/login` returned HTTP 200.
-- `https://trickee-evify-live.vercel.app/firebase-messaging-sw.js` returned HTTP 200 and contains Firebase messaging code.
-- Full push receipt is still not marked complete because it requires a logged-in browser, notification permission, token registration, and an actual alert push on the deployed domain.
-
-Notification-channel status:
-
-- **Primary now:** dashboard alert feed and persisted alert/nudge records.
-- **Built foundation:** FCM service worker, browser token registration endpoint, and personalized notification wording endpoint.
-- **Needs verification:** end-to-end production FCM delivery from deployed backend/frontend.
-- **Not implemented yet:** WhatsApp delivery. Recommended later as opt-in fallback/high-priority delivery, not as the core decision system.
-
-Verification completed:
-
-- Backend full test suite: `41 passed`
-- Backend syntax compile: passed
-- Alembic current: `0009_ai_feature_logs (head)`
-- AI log table existence check: passed
-- Frontend lint: passed
-- Frontend production build: passed
-
-Render deployment note:
-
-- The configured Postgres database was migrated locally to `0009_ai_feature_logs`.
-- If Render is still running a Git commit that does not contain `alembic/versions/0009_ai_feature_logs.py`, Render will log `Can't locate revision identified by '0009_ai_feature_logs'`.
-- That does not mean the local code was deployed to Render. It means the database revision moved ahead of the code currently checked out by the Render service.
-- Production-safe fix: push the migration/code to the Git branch Render deploys from, then redeploy Render. Avoid stamping the database backward unless intentionally rolling back with a tested rollback plan.
-
----
-
-## 19. Latest Production Hardening - H3 External API Cost Control
-
-Implemented in `production/backend`:
-
-- Added `h3==4.1.2` to backend requirements.
-- Added environment settings:
-  - `EXTERNAL_CONTEXT_H3_ENABLED=true`
-  - `EXTERNAL_CONTEXT_H3_RESOLUTION=10`
-  - `EXTERNAL_CONTEXT_WEATHER_H3_RESOLUTION=6`
-- Updated `app/services/external_context.py` so charger, Directions, Elevation, and weather cache keys use H3 hex cells when available.
-- Kept a rounded-grid fallback if H3 is disabled or unavailable, so startup does not fail during partial dependency/deploy mismatch.
-- Preserved existing TTLs and quota behavior:
-  - chargers: 20 minutes
-  - Directions: 5 minutes
-  - Elevation: 24 hours
-  - weather: 10 minutes
-- Kept Google provider quota protection and stale-cache fallback unchanged.
-
-Cost-control interpretation:
-
-- H3 reduces repeated Google/OpenWeather calls while a driver moves within the same spatial bucket, or when multiple nearby drivers/operators request similar charger/route context.
-- H3 does not make an individual Google Places call cheaper; it reduces total call volume.
-- Resolution 10 is conservative for pilot accuracy. For a higher cost-saving mode, test resolution 8 or 9 against charger density and route precision before changing production env vars.
-
-Render/Alembic status:
-
-- Local configured Postgres is already at `0009_ai_feature_logs (head)`.
-- Render can only see migrations that exist in the Git commit it deploys. The current Render error is expected if the database was migrated locally before the migration file was pushed and redeployed.
-- Required deployment sequence now: push code including `0009_ai_feature_logs.py`, the shortened `0008_security_rls` migration revision change, AI feature code, and H3 changes -> redeploy Render -> confirm `/health` and `alembic current` in Render logs.
-
-Verification completed:
-
-- Backend focused suite: `27 passed` for `tests/test_future_roadmap.py` and `tests/test_ai_features.py`
-
----
-
-## 20. Latest Production Hardening - Config Defaults And Archived API Review
-
-Reviewed archived file:
-
-- `Trickee/aicodeold/api (1).py` is historical Flask prototype code and must not be used as a production API.
-- Useful concepts from it are already present in production in safer form:
-  - destination reachability is covered by route scoring, live decisions, destination charge planning, and battery insight flows
-  - Google Directions context is covered by `app/services/external_context.py` with timeout, cache, quota guard, fallback, and H3 bucketing
-  - CSV/Evify field normalization is covered by the production telemetry ingestion adapter
-- Unsafe prototype behavior was not carried forward:
-  - no hardcoded API key in production source
-  - no Flask debug API
-  - no unauthenticated `/predict` endpoint
-  - no raw stack-trace responses
-  - no random model accuracy claims
-
-Implemented in `production/backend`:
-
-- `Settings` still keeps local development defaults for `DATABASE_URL` and `ALLOWED_ORIGINS`, but production now refuses to boot with SQLite when `ENVIRONMENT=production`.
-- `.env.production.example` now points `ALLOWED_ORIGINS` at `https://trickee-evify-live.vercel.app`.
-
-Operational note:
-
-- Render/Supabase production values must come from environment variables, not from defaults in `config.py`.
-- Local `.env` files contain real credentials in the developer workspace and must not be committed. Any key that was ever hardcoded in archived code should be rotated before pilot.
-
----
-
-## 21. Latest Local Dev Fix - Next.js CSP React Refresh
-
-Implemented in `production/trickee-frontend`:
-
-- Updated `next.config.mjs` so local development CSP includes `unsafe-eval` only when `NODE_ENV !== "production"`.
-- Production CSP remains stricter and does not allow `unsafe-eval`.
-
-Why:
-
-- Next.js dev mode uses React Refresh/Webpack runtime code that requires eval-like behavior.
-- Without the development-only exception, local pages can load HTML but fail to execute `main-app.js` under the browser's CSP.
-
----
-
-## 22. Latest Frontend Feature - Premium Public Landing Page
-
-Implemented in `production/trickee-frontend`:
-
-- Replaced the root `/` redirect with a premium public landing page.
-- Added GSAP-powered entrance, scroll reveal, parallax, counter, and product-scene motion.
-- Added Lenis smooth scrolling for the public landing page.
-- Added direct routes into existing product surfaces:
-  - `/signup`
-  - `/login`
-  - `/fleet`
-  - `/map`
-  - `/routes`
-  - `/decisions`
-  - `/ai`
-  - `/impact`
-  - `/reports`
-- Updated site metadata to match the public positioning.
-
-Design notes:
-
-- Palette follows the existing Trickee dark graphite, refined teal, blue, and white-on-black system.
-- The landing page uses a full product cockpit scene instead of a disconnected marketing illustration.
-- Hero typography was tightened after visual review: headline size, line-height, supporting copy, and desktop grid ratio were reduced so the hero feels sleeker and no longer overwhelms the product scene.
-- Production CSP remains strict; local dev CSP still has the development-only React Refresh exception.
-
-Verification completed:
-
+## 8. Production/Pilot Hardening Still Required
+
+P0 before pilot:
+
+1. Run `alembic upgrade head` in production and verify revision `0010_access_requests`.
+2. Add Evify 7.0 aliases to `evify_adapter.py`.
+3. Implement vehicle-proxy driver creation from `RegNo` or `VehicleId` when no real driver ID exists.
+4. Confirm generated trip/session IDs populate under Evify 7.0 replay.
+5. Load test `/api/v1/telemetry/evify/bulk`:
+   - 500 rows accepted
+   - 501 rows rejected with 413
+   - 50 concurrent 500-row batches tested
+6. Confirm WebSocket fanout does not block ingest.
+7. Configure/verify `REDIS_URL` if using Redis rate limits/cache/pub-sub in pilot.
+8. Verify external API cache/quota behavior under replay.
+9. Verify FCM production push receipt on deployed Vercel URL.
+10. Keep WhatsApp soft-locked until opt-in, templates, provider, and abuse limits are implemented.
+
+P1 before wider pilot:
+
+1. Persist or compute H3/area clusters for recurring stop zones.
+2. Add context-aware stop classifier for traffic/crossroad/signal vs useful wait.
+3. Add dashboard labeling that distinguishes vehicle-proxy profile from real driver profile.
+4. Add replay/load-test scripts using Evify Data 7.0.
+5. Add telemetry adapter regression tests for Evify 7.0 payload keys.
+6. Add performance checks for latest-vehicle/latest-driver queries.
+7. Add data-quality dashboard cards for SOC jumps, missing driver IDs, missing charge plug, and GPS gaps.
+
+Latest local test pass - 2026-05-21:
+
+- Backend unit/eval suite: 45 tests passed.
 - Frontend lint: passed.
-- Frontend type check: passed.
 - Frontend production build: passed.
-- Local route checks returned HTTP 200 for `/`, `/login`, `/signup`, `/fleet`, `/map`, `/routes`, `/decisions`, `/ai`, `/impact`, and `/reports`.
-- Landing page `_next/static` CSS and JavaScript assets returned correct MIME types.
+- Alembic configured DB state: `0010_access_requests (head)`.
+- Render `/health`: 200 OK, V4.1 model ready.
+- Google external context smoke:
+  - Directions: `google_directions`
+  - Elevation: `google_elevation`
+  - Chargers: `google_places_new`
+- Source/docs secret-pattern scan excluding env files found no concrete exposed Google/API secret values.
+
+Open dependency findings:
+
+- Frontend dependency audit still flags `next@14.2.35`; npm's available automated fix is a breaking Next 16 migration.
+- Backend dependency audit flags `python-jose`, `python-multipart`, `starlette`, `torch`, `joblib`, `pytest`, and transitive `pyjwt`.
+- Handle these in a dependency-hardening branch with compatibility testing rather than force-upgrading on the pilot branch.
 
 ---
 
-## 23. Latest Auth/Admin Hardening - Workspace Access Approval
+## 9. Notification Layer
 
-Implemented in `production/backend`:
+Current implemented notification surfaces:
 
-- Added `AccessRequest` ORM model and Alembic migration `0010_access_requests`.
-- Applied `alembic upgrade head` to the configured Postgres database; Alembic advanced from `0009_ai_feature_logs` to `0010_access_requests`.
-- Added public access request intake at `POST /api/v1/auth/access-request`.
-- Added automatic pending-request recording when a valid Supabase identity exists but no approved internal Trickee user mapping exists.
-- Added admin-only access review endpoints:
-  - `GET /api/v1/admin/access-requests`
-  - `POST /api/v1/admin/access-requests`
-  - `POST /api/v1/admin/access-requests/{request_id}/approve`
-  - `POST /api/v1/admin/access-requests/{request_id}/reject`
-  - `GET /api/v1/admin/fleets`
-  - `GET /api/v1/admin/drivers`
-- Approval validates role, fleet, and driver relationships server-side before creating/updating the internal `users` row.
-- Admin approval/rejection actions write `security_events` audit records.
-- Supabase identity remains separate from Trickee authorization: identity proves the person, the backend grants workspace access.
+- Dashboard alerts feed.
+- Alert persistence in `alerts`.
+- Nudge events in `nudge_events`.
+- FCM token registration endpoints and `device_push_tokens`.
+- Firebase FCM service exists behind config.
+- LLM notification personalization endpoint exists.
 
-Implemented in `production/trickee-frontend`:
+Not yet verified/implemented:
 
-- Signup now captures requested access type: fleet manager or driver.
-- Signup and unmapped login paths submit a pending workspace access request.
-- Password login now falls back to the legacy demo account path only when `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=true`; this keeps pilot/demo users usable while preserving the Supabase approval gate for real workspace users.
-- Admin console now includes:
-  - workspace request queue
-  - manual request creation
-  - role selector
-  - fleet selector
-  - driver selector for driver access
-  - approve/reject actions
-  - recent review list
-- Removed visible public/product copy that said `Trickee AI` in auth/sidebar brand surfaces; public UI now uses `Trickee`.
-- Body/UI font is Inter.
-- Display/headline font is Space Grotesk for the large bold landing/auth/admin headings.
-- Removed the temporary `geist` package after switching to the requested Inter + Space Grotesk typography pair.
+- End-to-end FCM receipt on deployed Vercel URL.
+- WhatsApp sending.
+- WhatsApp opt-in management.
+- WhatsApp template approval.
+- WhatsApp cost/rate monitoring.
 
-Verification completed:
-
-- Backend focused auth suite: `3 passed`
-- Frontend lint: passed
-- Frontend production build: passed
-
----
-
-## 24. Latest Deployment Runbook And Notification Channel Clarification
-
-Documentation added:
-
-- Created `Trickee/analysis/deploy_steps.md`.
-- The runbook now documents:
-  - Supabase Auth email setup through Resend SMTP
-  - Backend report email setup through Resend API
-  - Google OAuth setup in GCP
-  - Supabase redirect URLs
-  - Vercel production environment variables
-  - Render production environment variables
-  - Supabase custom email/password admin strategy
-  - demo user creation and role-mapping SQL for:
-    - `admin@trickee.ai` as `trickee_admin`
-    - `fleet@evify.in` as `fleet_operator`
-    - `driver1@evify.in` as `driver`
-
-Production env/config status:
-
-- Vercel production env values were updated for:
-  - `NEXT_PUBLIC_BACKEND_URL=https://trickee-evify-production.onrender.com/api/v1`
-  - `NEXT_PUBLIC_SUPABASE_URL`
-  - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  - `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=false`
-- `render.yaml` was expanded so Render has explicit production placeholders/defaults for:
-  - `ENVIRONMENT=production`
-  - `SUPABASE_JWT_SECRET`
-  - `SUPABASE_URL`
-  - `SUPABASE_JWKS_URL`
-  - `SUPABASE_JWT_AUDIENCE=authenticated`
-  - `LEGACY_AUTH_ENABLED=false`
-  - H3 external-context settings
-  - AI/Groq rate/budget settings
-  - Resend report-email settings
-  - Redis URL
-- Live Render secret values still need to be entered in the Render dashboard or through an authenticated Render API/CLI session.
-- The critical backend auth variables are:
-  - `DATABASE_URL`
-  - `SECRET_KEY`
-  - `SUPABASE_JWT_SECRET`
-  - `SUPABASE_URL`
-  - `SUPABASE_JWT_AUDIENCE=authenticated`
-  - `LEGACY_AUTH_ENABLED=false`
-
-WhatsApp decision:
-
-- WhatsApp is beneficial for pilot because drivers already use it and it can improve visibility for critical nudges.
-- WhatsApp is **not currently implemented** in the production notification layer.
-- Recommended role: opt-in fallback/high-priority delivery channel for:
-  - critical low-SOC warnings
-  - charging opportunities
-  - route-risk alerts
-  - daily fleet summaries
-  - driver coaching summaries
-  - future conversational EV assistant
-- It should not replace backend alert decisions, dashboard alerts, or FCM. The production shape should remain:
+Recommended production shape:
 
 ```text
-Backend decision/alert engine
+Backend alert/decision engine
   -> dashboard alert/feed
-  -> FCM/browser push when verified
-  -> WhatsApp fallback/high-priority channel when configured
+  -> FCM/browser push after deployed verification
+  -> WhatsApp fallback/high-priority channel after opt-in and templates
 ```
 
-WhatsApp constraints to plan for:
+---
 
-- Driver opt-in/consent required.
-- Meta WhatsApp Business template approval required for proactive outbound messages.
-- 24-hour customer-service window applies.
-- Per-message cost applies.
-- Abuse controls and nudge frequency caps are required to avoid drivers muting alerts.
+## 10. Model And Data Quality Status
 
-Auth debugging improvement:
+Current production inference:
 
-- Backend auth now distinguishes between invalid/unverified credentials and valid Supabase identity without Trickee workspace approval.
-- Production Supabase Auth now handles the newer `ES256` Supabase access tokens by validating against the project's JWKS. This fixes the deployed `401 Could not validate credentials` case where the browser had a valid Supabase session but Render only had HS256 secret-based validation configured.
-- `/api/v1/auth/me` now returns:
-  - `401` when the token cannot be validated, usually missing/incorrect `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, audience, missing authorization header, or Supabase project mismatch.
-  - `403` when the Supabase identity is valid but the internal Trickee `users` mapping is missing/inactive/deleted.
-- Frontend login copy now treats `403 Workspace access is pending approval` as the workspace approval case and treats other auth failures as session verification problems.
-- Verification completed:
-  - backend focused auth suite: `4 passed`
-  - frontend lint: passed
-  - frontend production build: passed
+- V4.1 model path in config:
+  - `battery_model_v4_1.pth`
+  - `scaler_v4_1.joblib`
+  - `y_scaler_v4_1.joblib`
+- AI engine uses latest telemetry window and SOC-quality guard.
+- Inference is on demand, not per telemetry row.
+
+V5-A status:
+
+- Training script exists in `app/ml/v5a_training.py`.
+- 24 features are defined: 20 physics + 4 behavior features.
+- SOC delta quality filtering exists.
+- V5-A is not promoted as the production inference model.
+
+Evify Data 7.0 model implication:
+
+- Data can support vehicle-proxy behavioral training after adapter/proxy fixes.
+- It cannot support true per-human driver embeddings without driver mapping.
+- Impossible SOC jumps must stay filtered from training/evaluation and charging detection.
+
+---
+
+## 11. What Is Safe To Demo
+
+Safe if environment and data are loaded:
+
+- public landing page
+- workspace auth flow
+- admin access approval
+- fleet dashboard
+- vehicle forecast page
+- live map with REST/WebSocket fallback
+- alerts feed
+- route scoring and route explanation
+- decisions page using controlled order/wait/charging inputs
+- daily impact report
+- reports/charts
+- AI workspace demos with fallback-safe LLM
+- battery insight
+- charger recommendation with "availability not confirmed"
+- fleet summary
+- driver coaching from available telemetry
+
+Must be framed carefully:
+
+- driver profile is vehicle-proxy if real driver ID is missing
+- trip ID is Trickee-inferred, not Evify-provided
+- opportunistic charging is context-aware, not guaranteed order wait-time
+- charger slot availability is unconfirmed unless real slot API is integrated
+- order assignment and 3-option charging are backend-capable but need live order data for real production value
+
+Do not claim as live production:
+
+- full food-platform order intelligence
+- real-time charger slot availability
+- WhatsApp delivery
+- RL nudge optimization
+- V6 driver embeddings
+- MQTT/Timescale streaming architecture
+
+---
+
+## 12. Final Pilot Position
+
+Current codebase is strong enough to proceed toward a 50-100 vehicle pilot **after** the adapter/proxy/load-test hardening items are completed.
+
+The most important blockers are not the AI features. They are:
+
+1. Evify 7.0 adapter alias completeness.
+2. Vehicle-proxy driver creation for missing `driver_id`.
+3. Trickee-generated trip/session inference working under real replay.
+4. Bulk ingest concurrency test.
+5. WebSocket fanout load test.
+6. FCM deployed verification.
+
+After these are fixed and verified, Trickee can honestly pilot:
+
+```text
+vehicle-level EV intelligence
+GPS trip reconstruction
+context-aware charging opportunities
+battery/range insights
+fleet monitoring
+driver/vehicle behavior profiles
+fallback-safe AI explanations
+```
+
+The following remain post-pilot or integration-dependent:
+
+```text
+true driver identity
+order-aware wait-time intelligence
+live charger slot availability
+WhatsApp delivery
+V6 embeddings
+RL nudge optimizer
+MQTT/Timescale streaming stack
+```
+
+---
+
+## 13. Future Backlog Summary
+
+A long cross-source audit was moved to `future_backlog_cross_source_audit.md` so this file remains focused on current implementation status and pilot readiness.
+
+Important backlog themes captured there:
+
+- Android-first rider app for fleets without direct Evify telemetry API access.
+- PostGIS geometry columns and persistent H3 cells for spatial intelligence.
+- H3 aggregation tables for pickup/wait clusters, low-SOC hotspots, and charging opportunity zones.
+- Formal probabilistic operational-state FSM beyond the current rule-based `wait_classifier.py`.
+- Background worker infrastructure for heavy inference, aggregation, reports, notifications, and data-quality jobs.
+- Real-time frontend charts with time-range filters and no static graph images.
+- Completed PWA/offline/install/push-notification experience.
+- Persistent range/SOC/risk badge across driver and fleet views.
+- Past trip playback on map with GPS polyline, stops, SOC, and events.
+- Driver rewards, incentive tiers, and fairness normalization.
+- Profit/delivery-count impact estimates per driver.
+- Confidence-scored opportunistic charging pipeline.
+- Seven-day departure schedule and route plan.
+- Learned restaurant wait-time intelligence from stop/H3 patterns.
+- Harsh acceleration, braking, jerk, and missed-regen event detection.
+- Peak-hour, holiday, and occasion-aware intelligence.
+- Pitch/demo asset production requirements.
+- Pricing tiers, feature soft-locks, and entitlement gating.
+- Formal ABAC beyond current role/fleet/driver filters.
+- Abzo/multi-fleet white-label support.
+- AI/model eval tables and model-drift tracking.
+- Swiggy, Zomato, Google Maps MCP, Twilio, Bolt.Earth, Pulse Energy, and UBC integrations.
+- Wait/order/charging frontend workflow completion.
+- ChargePlugStatus verification and CAN current artifact monitoring.
+- Destination/place-intent confidence architecture.
+
+Current interpretation:
+
+- These are future or pilot-plus backlog items unless Section 2-12 above marks them as already implemented.
+- They must not be represented as shipped functionality in pitch/demo material.
+- Pilot-critical items from this backlog are already promoted into Section 8: Evify 7.0 adapter aliases, vehicle-proxy driver creation, generated trip/session inference, bulk ingest load testing, WebSocket fanout testing, and FCM deployed verification.

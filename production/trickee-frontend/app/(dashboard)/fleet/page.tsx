@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { FleetKpiBar } from "@/components/fleet/FleetKpiBar";
-import { VehicleCard } from "@/components/fleet/VehicleCard";
 import { VehicleCarousel } from "@/components/fleet/VehicleCarousel";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -235,14 +234,7 @@ export default function FleetPage() {
         )}
 
         {!isLoading && !error && (
-          <>
-            <VehicleCarousel vehicles={vehicles} />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {vehicles.map((vehicle) => (
-                <VehicleCard key={vehicle.id} vehicle={vehicle} />
-              ))}
-            </div>
-          </>
+          <VehicleCarousel vehicles={vehicles} />
         )}
       </div>
     </RoleGuard>

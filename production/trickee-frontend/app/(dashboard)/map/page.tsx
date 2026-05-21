@@ -208,7 +208,10 @@ export default function LiveMapPage() {
               <CardTitle className="text-base">Charging Context</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {(mapData?.charger_points || []).slice(0, 8).map((charger: any) => (
+              <p className="text-xs text-text-dim">
+                Chargers are ranked from the current visible driver or fleet positions. The list refreshes as live GPS changes.
+              </p>
+              {(mapData?.charger_points || []).map((charger: any) => (
                 <div key={`${charger.name}-${charger.lat}-${charger.lng}`} className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
                   <p className="text-sm font-semibold text-text-primary">{charger.name}</p>
                   <p className="text-xs text-text-dim">
