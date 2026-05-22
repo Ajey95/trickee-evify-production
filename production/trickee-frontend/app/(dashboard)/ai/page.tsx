@@ -10,22 +10,85 @@ import { api } from "@/lib/api";
 import { Driver, Vehicle } from "@/types";
 
 type PanelKey = "assistant" | "notification" | "route" | "battery" | "charger" | "profile" | "fleet" | "coaching";
+type ContextItem = { label: string; value: string; hint?: string };
 
-const panels: Array<{ key: PanelKey; label: string; icon: any }> = [
-  { key: "assistant", label: "Assistant", icon: MessageSquare },
-  { key: "notification", label: "Notifications", icon: Bell },
-  { key: "route", label: "Route Reasoning", icon: Navigation },
-  { key: "battery", label: "Battery Insight", icon: Battery },
-  { key: "charger", label: "Charging", icon: Zap },
-  { key: "profile", label: "Driver Profile", icon: Car },
-  { key: "fleet", label: "Fleet Summary", icon: Users },
-  { key: "coaching", label: "Coaching", icon: Sparkles },
+const panels: Array<{ key: PanelKey; label: string; icon: any; description: string; cta: string }> = [
+  { key: "assistant", label: "Ask Assistant", icon: MessageSquare, description: "Ask a driver-facing EV question using live vehicle context.", cta: "Ask assistant" },
+  { key: "notification", label: "Send Nudge", icon: Bell, description: "Preview a grounded charging notification before sending.", cta: "Generate nudge" },
+  { key: "route", label: "Explain Route", icon: Navigation, description: "Explain route choice from SOC, traffic, and charger context.", cta: "Explain route" },
+  { key: "battery", label: "Battery Insight", icon: Battery, description: "Translate SOC into useful range and risk language.", cta: "Create insight" },
+  { key: "charger", label: "Find Charger", icon: Zap, description: "Rank nearby charging options for this driver and stop window.", cta: "Recommend charger" },
+  { key: "profile", label: "Driver Profile", icon: Car, description: "Review the deterministic driver memory profile.", cta: "Load profile" },
+  { key: "fleet", label: "Fleet Summary", icon: Users, description: "Generate an operator summary from current fleet facts.", cta: "Summarize fleet" },
+  { key: "coaching", label: "Coaching", icon: Sparkles, description: "Create end-of-shift coaching based on observed metrics.", cta: "Create coaching" },
 ];
 
-function resultText(value: any) {
-  if (!value) return "No result yet.";
-  if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2);
+function formatLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatPoint(point: { lat: number; lng: number }) {
+  return `${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}`;
+}
+
+function renderValue(value: any): React.ReactNode {
+  if (value == null) return <span className="text-text-dim">Not available</span>;
+  if (typeof value === "boolean") return <Badge variant={value ? "success" : "outline"}>{value ? "Yes" : "No"}</Badge>;
+  if (typeof value === "number" || typeof value === "string") return <span>{String(value)}</span>;
+  if (Array.isArray(value)) {
+    if (!value.length) return <span className="text-text-dim">None</span>;
+    return (
+      <div className="space-y-2">
+        {value.slice(0, 5).map((item, index) => (
+          <div key={index} className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+            {renderValue(item)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {Object.entries(value).slice(0, 8).map(([key, item]) => (
+        <div key={key} className="flex items-start justify-between gap-4 border-b border-bg-border/60 pb-2 last:border-0 last:pb-0">
+          <span className="text-xs uppercase tracking-wider text-text-dim">{formatLabel(key)}</span>
+          <div className="max-w-[70%] text-right text-sm text-text-primary">{renderValue(item)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ResultView({ result }: { result: any }) {
+  if (!result) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-dashed border-bg-border text-sm text-text-dim">
+        Run an action to see grounded output.
+      </div>
+    );
+  }
+  const primary =
+    result.answer ||
+    result.message ||
+    result.explanation ||
+    result.reason ||
+    result.summary ||
+    result.range_translation ||
+    result.risk_flag;
+  const secondary = { ...result };
+  ["answer", "message", "explanation", "reason", "summary", "range_translation", "risk_flag"].forEach((key) => delete secondary[key]);
+  return (
+    <div className="space-y-4">
+      {primary && (
+        <div className="rounded-xl border border-accent-teal/30 bg-accent-teal/10 p-4">
+          <p className="text-sm leading-6 text-text-primary">{String(primary)}</p>
+        </div>
+      )}
+      <div className="rounded-xl border border-bg-border bg-bg-primary/40 p-4">
+        {renderValue(secondary)}
+      </div>
+    </div>
+  );
 }
 
 export default function AiFeaturesPage() {
@@ -56,9 +119,92 @@ export default function AiFeaturesPage() {
   }, []);
 
   const selectedVehicle = useMemo(() => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0], [vehicles, selectedVehicleId]);
+  const selectedDriver = useMemo(() => drivers.find((driver) => driver.id === selectedDriverId) || drivers[0], [drivers, selectedDriverId]);
   const latest: any = selectedVehicle?.latest || selectedVehicle?.latest_telemetry || {};
-  const point = { lat: Number(latest.lat || 21.1702), lng: Number(latest.lng || 72.8311) };
+  const point = useMemo(
+    () => ({ lat: Number(latest.lat || 21.1702), lng: Number(latest.lng || 72.8311) }),
+    [latest.lat, latest.lng]
+  );
   const soc = Number(latest.soc || 42);
+  const routeDestination = useMemo(() => ({ lat: point.lat + 0.035, lng: point.lng + 0.032 }), [point.lat, point.lng]);
+  const activePanel = panels.find((panel) => panel.key === active) || panels[0];
+  const contextItems: ContextItem[] = (() => {
+    const driverLabel = selectedDriver ? `${selectedDriver.driver_code} - ${selectedDriver.full_name}` : "No driver selected";
+    const vehicleLabel = selectedVehicle?.vehicle_code || "No vehicle selected";
+    const speed = latest.speed != null ? `${Number(latest.speed).toFixed(1)} km/h` : "Not available";
+    const temp = latest.temp_max != null ? `${Number(latest.temp_max).toFixed(1)}C` : "Not available";
+    const current = latest.current != null ? `${Number(latest.current).toFixed(1)} A` : "Not available";
+    const recordedAt = latest.recorded_at ? new Date(latest.recorded_at).toLocaleString() : "Not available";
+    const base: ContextItem[] = [
+      { label: "Driver", value: driverLabel, hint: "Permission and profile scope" },
+      { label: "Vehicle", value: vehicleLabel, hint: "Telemetry source" },
+    ];
+
+    if (active === "assistant") {
+      return [
+        ...base,
+        { label: "Question", value: message.slice(0, 80) || "No message", hint: "Driver-facing prompt" },
+        { label: "Location", value: formatPoint(point), hint: "Used only if charger/location tools are needed" },
+      ];
+    }
+    if (active === "notification") {
+      return [
+        ...base,
+        { label: "Alert type", value: "Charging opportunity", hint: "Backend decides alert category" },
+        { label: "Severity", value: soc < 20 ? "High" : "Medium", hint: "LLM cannot change severity" },
+        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "From latest vehicle telemetry" },
+        { label: "Tools", value: "Profile, battery, vehicle, charger", hint: "Allowed backend facts only" },
+      ];
+    }
+    if (active === "route") {
+      return [
+        ...base,
+        { label: "Origin", value: formatPoint(point), hint: "Latest GPS point" },
+        { label: "Destination", value: formatPoint(routeDestination), hint: "Demo route target" },
+        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Battery margin input" },
+        { label: "Tools", value: "Route score, traffic/weather, battery, chargers", hint: "Explanation cannot change route rank" },
+      ];
+    }
+    if (active === "battery") {
+      return [
+        ...base,
+        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Range translation input" },
+        { label: "Speed", value: speed, hint: "Latest telemetry" },
+        { label: "Temperature", value: temp, hint: "Thermal context" },
+        { label: "Current draw", value: current, hint: "Drain-vs-baseline signal" },
+      ];
+    }
+    if (active === "charger") {
+      return [
+        ...base,
+        { label: "Location", value: formatPoint(point), hint: "Nearest charger search center" },
+        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Urgency and gain estimate" },
+        { label: "Destination", value: "18 km", hint: "Demo trip distance" },
+        { label: "Wait window", value: "15 min", hint: "Charge opportunity window" },
+      ];
+    }
+    if (active === "profile") {
+      return [
+        ...base,
+        { label: "Telemetry age", value: recordedAt, hint: "Latest profile signal freshness" },
+        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Recent behavior context" },
+      ];
+    }
+    if (active === "fleet") {
+      return [
+        { label: "Summary type", value: "Realtime", hint: "Operator-facing snapshot" },
+        { label: "Vehicles loaded", value: String(vehicles.length), hint: "Current UI scope" },
+        { label: "Drivers loaded", value: String(drivers.length), hint: "Current UI scope" },
+        { label: "Tools", value: "Fleet status only", hint: "No invented vehicles or risks" },
+      ];
+    }
+    return [
+      ...base,
+      { label: "Mode", value: "Shift", hint: "Coaching window" },
+      { label: "Baseline", value: "Driver first, fleet fallback", hint: "Comparison rule" },
+      { label: "Telemetry age", value: recordedAt, hint: "Latest observed data" },
+    ];
+  })();
 
   async function runPanel() {
     if (!selectedDriverId || !selectedVehicle?.id) {
@@ -84,7 +230,7 @@ export default function AiFeaturesPage() {
       response = await api.routes.explain({
         ...common,
         origin: point,
-        destination: { lat: point.lat + 0.035, lng: point.lng + 0.032 },
+        destination: routeDestination,
         current_soc: soc,
         routes: ["A", "B", "C"],
       });
@@ -109,8 +255,8 @@ export default function AiFeaturesPage() {
       <div className="space-y-6 pb-12">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="page-title mb-1">Assistant Workspace</h1>
-            <p className="text-text-dim">Grounded fleet answers, route reasoning, charging guidance, and driver coaching.</p>
+            <h1 className="page-title mb-1">EV Intelligence Workspace</h1>
+            <p className="text-text-dim">Driver assistant, notification previews, route reasoning, charging guidance, and coaching.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <select value={selectedDriverId} onChange={(event) => setSelectedDriverId(event.target.value)} className="h-10 min-w-[220px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal">
@@ -142,10 +288,11 @@ export default function AiFeaturesPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Bot className="h-4 w-4 text-accent-teal" />
-                {panels.find((panel) => panel.key === active)?.label}
+                {activePanel.label}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <p className="text-sm leading-6 text-text-dim">{activePanel.description}</p>
               {active === "assistant" && (
                 <textarea
                   value={message}
@@ -153,19 +300,26 @@ export default function AiFeaturesPage() {
                   className="min-h-32 w-full resize-none rounded-lg border border-bg-border bg-bg-primary/50 p-3 text-sm text-text-primary outline-none focus:border-accent-teal"
                 />
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-text-dim">SOC</p>
-                  <p className="text-lg font-bold text-text-primary">{soc.toFixed(1)}%</p>
+              {active !== "assistant" && (
+                <div className="rounded-xl border border-bg-border bg-bg-primary/40 p-4">
+                  <p className="text-xs uppercase tracking-wider text-text-dim">Backend Context</p>
+                  <p className="mt-2 text-sm leading-6 text-text-primary">
+                    The backend resolves additional facts through allowed tools before generating language. These cards show the visible scenario inputs for this feature.
+                  </p>
                 </div>
-                <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-text-dim">Location</p>
-                  <p className="text-xs font-mono text-text-primary">{point.lat.toFixed(3)}, {point.lng.toFixed(3)}</p>
-                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {contextItems.map((item) => (
+                  <div key={`${item.label}-${item.value}`} className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-text-dim">{item.label}</p>
+                    <p className="mt-1 break-words text-sm font-semibold text-text-primary">{item.value}</p>
+                    {item.hint && <p className="mt-2 text-[11px] leading-4 text-text-dim">{item.hint}</p>}
+                  </div>
+                ))}
               </div>
               <Button onClick={runPanel} isLoading={isLoading} className="w-full gap-2">
                 <Send className="h-4 w-4" />
-                Run Check
+                {activePanel.cta}
               </Button>
             </CardContent>
           </Card>
@@ -178,15 +332,7 @@ export default function AiFeaturesPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {result ? (
-                <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap rounded-lg border border-bg-border bg-bg-primary/50 p-4 text-sm leading-6 text-text-primary">
-                  {resultText(result)}
-                </pre>
-              ) : (
-                <div className="flex min-h-[260px] items-center justify-center rounded-lg border border-dashed border-bg-border text-sm text-text-dim">
-                  Run a check to see grounded output.
-                </div>
-              )}
+              <ResultView result={result} />
             </CardContent>
           </Card>
         </div>

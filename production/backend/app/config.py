@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     report_from_email: str | None = None
     report_to_emails: str | None = None
     redis_url: str | None = None
+    live_state_redis_enabled: bool = True
+    live_state_ttl_seconds: int = 300
     environment: str = "development"
     max_request_body_bytes: int = 2_000_000
     global_rate_limit_per_minute: int = 600

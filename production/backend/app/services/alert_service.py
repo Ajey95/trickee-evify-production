@@ -128,6 +128,102 @@ def maybe_create_driver_risk_alert(db: Session, row: Telemetry) -> Alert | None:
     return alert
 
 
+def _alert_personalization_type(alert: Alert) -> str:
+    if alert.alert_type == "charging_opportunity":
+        return "charging_opportunity"
+    if alert.soc_at_alert is not None and alert.soc_at_alert < 25:
+        return "low_soc"
+    if alert.alert_type == "driver_risk":
+        return "driving_coaching"
+    return "route_change"
+
+
+def _alert_severity(alert: Alert) -> str:
+    if alert.soc_at_alert is not None and alert.soc_at_alert < 12:
+        return "critical"
+    if alert.soc_at_alert is not None and alert.soc_at_alert < 20:
+        return "high"
+    if alert.alert_type == "driver_risk":
+        return "high"
+    return "medium"
+
+
+def _personalized_alert_message(db: Session, alert: Alert, fallback_message: str, user: User) -> tuple[str, str, bool]:
+    # Local imports avoid a module cycle because the AI tool registry imports
+    # external context, and external context imports charger constants here.
+    from app.models import NotificationPersonalizationLog
+    from app.services.ai import AIToolRegistry, llm_client
+    from app.services.ai.safety import sanitize_payload, sanitize_text
+
+    alert_type = _alert_personalization_type(alert)
+    severity = _alert_severity(alert)
+    tone = {"low": "calm", "medium": "helpful", "high": "urgent", "critical": "critical"}[severity]
+    registry = AIToolRegistry(db, user, feature="alert_fcm_personalization")
+    tools = []
+    if alert.driver_id:
+        tools.append(registry.call("get_driver_profile", {"driver_id": alert.driver_id}))
+    tools.extend(
+        [
+            registry.call("get_battery_prediction", {"vehicle_id": alert.vehicle_id}),
+            registry.call("get_vehicle_state", {"vehicle_id": alert.vehicle_id}),
+        ]
+    )
+    if alert_type == "charging_opportunity":
+        state = (tools[-1].data.get("latest") or {}) if tools[-1].success else {}
+        if state.get("lat") is not None and state.get("lng") is not None and alert.driver_id:
+            tools.append(
+                registry.call(
+                    "get_nearest_charger",
+                    {"driver_id": alert.driver_id, "lat": state["lat"], "lng": state["lng"], "radius_m": 2000},
+                )
+            )
+    facts = {tool.name: tool.data for tool in tools if tool.success}
+    result = llm_client.compose(
+        feature="alert_fcm_personalization",
+        system="Write one short EV driver/fleet push notification. Backend already decided severity and action. Use only tool facts.",
+        facts={
+            "alert": {
+                "type": alert_type,
+                "severity": severity,
+                "action": fallback_message,
+                "alert_id": alert.id,
+                "vehicle_id": alert.vehicle_id,
+                "driver_id": alert.driver_id,
+            },
+            "tool_facts": facts,
+            "tone": tone,
+        },
+        fallback=sanitize_text(fallback_message, max_chars=220),
+        max_sentences=2,
+        max_tokens=120,
+    )
+    llm_client.record(
+        db,
+        user=user,
+        feature="alert_fcm_personalization",
+        result=result,
+        driver_id=alert.driver_id,
+        vehicle_id=alert.vehicle_id,
+        tool_calls=[tool.name for tool in tools],
+    )
+    db.add(
+        NotificationPersonalizationLog(
+            user_id=user.id,
+            driver_id=alert.driver_id,
+            vehicle_id=alert.vehicle_id,
+            alert_type=alert_type,
+            severity=severity,
+            action=sanitize_text(fallback_message, max_chars=240),
+            message=result.text,
+            tone=tone,
+            send=True,
+            fallback_used=result.fallback_used,
+            raw_data_summary=sanitize_payload({"alert_id": alert.id, "source": "alert_fcm"}),
+        )
+    )
+    return result.text, tone, result.fallback_used
+
+
 def _send_alert_push(db: Session, alert: Alert, message: str) -> None:
     vehicle = db.get(Vehicle, alert.vehicle_id)
     users_query = db.query(User).filter(User.is_active.is_(True))
@@ -140,7 +236,8 @@ def _send_alert_push(db: Session, alert: Alert, message: str) -> None:
     elif vehicle:
         users_query = users_query.filter(User.role == "fleet_operator", User.fleet_id == vehicle.fleet_id)
 
-    user_ids = [user.id for user in users_query.all()]
+    users = users_query.all()
+    user_ids = [user.id for user in users]
     if not user_ids:
         return
 
@@ -150,22 +247,32 @@ def _send_alert_push(db: Session, alert: Alert, message: str) -> None:
         .filter(DevicePushToken.user_id.in_(user_ids), DevicePushToken.is_active.is_(True))
         .all()
     ]
+    if not tokens:
+        return
+
+    push_message = message
+    tone = "helpful"
+    fallback_used = True
+    try:
+        push_message, tone, fallback_used = _personalized_alert_message(db, alert, message, users[0])
+    except Exception:
+        push_message = message
+
     result = send_fcm_notification(
         tokens=tokens,
         title="Trickee charging alert",
-        body=message,
+        body=push_message,
         data={"alert_id": alert.id, "alert_type": alert.alert_type, "vehicle_id": alert.vehicle_id},
     )
-    if result.get("sent", 0) > 0:
-        db.add(
-            NudgeEvent(
-                driver_id=alert.driver_id,
-                vehicle_id=alert.vehicle_id,
-                alert_id=alert.id,
-                nudge_type=alert.alert_type,
-                channel="fcm",
-                message=message,
-                payload=result,
-                status="sent",
-            )
+    db.add(
+        NudgeEvent(
+            driver_id=alert.driver_id,
+            vehicle_id=alert.vehicle_id,
+            alert_id=alert.id,
+            nudge_type=alert.alert_type,
+            channel="fcm",
+            message=push_message,
+            payload={**result, "tone": tone, "fallback_used": fallback_used},
+            status="sent" if result.get("sent", 0) > 0 else "failed",
         )
+    )

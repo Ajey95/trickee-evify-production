@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import User
+from app.models import Driver, User, Vehicle
 from app.schemas.api import ok
 from app.services.auth import require_roles
 from app.services.rate_limit import check_rate_limit
-from app.services.telemetry_ingest import ingest_evify_payload
+from app.services.telemetry_ingest import ingest_evify_payload, live_vehicle_point
 from app.services.serializers import alert_dict, telemetry_dict
+from app.services.ws_manager import manager
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 MAX_BULK_TELEMETRY_ROWS = 500
@@ -72,6 +73,8 @@ async def ingest_evify_bulk(
         limit=max(1, get_settings().telemetry_rate_limit_per_minute // 4),
         subject=f"user:{current_user.id}",
     )
+    if not request:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Telemetry batch cannot be empty")
     if len(request) > MAX_BULK_TELEMETRY_ROWS:
         logger.warning(
             "telemetry_bulk_rejected request_id=%s user_id=%s rows=%s max_rows=%s reason=too_large",
@@ -89,6 +92,7 @@ async def ingest_evify_bulk(
         row, _ = ingest_evify_payload(db, payload, user=current_user, commit=False)
         rows.append(row)
     db.commit()
+    _publish_bulk_live_points(db, rows)
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     vehicle_count = len({row.vehicle_id for row in rows})
     driver_count = len({row.driver_id for row in rows if row.driver_id})
@@ -102,3 +106,27 @@ async def ingest_evify_bulk(
         elapsed_ms,
     )
     return ok({"ingested": len(rows)}, "Telemetry batch ingested")
+
+
+def _publish_bulk_live_points(db: Session, rows: list[Any]) -> None:
+    if not rows:
+        return
+    latest_by_vehicle = {}
+    for row in rows:
+        current = latest_by_vehicle.get(row.vehicle_id)
+        if not current or row.recorded_at > current.recorded_at:
+            latest_by_vehicle[row.vehicle_id] = row
+
+    vehicle_ids = set(latest_by_vehicle)
+    driver_ids = {row.driver_id for row in latest_by_vehicle.values() if row.driver_id}
+    vehicles = {vehicle.id: vehicle for vehicle in db.query(Vehicle).filter(Vehicle.id.in_(vehicle_ids)).all()}
+    drivers = {driver.id: driver for driver in db.query(Driver).filter(Driver.id.in_(driver_ids)).all()} if driver_ids else {}
+
+    redis_url = get_settings().redis_url
+    for row in latest_by_vehicle.values():
+        vehicle = vehicles.get(row.vehicle_id)
+        if not vehicle:
+            continue
+        point = live_vehicle_point(row, vehicle, drivers.get(row.driver_id))
+        if point:
+            manager.schedule_vehicle_point_publish(point, redis_url)

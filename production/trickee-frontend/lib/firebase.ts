@@ -2,7 +2,7 @@
 
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { getMessaging, getToken, isSupported } from "firebase/messaging";
+import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -21,6 +21,10 @@ export function isFirebaseEnabled() {
       firebaseConfig.projectId &&
       firebaseConfig.appId
   );
+}
+
+export function isFirebaseMessagingEnabled() {
+  return Boolean(isFirebaseEnabled() && process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY);
 }
 
 export function firebaseApp() {
@@ -43,7 +47,7 @@ export async function signOutFirebase() {
 
 export async function requestFcmToken() {
   try {
-    if (!isFirebaseEnabled()) return null;
+    if (!isFirebaseMessagingEnabled()) return null;
     if (typeof window === "undefined" || !("Notification" in window)) return null;
     const supported = await isSupported();
     if (!supported) return null;
@@ -61,4 +65,39 @@ export async function requestFcmToken() {
     console.error("FCM token registration failed", error);
     return null;
   }
+}
+
+export function listenForFcmMessages() {
+  let unsubscribe: undefined | (() => void);
+  let cancelled = false;
+
+  if (!isFirebaseMessagingEnabled() || typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  isSupported()
+    .then((supported) => {
+      if (!supported || cancelled || Notification.permission !== "granted") return;
+      const messaging = getMessaging(firebaseApp());
+      unsubscribe = onMessage(messaging, (payload) => {
+        const notification = payload.notification || {};
+        const title = notification.title || "Trickee alert";
+        const body = notification.body || "New EV intelligence alert";
+        if (Notification.permission === "granted") {
+          new Notification(title, {
+            body,
+            icon: "/icon.png",
+            data: payload.data || {},
+          });
+        }
+      });
+    })
+    .catch((error) => {
+      console.error("FCM foreground listener failed", error);
+    });
+
+  return () => {
+    cancelled = true;
+    unsubscribe?.();
+  };
 }

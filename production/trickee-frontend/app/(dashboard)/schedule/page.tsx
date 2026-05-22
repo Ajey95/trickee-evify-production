@@ -85,7 +85,7 @@ export default function RouteSchedulePage() {
   };
 
   return (
-    <RoleGuard allowedRoles={["trickee_admin", "driver"]}>
+    <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
       <div className="space-y-8 pb-12">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>

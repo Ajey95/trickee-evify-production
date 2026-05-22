@@ -13,6 +13,7 @@ from app.services.charge_plan import build_destination_charge_plan
 from app.services.external_context import external_context
 from app.services.geo import haversine_km
 from app.services.live_driver_profile import LOW_SOC_THRESHOLD, live_driver_profile
+from app.services.live_state import load_live_points_for_drivers
 from app.services.physics import compute_range_factors
 from app.services.wait_classifier import classify_wait
 
@@ -48,6 +49,18 @@ def _battery_risk_level(row: Telemetry) -> str:
     if row.soh and row.soh < 80:
         risk += 15
     return "high" if risk >= 55 else "medium" if risk >= 25 else "low"
+
+
+def _battery_risk_level_from_point(point: dict[str, Any]) -> str:
+    try:
+        soc = float(point.get("soc") or 0.0)
+    except (TypeError, ValueError):
+        return "low"
+    if soc < 15:
+        return "high"
+    if soc < LOW_SOC_THRESHOLD:
+        return "medium"
+    return "low"
 
 
 def _cluster_map_zones(rows: list[Telemetry], max_zones: int = 20) -> list[dict[str, Any]]:
@@ -425,9 +438,28 @@ def fleet_live_overview(db: Session, user: User, window_minutes: int = 7 * 24 * 
 def live_map_context(db: Session, user: User, driver_id: str | None = None) -> dict[str, Any]:
     drivers = _fleet_drivers_for_map(db, user, driver_id)
     driver_ids = [driver.id for driver in drivers]
-    latest_by_driver = _latest_rows_for_drivers(db, driver_ids)
+    live_points_by_driver = load_live_points_for_drivers(driver_ids)
+    missing_driver_ids = [driver_id for driver_id in driver_ids if driver_id not in live_points_by_driver]
+    latest_by_driver = _latest_rows_for_drivers(db, missing_driver_ids)
     vehicle_points = []
     for driver in drivers:
+        live_point = live_points_by_driver.get(driver.id)
+        if live_point and live_point.get("lat") is not None and live_point.get("lng") is not None:
+            vehicle_points.append(
+                {
+                    "driver_id": driver.id,
+                    "driver_code": live_point.get("driver_code") or driver.driver_code,
+                    "vehicle_id": live_point.get("vehicle_id"),
+                    "lat": live_point.get("lat"),
+                    "lng": live_point.get("lng"),
+                    "soc": live_point.get("soc"),
+                    "speed": live_point.get("speed"),
+                    "risk_level": _battery_risk_level_from_point(live_point),
+                    "recorded_at": live_point.get("recorded_at"),
+                    "source": "redis_live_state",
+                }
+            )
+            continue
         latest = latest_by_driver.get(driver.id)
         if _valid_gps(latest):
             vehicle_points.append(
@@ -441,6 +473,7 @@ def live_map_context(db: Session, user: User, driver_id: str | None = None) -> d
                     "speed": latest.speed,
                     "risk_level": _battery_risk_level(latest),
                     "recorded_at": latest.recorded_at.isoformat(),
+                    "source": "postgres_latest",
                 }
             )
 

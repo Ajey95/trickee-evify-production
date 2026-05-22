@@ -19,6 +19,23 @@ self.addEventListener("activate", function (event) {
   event.waitUntil(self.clients.claim());
 });
 
+self.addEventListener("notificationclick", function (event) {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const targetUrl = data.alert_id ? "/alerts" : "/fleet";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clients) {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
 try {
   importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
   importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
@@ -34,6 +51,8 @@ try {
       const title = notification.title || "Trickee alert";
       const options = {
         body: notification.body || "New EV intelligence alert",
+        icon: "/icon.png",
+        badge: "/icon.png",
         data: payload.data || {},
       };
       self.registration.showNotification(title, options);

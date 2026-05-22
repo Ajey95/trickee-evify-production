@@ -1,12 +1,19 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BatteryWarning, CheckCircle2, DatabaseZap, MapPinOff, Thermometer } from "lucide-react";
+import { BatteryFull, CircleCheck, ClockAlert, DatabaseSearch, MapPinCheck, Thermometer } from "lucide-react";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
 import { Vehicle } from "@/types";
+
+function formatAge(minutes: number) {
+  if (!Number.isFinite(minutes)) return "-";
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
 
 export default function DataQualityPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -44,30 +51,31 @@ export default function DataQualityPage() {
       const hasThermal = Number.isFinite(temp) && temp > 0 && temp < 90;
       const hasCurrentSpike = Number.isFinite(current) && Math.abs(current) > 50;
       const ageMin = latest?.recorded_at ? (Date.now() - new Date(latest.recorded_at).getTime()) / 60000 : Infinity;
+      const freshness = !latest ? "missing" : ageMin > 60 ? "historical" : ageMin > 10 ? "delayed" : "live";
       const issues = [
         !latest ? "no latest telemetry" : "",
         !hasGps ? "GPS invalid" : "",
         !hasBattery ? "battery invalid" : "",
         !hasThermal ? "thermal invalid" : "",
         hasCurrentSpike ? "current spike" : "",
-        ageMin > 60 ? "stale >60m" : "",
+        freshness === "historical" ? `last sync ${formatAge(ageMin)} ago` : "",
       ].filter(Boolean);
-      const status = !latest ? "missing" : issues.length ? (ageMin > 60 ? "stale" : "review") : "clean";
-      return { vehicle, latest, hasGps, hasBattery, hasThermal, hasCurrentSpike, ageMin, issues, status };
+      const status = !latest ? "missing" : freshness === "historical" ? "historical" : issues.length ? "review" : freshness;
+      return { vehicle, latest, hasGps, hasBattery, hasThermal, hasCurrentSpike, ageMin, issues, status, freshness };
     });
   }, [vehicles]);
 
   const total = rows.length || 1;
   const gpsCoverage = rows.filter((row) => row.hasGps).length / total;
   const batteryCoverage = rows.filter((row) => row.hasBattery).length / total;
-  const staleCount = rows.filter((row) => row.ageMin > 60).length;
+  const staleCount = rows.filter((row) => row.freshness === "historical").length;
   const issueCount = rows.filter((row) => row.issues.length).length;
   const kpis = [
-    { label: "GPS Coverage", value: `${Math.round(gpsCoverage * 100)}%`, icon: MapPinOff, variant: gpsCoverage > 0.8 ? "success" : "warning" },
-    { label: "Battery Coverage", value: `${Math.round(batteryCoverage * 100)}%`, icon: BatteryWarning, variant: batteryCoverage > 0.9 ? "success" : "warning" },
-    { label: "Stale Vehicles", value: staleCount, icon: AlertTriangle, variant: staleCount ? "warning" : "success" },
-    { label: "Rows Flagged", value: issueCount, icon: DatabaseZap, variant: issueCount ? "warning" : "success" },
-    { label: "Map Points", value: liveMap?.vehicle_points?.length || 0, icon: CheckCircle2, variant: "info" },
+    { label: "GPS Coverage", value: `${Math.round(gpsCoverage * 100)}%`, icon: MapPinCheck, variant: gpsCoverage > 0.8 ? "success" : "warning" },
+    { label: "Battery Coverage", value: `${Math.round(batteryCoverage * 100)}%`, icon: BatteryFull, variant: batteryCoverage > 0.9 ? "success" : "warning" },
+    { label: "Historical Feeds", value: staleCount, icon: ClockAlert, variant: staleCount ? "warning" : "success" },
+    { label: "Feeds Needing Refresh", value: issueCount, icon: DatabaseSearch, variant: issueCount ? "warning" : "success" },
+    { label: "Map Points", value: liveMap?.vehicle_points?.length || 0, icon: CircleCheck, variant: "info" },
   ];
 
   return (
@@ -75,7 +83,7 @@ export default function DataQualityPage() {
       <div className="space-y-8 pb-12">
         <div>
           <h1 className="page-title mb-1">Data Quality</h1>
-          <p className="text-text-dim">GPS, battery, thermal, and freshness checks across the fleet.</p>
+          <p className="text-text-dim">GPS, battery, thermal, and last-sync checks across the fleet.</p>
         </div>
 
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
@@ -106,7 +114,7 @@ export default function DataQualityPage() {
                     <th>SOC</th>
                     <th>GPS</th>
                     <th>Temp</th>
-                    <th>Age</th>
+                    <th>Last Sync</th>
                     <th>Tag</th>
                     <th>Issues</th>
                   </tr>
@@ -118,9 +126,9 @@ export default function DataQualityPage() {
                       <td>{row.latest?.soc != null ? `${Number(row.latest.soc).toFixed(1)}%` : "-"}</td>
                       <td>{row.hasGps ? "yes" : "no"}</td>
                       <td>{row.latest?.temp_max != null ? `${Number(row.latest.temp_max).toFixed(1)}C` : "-"}</td>
-                      <td>{Number.isFinite(row.ageMin) ? `${Math.round(row.ageMin)}m` : "-"}</td>
+                      <td>{formatAge(row.ageMin)}</td>
                       <td>
-                        <Badge variant={row.status === "clean" ? "success" : row.status === "stale" ? "warning" : "outline"}>
+                        <Badge variant={row.status === "live" || row.status === "clean" ? "success" : row.status === "historical" ? "warning" : "outline"}>
                           {row.status}
                         </Badge>
                       </td>

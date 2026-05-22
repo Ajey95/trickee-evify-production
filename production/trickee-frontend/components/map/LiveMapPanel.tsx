@@ -39,6 +39,7 @@ type LiveMapPanelProps = {
   data: LiveMapData | null;
   selectedDriverId?: string;
   wsConnected?: boolean;
+  userLocation?: (LatLng & { accuracy_m?: number; captured_at?: string }) | null;
   className?: string;
 };
 
@@ -157,6 +158,25 @@ function ChargerMarker({ point }: { point: ChargerPoint }) {
   );
 }
 
+function userLocationHtml(point: LatLng & { accuracy_m?: number }) {
+  const accuracy = Number.isFinite(point.accuracy_m || NaN) ? ` ~${Math.round(point.accuracy_m || 0)}m` : "";
+  return `
+    <div class="trickee-user-location-marker" title="Your browser location${accuracy}">
+      <span class="trickee-user-location-pulse"></span>
+      <span class="trickee-user-location-core"></span>
+    </div>`;
+}
+
+function UserLocationMarker({ point }: { point: LatLng & { accuracy_m?: number } }) {
+  const accuracy = Number.isFinite(point.accuracy_m || NaN) ? ` ~${Math.round(point.accuracy_m || 0)}m` : "";
+  return (
+    <div className="trickee-user-location-marker" title={`Your browser location${accuracy}`}>
+      <span className="trickee-user-location-pulse" />
+      <span className="trickee-user-location-core" />
+    </div>
+  );
+}
+
 type LeafletModule = typeof import("leaflet");
 
 declare global {
@@ -223,7 +243,7 @@ function scheduleInvalidate(map: { invalidateSize: () => void }) {
   return () => timers.forEach((timer) => window.clearTimeout(timer));
 }
 
-export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = "" }: LiveMapPanelProps) {
+export function LiveMapPanel({ data, selectedDriverId, wsConnected, userLocation, className = "" }: LiveMapPanelProps) {
   const leafletRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<"leaflet" | "fallback">("fallback");
   const [zoom, setZoom] = React.useState(12);
@@ -246,7 +266,10 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     return selectedDriverId ? rows.filter((row) => row.driver_id === selectedDriverId) : rows;
   }, [data, selectedDriverId]);
 
-  const points = React.useMemo(() => allCoordinates({ ...data, vehicle_points: vehicles }), [data, vehicles]);
+  const points = React.useMemo(() => {
+    const base = allCoordinates({ ...data, vehicle_points: vehicles });
+    return userLocation ? [...base, userLocation] : base;
+  }, [data, vehicles, userLocation]);
   const bounds = React.useMemo(() => boundsFor(points), [points]);
 
   React.useEffect(() => {
@@ -302,7 +325,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     if (!L || !map || !data) return;
     const cancelInvalidate = scheduleInvalidate(map);
 
-    const fitKey = selectedDriverId || "all";
+    const fitKey = `${selectedDriverId || "all"}:${userLocation ? `${userLocation.lat.toFixed(5)},${userLocation.lng.toFixed(5)}` : "no-browser-location"}`;
     if ((!hasInitFit.current || lastFitKeyRef.current !== fitKey) && points.length) {
       if (points.length > 1) {
         map.fitBounds(
@@ -368,6 +391,20 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
       }
     }
 
+    if (userLocation) {
+      const layer = L.marker([userLocation.lat, userLocation.lng], {
+        title: "Your browser location",
+        icon: L.divIcon({ className: "trickee-map-label", html: userLocationHtml(userLocation), iconSize: [1, 1] }),
+      })
+        .bindTooltip("Your location", {
+          className: "trickee-map-tooltip",
+          direction: "top",
+          offset: [0, -12],
+        })
+        .addTo(map);
+      staticLayersRef.current.push(layer);
+    }
+
     if (visible.lowSoc) {
       for (const zone of data.low_soc_zones || []) {
         const layer = L.circle([zone.center.lat, zone.center.lng], {
@@ -401,7 +438,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
     }
 
     return cancelInvalidate;
-  }, [data, vehicles, visible, points, selectedDriverId]);
+  }, [data, vehicles, visible, points, selectedDriverId, userLocation]);
 
   const toggle = (key: LayerKey) => {
     setVisible((current) => ({ ...current, [key]: !current[key] }));
@@ -484,6 +521,12 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
                 );
               })}
 
+            {userLocation && (
+              <div className="absolute -translate-x-1/2 -translate-y-1/2" style={project(userLocation, bounds)}>
+                <UserLocationMarker point={userLocation} />
+              </div>
+            )}
+
             {visible.vehicles &&
               vehicles.map((point) => {
                 const pos = project(point, bounds);
@@ -539,6 +582,7 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, className = 
 
         <div className="absolute bottom-4 left-4 flex max-w-[calc(100%-5.5rem)] flex-wrap items-center gap-2 rounded-2xl border border-white/55 bg-white/72 px-3 py-2 text-[11px] font-medium text-[#4d5561] shadow-sm backdrop-blur-xl">
           <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#4f9fb3]" />Vehicle</span>
+          {userLocation && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#00b4d8]" />You</span>}
           <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#7aa889]" />Charger</span>
           <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#df6d63]" />Low SOC</span>
           <span className="hidden items-center gap-1.5 sm:inline-flex"><i className="h-2 w-2 rounded-full bg-[#c69b55]" />Stop zone</span>

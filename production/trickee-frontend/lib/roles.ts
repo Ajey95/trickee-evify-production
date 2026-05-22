@@ -21,7 +21,7 @@ export const ROLE_ROUTES: RoleRoute[] = [
   { label: "Assistant", href: "/ai", roles: ["driver", "trickee_admin", "fleet_operator"] },
   { label: "Decisions", href: "/decisions", roles: ["trickee_admin", "fleet_operator"] },
   { label: "Route Intel", href: "/routes", roles: ["trickee_admin", "fleet_operator", "driver"] },
-  { label: "7-Day Schedule", href: "/schedule", roles: ["trickee_admin", "driver"] },
+  { label: "7-Day Schedule", href: "/schedule", roles: ["trickee_admin", "fleet_operator", "driver"] },
   { label: "Daily Impact", href: "/impact", roles: ["trickee_admin", "fleet_operator", "driver"] },
   { label: "Scorecards", href: "/scorecards", roles: ["trickee_admin", "fleet_operator"] },
   { label: "Reports", href: "/reports", roles: ["trickee_admin", "fleet_operator"] },

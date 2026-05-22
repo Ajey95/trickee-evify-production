@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { BrainCircuit, Gauge, LineChart, Sigma, TrendingDown, TrendingUp } from "lucide-react";
+import { BrainCircuit, CircleCheck, Gauge, LineChart, Sigma, TrendingDown, TrendingUp } from "lucide-react";
 import {
   CartesianGrid,
   Line,
@@ -19,6 +19,10 @@ import { Vehicle } from "@/types";
 
 function absAvg(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + Math.abs(value), 0) / values.length : 0;
+}
+
+function hasNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 export default function ModelDriftPage() {
@@ -51,24 +55,25 @@ export default function ModelDriftPage() {
   const chartRows = useMemo(() => {
     return predictionRows.slice(0, 30).reverse().map((row, index) => ({
       index: index + 1,
-      error: Number(row.ai_error || 0),
-      predicted: Number(row.predicted_next_soc || 0),
-      actual: Number(row.true_next_soc || row.actual_soc || 0),
+      error: row.ai_error == null ? null : Number(row.ai_error),
+      predicted: row.predicted_next_soc == null ? null : Number(row.predicted_next_soc),
+      actual: row.true_next_soc == null ? null : Number(row.true_next_soc),
     }));
   }, [predictionRows]);
 
-  const errors = chartRows.map((row) => row.error);
-  const mae = metrics?.mae_soc_units ?? absAvg(errors);
+  const errors = chartRows.map((row) => row.error).filter(hasNumber);
+  const mae = metrics?.mae_soc_units ?? (errors.length ? absAvg(errors) : null);
   const recent = absAvg(errors.slice(-10));
   const baseline = absAvg(errors.slice(0, 10));
-  const driftStatus = recent > Math.max(1.5, baseline * 1.35) ? "watch" : "stable";
-  const archetypeChanges = new Set(behaviorRows.map((row) => row.archetype_label).filter(Boolean)).size;
+  const hasGroundTruth = errors.length > 0;
+  const modelReady = Boolean(metrics?.model?.ready);
+  const driftStatus = !hasGroundTruth ? "pending_truth" : recent > Math.max(1.5, baseline * 1.35) ? "watch" : "stable";
   const kpis = [
-    { label: "Drift Status", value: driftStatus, icon: BrainCircuit, variant: driftStatus === "stable" ? "success" : "warning" },
-    { label: "MAE", value: Number(mae || 0).toFixed(2), icon: Sigma, variant: Number(mae || 0) <= 3 ? "success" : "warning" },
-    { label: "Within 3 pct", value: `${Math.round(Number(metrics?.accuracy_within_3pct || 0) * 100)}%`, icon: Gauge, variant: "info" },
-    { label: "Prediction Rows", value: predictionRows.length, icon: LineChart, variant: "info" },
-    { label: "Archetypes Seen", value: archetypeChanges, icon: TrendingUp, variant: "info" },
+    { label: "Model Status", value: modelReady ? "Loaded" : "Offline", icon: BrainCircuit, variant: modelReady ? "success" : "warning" },
+    { label: "Accuracy Status", value: hasGroundTruth ? driftStatus : "Awaiting actuals", icon: CircleCheck, variant: hasGroundTruth && driftStatus === "stable" ? "success" : "info" },
+    { label: "MAE", value: mae == null ? "Needs actual SOC" : Number(mae).toFixed(2), icon: Sigma, variant: mae == null ? "info" : Number(mae) <= 3 ? "success" : "warning" },
+    { label: "Within 3 pct", value: metrics?.accuracy_within_3pct == null ? "Needs actual SOC" : `${Math.round(Number(metrics.accuracy_within_3pct) * 100)}%`, icon: Gauge, variant: "info" },
+    { label: "Sampled Predictions", value: predictionRows.length, icon: LineChart, variant: "info" },
   ];
 
   return (
@@ -76,7 +81,7 @@ export default function ModelDriftPage() {
       <div className="space-y-8 pb-12">
         <div>
           <h1 className="page-title mb-1">Model Health</h1>
-          <p className="text-text-dim">Prediction accuracy, behavior stability, and fleet coverage.</p>
+          <p className="text-text-dim">Model availability, prediction coverage, and accuracy once observed next-SOC is available.</p>
         </div>
 
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
@@ -97,20 +102,26 @@ export default function ModelDriftPage() {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <Card className="xl:col-span-2">
             <CardHeader>
-              <CardTitle className="text-base">Prediction Error Trend</CardTitle>
+              <CardTitle className="text-base">{hasGroundTruth ? "Prediction Error Trend" : "Prediction Coverage Trend"}</CardTitle>
             </CardHeader>
             <CardContent className="h-[360px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ReLineChart data={chartRows}>
-                  <CartesianGrid stroke="#30363d" strokeDasharray="3 3" />
-                  <XAxis dataKey="index" stroke="#8b949e" tick={{ fontSize: 11 }} />
-                  <YAxis stroke="#8b949e" tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 8 }} />
-                  <Line type="monotone" dataKey="error" name="Error" stroke="#f85149" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="predicted" name="Predicted SOC" stroke="#00b4d8" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="actual" name="Actual SOC" stroke="#3fb950" strokeWidth={2} dot={false} />
-                </ReLineChart>
-              </ResponsiveContainer>
+              {chartRows.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ReLineChart data={chartRows}>
+                    <CartesianGrid stroke="#30363d" strokeDasharray="3 3" />
+                    <XAxis dataKey="index" stroke="#8b949e" tick={{ fontSize: 11 }} />
+                    <YAxis stroke="#8b949e" tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 8 }} />
+                    {hasGroundTruth && <Line type="monotone" dataKey="error" name="Error" stroke="#f85149" strokeWidth={2} dot={false} />}
+                    <Line type="monotone" dataKey="predicted" name="Predicted SOC" stroke="#00b4d8" strokeWidth={2} dot={false} />
+                    {hasGroundTruth && <Line type="monotone" dataKey="actual" name="Observed Next SOC" stroke="#3fb950" strokeWidth={2} dot={false} />}
+                  </ReLineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-bg-border text-sm text-text-dim">
+                  Run predictions to populate model coverage.
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -146,11 +157,12 @@ export default function ModelDriftPage() {
               Coverage Readiness
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4">
             {[
               ["Vehicles monitored", vehicles.length],
               ["Behavior snapshots", behaviorRows.length],
-              ["Prediction history", predictionRows.length],
+              ["Sampled prediction rows", predictionRows.length],
+              ["Rows with observed truth", errors.length],
               ["Model version", metrics?.model_version || metrics?.model?.name || "Limited"],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-lg border border-bg-border bg-bg-primary/40 p-4">

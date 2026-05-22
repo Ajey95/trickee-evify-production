@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, BatteryCharging, Clock, MapPin, RefreshCcw, TriangleAlert } from "lucide-react";
+import { Activity, BatteryCharging, Clock, LocateFixed, MapPin, RefreshCcw, TriangleAlert } from "lucide-react";
 import { LiveMapPanel } from "@/components/map/LiveMapPanel";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -12,6 +12,7 @@ import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 
 const MAP_POLL_MS = 30_000;
 const MAP_REQUEST_TIMEOUT_MS = 20_000;
+type BrowserLocation = { lat: number; lng: number; accuracy_m?: number; captured_at: string };
 
 function isTransientMapError(message?: string) {
   const text = (message || "").toLowerCase();
@@ -25,6 +26,8 @@ export default function LiveMapPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [browserLocation, setBrowserLocation] = useState<BrowserLocation | null>(null);
+  const [locationStatus, setLocationStatus] = useState<"idle" | "requesting" | "enabled" | "blocked">("idle");
   const mapDataRef = React.useRef<any | null>(null);
   const pollingRef = React.useRef(false);
 
@@ -109,6 +112,37 @@ export default function LiveMapPage() {
     loadMap();
   }, [loadMap]);
 
+  const requestBrowserLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setLocationStatus("blocked");
+      setError("This browser does not support location access.");
+      return;
+    }
+
+    setLocationStatus("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setBrowserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy_m: position.coords.accuracy,
+          captured_at: new Date(position.timestamp).toISOString(),
+        });
+        setLocationStatus("enabled");
+        setError("");
+      },
+      (geoError) => {
+        setLocationStatus("blocked");
+        setError(geoError.message || "Location permission was not allowed.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 20_000,
+        timeout: 12_000,
+      }
+    );
+  }, []);
+
   return (
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
       <div className="space-y-6 pb-10">
@@ -133,6 +167,17 @@ export default function LiveMapPage() {
             <Button variant="outline" size="sm" className="gap-2" onClick={loadMap} disabled={isLoading}>
               <RefreshCcw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
               Refresh
+            </Button>
+            <Button
+              variant={locationStatus === "enabled" ? "primary" : "outline"}
+              size="sm"
+              className="gap-2"
+              onClick={requestBrowserLocation}
+              disabled={locationStatus === "requesting"}
+              title="Ask this browser for location permission"
+            >
+              <LocateFixed className={`w-4 h-4 ${locationStatus === "requesting" ? "animate-pulse" : ""}`} />
+              {locationStatus === "enabled" ? "Location On" : "Use my location"}
             </Button>
           </div>
         </div>
@@ -175,7 +220,12 @@ export default function LiveMapPage() {
               <div className="absolute left-[48%] top-[62%] h-24 w-24 rounded-full border border-[#df6d63]/30 bg-[#df6d63]/10" />
             </div>
           ) : (
-            <LiveMapPanel data={mapData} selectedDriverId={selectedDriverId || undefined} wsConnected={wsConnected} />
+            <LiveMapPanel
+              data={mapData}
+              selectedDriverId={selectedDriverId || undefined}
+              wsConnected={wsConnected}
+              userLocation={browserLocation}
+            />
           )}
         </Card>
 
@@ -247,6 +297,16 @@ export default function LiveMapPage() {
               <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Map provider</p>
                 <p className="text-sm text-text-primary">OpenStreetMap</p>
+              </div>
+              <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-text-dim mb-1">Browser location</p>
+                <p className="text-sm text-text-primary">
+                  {browserLocation
+                    ? `${browserLocation.lat.toFixed(5)}, ${browserLocation.lng.toFixed(5)}`
+                    : locationStatus === "blocked"
+                      ? "Permission blocked"
+                      : "Tap Use my location"}
+                </p>
               </div>
             </CardContent>
           </Card>

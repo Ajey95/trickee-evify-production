@@ -449,6 +449,66 @@ def test_fleet_map_and_weekly_report_are_scoped_and_deterministic(db_session, mo
     assert delivery["email_status"] == "not_configured"
 
 
+def test_live_map_prefers_redis_live_state_with_db_fallback(db_session, monkeypatch):
+    class UserStub:
+        role = "fleet_operator"
+        fleet_id = None
+        driver_id = None
+
+    fleet = Fleet(name="Evify", city="Surat")
+    db_session.add(fleet)
+    db_session.flush()
+    user = UserStub()
+    user.fleet_id = fleet.id
+    redis_driver = Driver(fleet_id=fleet.id, driver_code="D-redis", full_name="Redis Driver")
+    db_driver = Driver(fleet_id=fleet.id, driver_code="D-db", full_name="DB Driver")
+    redis_vehicle = Vehicle(fleet_id=fleet.id, vehicle_code="GJ05REDIS")
+    db_vehicle = Vehicle(fleet_id=fleet.id, vehicle_code="GJ05DB")
+    db_session.add_all([redis_driver, db_driver, redis_vehicle, db_vehicle])
+    db_session.flush()
+    db_session.add(
+        Telemetry(
+            vehicle_id=db_vehicle.id,
+            driver_id=db_driver.id,
+            recorded_at=datetime.utcnow(),
+            soc=42,
+            current=5,
+            battery_voltage=50,
+            speed=8,
+            temp_max=38,
+            soh=95,
+            ignition_on=True,
+            lat=21.20,
+            lng=72.90,
+        )
+    )
+    db_session.commit()
+
+    def fake_live_points(driver_ids):
+        assert redis_driver.id in driver_ids
+        return {
+            redis_driver.id: {
+                "driver_id": redis_driver.id,
+                "driver_code": redis_driver.driver_code,
+                "vehicle_id": redis_vehicle.id,
+                "lat": 21.11,
+                "lng": 72.81,
+                "soc": 12,
+                "speed": 3,
+                "recorded_at": "2026-05-22T10:00:00",
+            }
+        }
+
+    monkeypatch.setattr("app.services.live_intelligence.load_live_points_for_drivers", fake_live_points)
+
+    result = live_map_context(db_session, user)
+    points = {point["driver_id"]: point for point in result["vehicle_points"]}
+
+    assert points[redis_driver.id]["source"] == "redis_live_state"
+    assert points[redis_driver.id]["risk_level"] == "high"
+    assert points[db_driver.id]["source"] == "postgres_latest"
+
+
 def test_daily_impact_report_uses_persisted_operational_records(db_session):
     class UserStub:
         role = "fleet_operator"

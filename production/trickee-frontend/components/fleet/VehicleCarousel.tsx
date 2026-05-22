@@ -41,7 +41,7 @@ export function VehicleCarousel({ vehicles }: VehicleCarouselProps) {
   };
 
   return (
-    <section className="fleet-vehicle-carousel watermark-section rounded-2xl bg-bg-card/20 p-5">
+    <section className="fleet-vehicle-carousel rounded-2xl bg-bg-card/20 p-5">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-accent-teal">Live Fleet Carousel</p>

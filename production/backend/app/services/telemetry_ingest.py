@@ -17,7 +17,7 @@ from app.services.wait_classifier import update_wait_event
 from app.services.ws_manager import manager
 
 
-def _live_vehicle_point(row: Telemetry, vehicle: Vehicle, driver: Driver | None) -> dict[str, Any] | None:
+def live_vehicle_point(row: Telemetry, vehicle: Vehicle, driver: Driver | None) -> dict[str, Any] | None:
     if row.lat is None or row.lng is None or row.lat == 0 or row.lng == 0:
         return None
     if not row.driver_id or not driver:
@@ -125,7 +125,7 @@ def ingest_evify_payload(
         db.refresh(row)
         if alert:
             db.refresh(alert)
-        point = _live_vehicle_point(row, vehicle, driver)
+        point = live_vehicle_point(row, vehicle, driver)
         if point:
-            manager.publish_vehicle_point_from_thread(point, get_settings().redis_url)
+            manager.schedule_vehicle_point_publish(point, get_settings().redis_url)
     return row, alert

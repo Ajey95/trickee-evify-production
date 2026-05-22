@@ -10,6 +10,8 @@ from typing import Any
 import anyio
 from fastapi import WebSocket
 
+from app.services.live_state import store_live_vehicle_point
+
 logger = logging.getLogger(__name__)
 REDIS_CHANNEL = "trickee:live-map:vehicle-point"
 
@@ -85,6 +87,7 @@ class ConnectionManager:
             await self.disconnect(ws)
 
     async def publish_vehicle_point(self, point: dict[str, Any], redis_url: str | None = None) -> None:
+        await store_live_vehicle_point(point, redis_url)
         await self.broadcast_vehicle_point(point)
         if not redis_url:
             return
@@ -118,6 +121,17 @@ class ConnectionManager:
             anyio.from_thread.run(self.publish_vehicle_point, point, redis_url)
         except RuntimeError as exc:
             logger.warning("Skipped live vehicle publish outside ASGI worker thread: %s", exc)
+
+    def schedule_vehicle_point_publish(self, point: dict[str, Any], redis_url: str | None = None) -> None:
+        """Publish live-map updates without blocking telemetry ingest responses."""
+        if not self.active_count and not redis_url:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.publish_vehicle_point_from_thread(point, redis_url)
+            return
+        loop.create_task(self.publish_vehicle_point(point, redis_url))
 
     async def start_redis_listener(self, redis_url: str | None) -> None:
         if not redis_url or self._redis_listener_task:

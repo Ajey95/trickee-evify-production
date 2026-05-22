@@ -302,6 +302,11 @@ export const api = {
     resolve: (id: string) => fetcher<any>(`/alerts/${id}/resolve`, {
       method: "POST",
     }),
+    testPush: () => fetcher<{ sent: number; failed: number; enabled?: boolean; error?: string }>("/alerts/test-push", {
+      method: "POST",
+      body: JSON.stringify({}),
+      cacheTtlMs: 0,
+    }),
   },
 
   // 6.7 Admin

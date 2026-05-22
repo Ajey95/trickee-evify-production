@@ -210,6 +210,36 @@
   fill: currentColor;
 }
 
+.trickee-user-location-marker {
+  position: relative;
+  display: inline-flex;
+  height: 34px;
+  width: 34px;
+  transform: translate(-50%, -50%);
+  align-items: center;
+  justify-content: center;
+}
+
+.trickee-user-location-core {
+  position: relative;
+  z-index: 2;
+  height: 14px;
+  width: 14px;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #00b4d8;
+  box-shadow: 0 10px 26px rgba(0, 180, 216, 0.35);
+}
+
+.trickee-user-location-pulse {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(0, 180, 216, 0.42);
+  border-radius: 999px;
+  background: rgba(0, 180, 216, 0.16);
+  animation: trickee-pulse 2.2s ease-out infinite;
+}
+
 @keyframes trickee-marker-in {
   from {
     opacity: 0;
@@ -317,7 +347,7 @@ h3,
   }
 
   .glass-card::after {
-    content: "TRICKEE";
+    content: none;
     position: absolute;
     right: 1rem;
     bottom: 0.65rem;
@@ -348,7 +378,7 @@ h3,
 }
 
 .watermark-section::before {
-  content: "EV INTELLIGENCE";
+  content: none;
   position: absolute;
   right: -1rem;
   bottom: -0.3rem;
@@ -406,8 +436,8 @@ h3,
 }
 
 .vehicle-carousel-item[data-active="true"] .glass-card {
-  border-color: rgba(0, 180, 216, 0.55);
-  box-shadow: 0 26px 80px rgba(0, 180, 216, 0.14);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .fleet-vehicle-carousel .vehicle-carousel-track {
@@ -421,15 +451,18 @@ h3,
 
 .fleet-vehicle-carousel .vehicle-carousel-item .glass-card {
   border-color: transparent;
-  background:
-    radial-gradient(circle at 50% 0%, rgba(0, 180, 216, 0.12), transparent 48%),
-    rgba(13, 17, 23, 0.58);
+  background: rgba(13, 17, 23, 0.42);
+  box-shadow: none;
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-item .glass-card:hover {
+  border-color: transparent;
   box-shadow: none;
 }
 
 .fleet-vehicle-carousel .vehicle-carousel-item[data-distance="active"] .glass-card {
-  border-color: rgba(0, 180, 216, 0.28);
-  box-shadow: 0 30px 90px rgba(0, 180, 216, 0.18);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .fleet-vehicle-carousel .vehicle-carousel-item[data-distance="near"] {

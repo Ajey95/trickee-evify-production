@@ -792,3 +792,85 @@ Test /health
 Test login
 Test /api/v1/auth/me
 ```
+
+---
+
+## 18. Pilot CI/CD Setup
+
+GitHub Actions now has a pilot readiness workflow at:
+
+```txt
+.github/workflows/pilot-ci.yml
+```
+
+The workflow runs on pull requests and pushes to `main`.
+
+### CI Checks
+
+Backend job:
+
+```txt
+cd production/backend
+python -m compileall app alembic
+alembic heads
+pytest tests -q
+```
+
+The Alembic check fails if there is more than one migration head. CI uses SQLite and placeholder settings only; it must not use production database credentials.
+
+Frontend job:
+
+```txt
+cd production/trickee-frontend
+npm ci
+npm run lint
+npm run build
+```
+
+The frontend build uses CI-only placeholder `NEXT_PUBLIC_*` values. Real production values stay in Vercel.
+
+Secret safety job:
+
+```txt
+git ls-files
+```
+
+The job blocks tracked local `.env` files and tracked service-account JSON files. `.env.example` and `.env.production.example` remain allowed as templates.
+
+### Deployment Flow
+
+Use this release gate for pilot deployments:
+
+```txt
+GitHub PR/push
+  -> Pilot CI passes
+  -> merge/deploy commit
+  -> Render backend deploy from render.yaml
+  -> Vercel frontend deploy from vercel.json
+  -> post-deploy smoke matrix
+```
+
+Render remains responsible for backend production env vars and startup migrations. Do not run `alembic upgrade head` against production from GitHub Actions.
+
+Vercel remains responsible for frontend production `NEXT_PUBLIC_*` env vars. Do not put backend secrets, database URLs, service account JSON, or unrestricted server API keys in Vercel frontend env.
+
+### Post-Deploy Required Smoke
+
+After every production deployment, verify:
+
+- `GET /health` returns 200.
+- Login works for admin, fleet manager, and driver.
+- `GET /api/v1/auth/me` returns the correct internal Trickee role.
+- `/map` loads and does not crash with empty or live vehicle points.
+- Browser geolocation works on the deployed HTTPS frontend.
+- Small `/api/v1/telemetry/evify/bulk` test is accepted or duplicate-safe.
+- Render logs contain matching request IDs.
+- FCM browser push receipt is verified before field pilot.
+
+### Provenance
+
+Source:
+- `Trickee/analysis/pilot_testing_plan.md`
+- Section 20, CI/CD Process For Pilot
+- Extracted: 2026-05-22
+- Confidence: High
