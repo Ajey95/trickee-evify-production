@@ -1,0 +1,489 @@
+@import "leaflet/dist/leaflet.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --bg-primary: #07090d;
+  --bg-card: #0f131a;
+  --bg-border: #252b35;
+  --accent-teal: #00b4d8;
+  --accent-magenta: #ff00ff;
+  --accent-green: #3fb950;
+  --accent-amber: #d29922;
+  --accent-red: #f85149;
+  --text-primary: #e6edf3;
+  --text-dim: #8b949e;
+  --font-body: var(--font-inter), Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: var(--font-space-grotesk), "Space Grotesk", var(--font-body);
+}
+
+.leaflet-container {
+  background: #eef0ec;
+  font-family: var(--font-body);
+  width: 100% !important;
+  height: 100% !important;
+  cursor: grab;
+}
+
+.leaflet-container:active {
+  cursor: grabbing;
+}
+
+.trickee-premium-tiles {
+  filter: grayscale(0.58) saturate(0.58) contrast(0.94) brightness(0.96);
+}
+
+.leaflet-map-pane,
+.leaflet-tile-pane,
+.leaflet-overlay-pane,
+.leaflet-marker-pane,
+.leaflet-shadow-pane,
+.leaflet-tile-container {
+  min-width: 100% !important;
+  min-height: 100% !important;
+}
+
+.leaflet-tile {
+  width: 256px !important;
+  height: 256px !important;
+  max-width: none !important;
+  max-height: none !important;
+  visibility: visible !important;
+}
+
+.leaflet-control-attribution {
+  right: 10px !important;
+  bottom: 10px !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  color: #6f7782 !important;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 999px !important;
+  padding: 4px 8px !important;
+  font-size: 10px !important;
+  line-height: 1.2 !important;
+  box-shadow: 0 8px 22px rgba(15, 20, 28, 0.1);
+  backdrop-filter: blur(14px);
+}
+
+.leaflet-control-attribution a {
+  color: #4f6571 !important;
+}
+
+.trickee-map-label {
+  width: auto !important;
+  height: auto !important;
+}
+
+.trickee-map-tooltip {
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  color: #1b1f26 !important;
+  box-shadow: 0 10px 28px rgba(15, 20, 28, 0.12) !important;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  padding: 6px 9px !important;
+  backdrop-filter: blur(14px);
+}
+
+.trickee-map-tooltip::before {
+  display: none !important;
+}
+
+.trickee-vehicle-marker,
+.trickee-charger-marker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  animation: trickee-marker-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  will-change: transform;
+}
+
+.trickee-vehicle-marker {
+  gap: 7px;
+}
+
+.trickee-marker-core,
+.trickee-charger-dot {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  color: #ffffff;
+  box-shadow: 0 10px 28px rgba(14, 20, 26, 0.18), 0 1px 0 rgba(255, 255, 255, 0.32) inset;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.trickee-marker-core {
+  height: 31px;
+  width: 31px;
+  border-radius: 999px;
+}
+
+.trickee-marker-core svg {
+  height: 15px;
+  width: 15px;
+  fill: currentColor;
+  transform: rotate(22deg);
+}
+
+.trickee-marker-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #1b1f26;
+  padding: 5px 8px;
+  box-shadow: 0 10px 28px rgba(14, 20, 26, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.trickee-marker-label b,
+.trickee-marker-label em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.trickee-marker-label em {
+  color: #6f7782;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.trickee-marker-pulse {
+  position: absolute;
+  left: 15px;
+  top: 15px;
+  z-index: 1;
+  height: 34px;
+  width: 34px;
+  border-radius: 999px;
+  opacity: 0.3;
+  transform: translate(-50%, -50%);
+  animation: trickee-pulse 2.6s ease-out infinite;
+}
+
+.trickee-vehicle-marker.risk-low .trickee-marker-core,
+.trickee-vehicle-marker.risk-low .trickee-marker-pulse {
+  background: #4f9fb3;
+}
+
+.trickee-vehicle-marker.risk-medium .trickee-marker-core,
+.trickee-vehicle-marker.risk-medium .trickee-marker-pulse {
+  background: #c69b55;
+}
+
+.trickee-vehicle-marker.risk-high .trickee-marker-core,
+.trickee-vehicle-marker.risk-high .trickee-marker-pulse {
+  background: #df6d63;
+}
+
+.trickee-vehicle-marker:hover .trickee-marker-core,
+.trickee-charger-marker:hover .trickee-charger-dot {
+  transform: translateY(-1px) scale(1.05);
+  box-shadow: 0 16px 36px rgba(14, 20, 26, 0.2), 0 1px 0 rgba(255, 255, 255, 0.36) inset;
+}
+
+.trickee-charger-dot {
+  height: 25px;
+  width: 25px;
+  border-radius: 9px;
+  background: #7aa889;
+}
+
+.trickee-charger-dot svg {
+  height: 13px;
+  width: 13px;
+  fill: currentColor;
+}
+
+@keyframes trickee-marker-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -45%) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes trickee-pulse {
+  0% {
+    opacity: 0.26;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  70% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.7);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.7);
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+h1,
+h2,
+h3,
+.page-title,
+.section-title,
+.font-display {
+  font-family: var(--font-heading);
+}
+
+.dashboard-shell {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+}
+
+.dashboard-shell::before {
+  content: "TRICKEE AI";
+  position: fixed;
+  right: clamp(1.5rem, 5vw, 5rem);
+  bottom: clamp(2rem, 8vw, 6rem);
+  z-index: -1;
+  max-width: 92vw;
+  font-size: clamp(4rem, 13vw, 15rem);
+  font-weight: 900;
+  line-height: 0.8;
+  letter-spacing: -0.08em;
+  color: rgba(230, 237, 243, 0.025);
+  pointer-events: none;
+  white-space: nowrap;
+  transform: rotate(-7deg);
+}
+
+.dashboard-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 80% 10%, rgba(0, 180, 216, 0.08), transparent 28%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.025), transparent 42%);
+}
+
+@layer components {
+  .page-title {
+    @apply text-[24px] font-bold text-text-primary mb-6;
+  }
+  
+  .section-title {
+    @apply text-[18px] font-semibold text-text-primary mb-4;
+  }
+  
+  .kpi-value {
+    @apply text-[36px] font-bold font-mono tracking-tight;
+  }
+  
+  .kpi-label {
+    @apply text-[12px] font-medium uppercase text-text-dim;
+  }
+  
+  .glass-card {
+    @apply bg-bg-card/95 border border-bg-border rounded-xl p-6;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 55px rgba(0, 0, 0, 0.18);
+  }
+
+  .glass-card > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .glass-card::after {
+    content: "TRICKEE";
+    position: absolute;
+    right: 1rem;
+    bottom: 0.65rem;
+    z-index: 0;
+    font-size: 2.8rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.08em;
+    color: rgba(230, 237, 243, 0.012);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5;
+  }
+}
+
+.watermark-section {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.watermark-section > * {
+  position: relative;
+  z-index: 1;
+}
+
+.watermark-section::before {
+  content: "EV INTELLIGENCE";
+  position: absolute;
+  right: -1rem;
+  bottom: -0.3rem;
+  z-index: 0;
+  font-size: clamp(3rem, 10vw, 8rem);
+  font-weight: 900;
+  line-height: 0.8;
+  letter-spacing: -0.08em;
+  color: rgba(230, 237, 243, 0.02);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.vehicle-carousel-track {
+  display: flex;
+  gap: 1.25rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: clamp(1rem, 20vw, 22rem);
+  padding: 1.75rem clamp(1rem, 7vw, 6rem) 1rem;
+  perspective: 1200px;
+}
+
+.vehicle-carousel-track::-webkit-scrollbar {
+  height: 6px;
+}
+
+.vehicle-carousel-item {
+  width: min(82vw, 390px);
+  min-width: min(82vw, 390px);
+  scroll-snap-align: center;
+  transform-style: preserve-3d;
+  transition:
+    transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    filter 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.vehicle-carousel-item[data-distance="active"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: translateZ(72px) scale(1.02);
+}
+
+.vehicle-carousel-item[data-distance="near"] {
+  opacity: 0.58;
+  filter: blur(1.4px) saturate(0.72);
+  transform: rotateY(-10deg) translateZ(-24px) scale(0.9);
+}
+
+.vehicle-carousel-item[data-distance="far"] {
+  opacity: 0.28;
+  filter: blur(3px) saturate(0.55);
+  transform: translateZ(-90px) scale(0.82);
+}
+
+.vehicle-carousel-item[data-active="true"] .glass-card {
+  border-color: rgba(0, 180, 216, 0.55);
+  box-shadow: 0 26px 80px rgba(0, 180, 216, 0.14);
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-track {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 86%, transparent 100%);
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-track::-webkit-scrollbar {
+  display: none;
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-item .glass-card {
+  border-color: transparent;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(0, 180, 216, 0.12), transparent 48%),
+    rgba(13, 17, 23, 0.58);
+  box-shadow: none;
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-item[data-distance="active"] .glass-card {
+  border-color: rgba(0, 180, 216, 0.28);
+  box-shadow: 0 30px 90px rgba(0, 180, 216, 0.18);
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-item[data-distance="near"] {
+  opacity: 0.42;
+}
+
+.fleet-vehicle-carousel .vehicle-carousel-item[data-distance="far"] {
+  opacity: 0.16;
+}
+
+/* Custom scrollbar for dark mode */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+.trickee-vehicle-marker.stale {
+  opacity: 0.45;
+  filter: grayscale(0.4);
+  transition: opacity 300ms ease, filter 300ms ease;
+}
+
+.trickee-vehicle-marker.stale .trickee-marker-pulse {
+  animation: none;
+  opacity: 0.1;
+}
+
+.trickee-vehicle-tooltip {
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 12px !important;
+  background: rgba(13, 17, 23, 0.85) !important;
+  color: #f0f6fc !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
+  font-family: var(--font-body), sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 8px 12px !important;
+  backdrop-filter: blur(12px);
+  min-width: 160px;
+}
+
+.trickee-vehicle-tooltip::before {
+  display: none !important;
+}
+

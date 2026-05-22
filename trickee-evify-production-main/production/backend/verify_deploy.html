@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trickee EV - Deployment Diagnostics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --background: #07090d;
+      --surface: #0f131a;
+      --border: #252b35;
+      --accent-teal: #00b4d8;
+      --accent-green: #3fb950;
+      --accent-amber: #d29922;
+      --accent-red: #f85149;
+      --text-primary: #e6edf3;
+      --text-dim: #8b949e;
+      --font-body: 'Inter', system-ui, sans-serif;
+      --font-heading: 'Space Grotesk', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--background);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+      overflow-y: auto;
+      background-image: 
+        radial-gradient(circle at 80% 10%, rgba(0, 180, 216, 0.07), transparent 30%),
+        radial-gradient(circle at 10% 80%, rgba(63, 185, 80, 0.04), transparent 25%);
+    }
+
+    .container {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+    }
+
+    h1 {
+      font-family: var(--font-heading);
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(120deg, #ffffff, var(--accent-teal));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--text-dim);
+      margin-top: 0.25rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-teal), transparent);
+      opacity: 0.7;
+    }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+    }
+
+    input {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.625rem 0.875rem;
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 0.875rem;
+      transition: all 0.2s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent-teal);
+      box-shadow: 0 0 0 3px rgba(0, 180, 216, 0.15);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    button {
+      font-family: var(--font-body);
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-primary {
+      background: var(--accent-teal);
+      color: #07090d;
+    }
+
+    .btn-primary:hover {
+      background: #00d2ff;
+      box-shadow: 0 0 12px rgba(0, 180, 216, 0.3);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (min-width: 768px) {
+      .dashboard-grid {
+        grid-template-columns: 350px 1fr;
+      }
+    }
+
+    .status-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+    }
+
+    .status-item-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .badge-pending { background: rgba(255, 255, 255, 0.06); color: var(--text-dim); }
+    .badge-running { background: rgba(210, 153, 34, 0.15); color: var(--accent-amber); }
+    .badge-success { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+    .badge-error { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+
+    .console {
+      background: #05070a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      height: 400px;
+      overflow: hidden;
+    }
+
+    .console-header {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 0.5rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .console-title {
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .console-body {
+      padding: 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .log-time {
+      color: #484f58;
+      user-select: none;
+    }
+
+    .log-info { color: #58a6ff; }
+    .log-success { color: var(--accent-green); }
+    .log-warn { color: var(--accent-amber); }
+    .log-error { color: var(--accent-red); }
+
+    .telemetry-card {
+      background: rgba(0, 180, 216, 0.02);
+      border: 1px solid rgba(0, 180, 216, 0.15);
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .telemetry-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent-teal);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+    }
+
+    .telemetry-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      text-align: center;
+    }
+
+    .telemetry-label {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .telemetry-val {
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      font-weight: 700;
+      margin-top: 0.125rem;
+    }
+
+    .indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--text-dim);
+      display: inline-block;
+      margin-right: 0.5rem;
+    }
+
+    .indicator-active {
+      background-color: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse-dot 1.5s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0% { transform: scale(0.9); opacity: 0.6; }
+      50% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(0.9); opacity: 0.6; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h1>Trickee EV Deployment Diagnostics</h1>
+      <div class="subtitle">Real-time HTTP and WebSockets connection verification utility</div>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <span class="indicator-dot" id="ws-indicator"></span>
+      <span id="ws-status" style="font-size: 0.8125rem; font-weight: 500;">Offline</span>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="config-grid">
+      <div class="form-group" style="grid-column: span 2;">
+        <label for="url-input">Backend Base URL</label>
+        <input type="text" id="url-input" value="https://trickee-evify-production.onrender.com">
+      </div>
+      <div class="form-group">
+        <label for="email-input">Email Credentials</label>
+        <input type="text" id="email-input" value="admin@trickee.ai">
+      </div>
+      <div class="form-group">
+        <label for="password-input">Password</label>
+        <input type="password" id="password-input" placeholder="Seeded Admin Password">
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn-primary" id="run-btn">Run Diagnostics</button>
+      <button class="btn-secondary" id="clear-btn">Clear Logs</button>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <div class="status-panel">
+      <div class="status-item">
+        <span class="status-item-label">REST API Health check</span>
+        <span class="badge badge-pending" id="status-health">Pending</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">Operator Authentication</span>
+        <span class="badge badge-pending" id="status-auth">Pending</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">WS Ticket Acquisition</span>
+        <span class="badge badge-pending" id="status-ticket">Pending</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">WebSocket Handshake</span>
+        <span class="badge badge-pending" id="status-ws">Pending</span>
+      </div>
+      <div class="status-item">
+        <span class="status-item-label">Data Ingest Feed</span>
+        <span class="badge badge-pending" id="status-data">Pending</span>
+      </div>
+
+      <div class="telemetry-card">
+        <div class="telemetry-title">Ingested Telemetry</div>
+        <div class="telemetry-grid">
+          <div class="telemetry-item">
+            <div class="telemetry-label">Driver Code</div>
+            <div class="telemetry-val" id="tele-code">-</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="telemetry-label">Battery SOC</div>
+            <div class="telemetry-val" id="tele-soc">-</div>
+          </div>
+          <div class="telemetry-item">
+            <div class="telemetry-label">Speed</div>
+            <div class="telemetry-val" id="tele-speed">-</div>
+          </div>
+        </div>
+        <div style="font-size: 0.6875rem; color: var(--text-dim); margin-top: 0.25rem; display: flex; justify-content: space-between;">
+          <span>Coords: <span id="tele-coords">-</span></span>
+          <span id="tele-time">Never updated</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="console">
+      <div class="console-header">
+        <span class="console-title">Diagnostic Execution Output</span>
+        <button id="copy-btn" style="background: transparent; color: var(--text-dim); font-size: 0.6875rem; font-weight: 500; padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px;">Copy Log</button>
+      </div>
+      <div class="console-body" id="console-body">
+        <div class="log-line">
+          <span class="log-time">[00:00:00]</span>
+          <span class="log-info">Diagnostics initialized. Enter credentials and click 'Run Diagnostics'.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let activeWS = null;
+  const consoleBody = document.getElementById('console-body');
+  const wsIndicator = document.getElementById('ws-indicator');
+  const wsStatus = document.getElementById('ws-status');
+
+  function addLog(message, type = 'info') {
+    const time = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `
+      <span class="log-time">[${time}]</span>
+      <span class="log-${type}">${message}</span>
+    `;
+    consoleBody.appendChild(line);
+    consoleBody.scrollTop = consoleBody.scrollHeight;
+  }
+
+  function setBadge(id, state, text = null) {
+    const el = document.getElementById(id);
+    el.className = `badge badge-${state}`;
+    el.textContent = text || state.charAt(0).toUpperCase() + state.slice(1);
+  }
+
+  function resetDashboard() {
+    setBadge('status-health', 'pending');
+    setBadge('status-auth', 'pending');
+    setBadge('status-ticket', 'pending');
+    setBadge('status-ws', 'pending');
+    setBadge('status-data', 'pending');
+    wsIndicator.className = 'indicator-dot';
+    wsStatus.textContent = 'Offline';
+    if (activeWS) {
+      activeWS.close();
+      activeWS = null;
+    }
+  }
+
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    consoleBody.innerHTML = '';
+    addLog('Console logs cleared.');
+    resetDashboard();
+  });
+
+  document.getElementById('copy-btn').addEventListener('click', () => {
+    const text = Array.from(consoleBody.children).map(line => line.innerText).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Logs copied to clipboard!');
+    });
+  });
+
+  document.getElementById('run-btn').addEventListener('click', async () => {
+    resetDashboard();
+    
+    let baseInput = document.getElementById('url-input').value.trim().replace(/\/$/, '');
+    if (baseInput.endsWith('/api/v1')) {
+      baseInput = baseInput.slice(0, -7);
+    }
+
+    const email = document.getElementById('email-input').value.trim();
+    const password = document.getElementById('password-input').value.trim();
+
+    addLog(`Starting check sequence against backend URL: ${baseInput}`);
+
+    // --- STEP 1: HEALTH PING ---
+    setBadge('status-health', 'running');
+    addLog(`GET ${baseInput}/health ...`);
+    let healthData = null;
+    try {
+      const response = await fetch(`${baseInput}/health`);
+      if (response.ok) {
+        healthData = await response.json();
+        setBadge('status-health', 'success');
+        addLog(`Health response status = 200 OK. Server status: "${healthData.status}". AI Model Ready: ${healthData.model_ready}`, 'success');
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (e) {
+      setBadge('status-health', 'error');
+      addLog(`Health ping failed: ${e.message}. Is backend server running and CORS allowed?`, 'error');
+      return;
+    }
+
+    // --- STEP 2: OPERATOR LOGIN ---
+    let token = null;
+    if (email && password) {
+      setBadge('status-auth', 'running');
+      addLog(`POST ${baseInput}/api/v1/auth/login with credentials...`);
+      try {
+        const response = await fetch(`${baseInput}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const resData = await response.json();
+        if (response.ok && resData.success && resData.data.access_token) {
+          token = resData.data.access_token;
+          setBadge('status-auth', 'success');
+          addLog(`Logged in successfully! User role: "${resData.data.user.role}". Full name: "${resData.data.user.full_name}"`, 'success');
+        } else {
+          throw new Error(resData.message || `HTTP ${response.status}`);
+        }
+      } catch (e) {
+        setBadge('status-auth', 'error');
+        addLog(`Authentication failed: ${e.message}`, 'error');
+        return;
+      }
+    } else {
+      setBadge('status-auth', 'pending', 'Skipped');
+      addLog('No credentials provided. Skipping login verification.', 'warn');
+    }
+
+    // --- STEP 3: TICKET RETRIEVAL ---
+    let ticket = null;
+    if (token) {
+      setBadge('status-ticket', 'running');
+      addLog(`GET ${baseInput}/api/v1/auth/ws-ticket ...`);
+      try {
+        const response = await fetch(`${baseInput}/api/v1/auth/ws-ticket`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const resData = await response.json();
+        if (response.ok && resData.success && resData.data.ticket) {
+          ticket = resData.data.ticket;
+          setBadge('status-ticket', 'success');
+          addLog(`WebSocket ticket generated: ${ticket.slice(0, 15)}... Valid for ${resData.data.expires_in_seconds} seconds`, 'success');
+        } else {
+          throw new Error(resData.message || `HTTP ${response.status}`);
+        }
+      } catch (e) {
+        setBadge('status-ticket', 'error');
+        addLog(`Failed to get WebSocket ticket: ${e.message}`, 'error');
+        return;
+      }
+    } else {
+      setBadge('status-ticket', 'pending', 'Skipped');
+    }
+
+    // --- STEP 4: WEBSOCKET HANDSHAKE ---
+    setBadge('status-ws', 'running');
+    const wsScheme = baseInput.startsWith('https') ? 'wss' : 'ws';
+    const wsBaseUrl = baseInput.replace(/^https?/, wsScheme);
+    const wsUrl = ticket 
+      ? `${wsBaseUrl}/ws/live-map?ticket=${ticket}`
+      : `${wsBaseUrl}/ws/live-map`;
+
+    addLog(`Opening WebSocket connection on URL: ${wsUrl}...`);
+    wsIndicator.className = 'indicator-dot indicator-active';
+    wsStatus.textContent = 'Connecting';
+
+    try {
+      activeWS = new WebSocket(wsUrl);
+      
+      activeWS.onopen = () => {
+        setBadge('status-ws', 'success');
+        wsStatus.textContent = 'Connected';
+        addLog('WebSocket connection established! Handshake upgrade successful (101 Switching Protocols).', 'success');
+        
+        // Wait for first data payload
+        setBadge('status-data', 'running');
+        addLog('Waiting for telemetry broadcast from WebSocket server...');
+      };
+
+      activeWS.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          addLog(`WS Message received: type="${msg.type}"`, 'info');
+          
+          if (msg.type === 'live_map' && msg.data) {
+            setBadge('status-data', 'success');
+            const points = msg.data.vehicle_points || [];
+            addLog(`Ingested full live_map snapshot containing ${points.length} vehicles!`, 'success');
+            if (points.length > 0) {
+              updateTelemetryDisplay(points[0]);
+            }
+          } else if (msg.type === 'vehicle_point' && msg.data) {
+            setBadge('status-data', 'success');
+            addLog(`Ingested single vehicle point update for driver ${msg.data.driver_code}!`, 'success');
+            updateTelemetryDisplay(msg.data);
+          }
+        } catch (e) {
+          addLog(`Failed to parse WS Frame: ${event.data.slice(0, 100)}`, 'warn');
+        }
+      };
+
+      activeWS.onclose = (event) => {
+        wsIndicator.className = 'indicator-dot';
+        wsStatus.textContent = 'Offline';
+        addLog(`WebSocket connection closed. Code: ${event.code}. Reason: ${event.reason || 'None'}`);
+        if (event.code === 4001) {
+          setBadge('status-ws', 'error', 'Closed (4001)');
+          addLog('Connection rejected by server (code 4001: Unauthorized ticket token).', 'error');
+        }
+      };
+
+      activeWS.onerror = (e) => {
+        addLog('WebSocket transport error encountered.', 'error');
+      };
+
+    } catch (e) {
+      setBadge('status-ws', 'error');
+      wsIndicator.className = 'indicator-dot';
+      wsStatus.textContent = 'Offline';
+      addLog(`Failed to initialize WebSocket: ${e.message}`, 'error');
+    }
+  });
+
+  function updateTelemetryDisplay(point) {
+    document.getElementById('tele-code').textContent = point.driver_code || 'GJ05...';
+    document.getElementById('tele-soc').textContent = `${Number(point.soc ?? 0).toFixed(0)}%`;
+    document.getElementById('tele-speed').textContent = `${Number(point.speed ?? 0).toFixed(1)} km/h`;
+    document.getElementById('tele-coords').textContent = `${Number(point.lat ?? 0).toFixed(4)}, ${Number(point.lng ?? 0).toFixed(4)}`;
+    document.getElementById('tele-time').textContent = new Date().toLocaleTimeString();
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,53 @@
+export const dynamic = "force-dynamic";
+
+export function GET() {
+  const config = {
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
+  };
+
+  const body = `
+self.addEventListener("install", function () {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", function (event) {
+  event.waitUntil(self.clients.claim());
+});
+
+try {
+  importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
+  importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
+
+  const firebaseConfig = ${JSON.stringify(config)};
+
+  if (firebaseConfig.apiKey && firebaseConfig.messagingSenderId && self.firebase) {
+    firebase.initializeApp(firebaseConfig);
+    const messaging = firebase.messaging();
+    messaging.onBackgroundMessage(function (payload) {
+      payload = payload || {};
+      const notification = payload.notification || {};
+      const title = notification.title || "Trickee alert";
+      const options = {
+        body: notification.body || "New EV intelligence alert",
+        data: payload.data || {},
+      };
+      self.registration.showNotification(title, options);
+    });
+  }
+} catch (error) {
+  console.error("Firebase messaging service worker failed", error);
+}
+`;
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}

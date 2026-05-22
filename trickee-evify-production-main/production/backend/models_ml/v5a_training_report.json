@@ -1,0 +1,47 @@
+{
+  "model_version": "v5a_driver_behavior",
+  "raw_rows": 98802,
+  "training_windows": 7222,
+  "sequences": 7140,
+  "train_sequences": 5388,
+  "test_sequences": 1752,
+  "feature_count": 24,
+  "feature_columns": [
+    "soc",
+    "current",
+    "battery_voltage",
+    "soh",
+    "power",
+    "speed",
+    "ignstatus",
+    "allow_charging",
+    "regen_status",
+    "throttle_status",
+    "cell_temperature_01",
+    "temp_rise_rate",
+    "cycle_count",
+    "cell_imbalance_mv",
+    "wh_throughput",
+    "r_internal_mohm",
+    "voltage_sag_v",
+    "power_density",
+    "minute_of_day",
+    "day_of_week",
+    "driver_avg_current_30m",
+    "driver_avg_speed_30m",
+    "driver_regen_ratio_30m",
+    "driver_throttle_var_30m"
+  ],
+  "best": {
+    "loss": 1.132773756980896,
+    "epoch": 1,
+    "mae": 1.1327738761901855,
+    "acc_1": 66.78082191780823,
+    "acc_3": 98.68721461187214
+  },
+  "artifacts": {
+    "model": "models_ml\\battery_model_v5a.pth",
+    "scaler": "models_ml\\scaler_v5a.joblib",
+    "y_scaler": "models_ml\\y_scaler_v5a.joblib"
+  }
+}

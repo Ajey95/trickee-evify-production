@@ -1,0 +1,39 @@
+{
+  "model": "battery_model_v4_1",
+  "data_path": "C:\\Users\\srija\\Downloads\\Trickee\\evify-28-04-data\\evify data 6.0",
+  "raw_rows": 98802,
+  "eval_windows": 7222,
+  "eval_sequences": 7140,
+  "mae_soc_units": 1.1980019807815552,
+  "rmse_soc_units": 3.690474271774292,
+  "accuracy_within_1_soc_pct": 71.5546218487395,
+  "accuracy_within_3_soc_pct": 98.83753501400561,
+  "median_error_soc_units": 0.7498931884765625,
+  "p95_error_soc_units": 2.7355470657348633,
+  "vehicles": {
+    "GJ05PZ1903": {
+      "sequences": 2989,
+      "mae_soc_units": 1.2044637203216553,
+      "accuracy_within_1_soc_pct": 66.94546671127468,
+      "accuracy_within_3_soc_pct": 98.59484777517564
+    },
+    "GJ05PZ1945": {
+      "sequences": 1752,
+      "mae_soc_units": 1.4206610918045044,
+      "accuracy_within_1_soc_pct": 75.62785388127854,
+      "accuracy_within_3_soc_pct": 98.28767123287672
+    },
+    "GJ05PZ1994": {
+      "sequences": 1299,
+      "mae_soc_units": 0.9584336876869202,
+      "accuracy_within_1_soc_pct": 74.13394919168591,
+      "accuracy_within_3_soc_pct": 99.76905311778292
+    },
+    "GJ05PZ2370": {
+      "sequences": 1100,
+      "mae_soc_units": 1.108717441558838,
+      "accuracy_within_1_soc_pct": 74.54545454545455,
+      "accuracy_within_3_soc_pct": 99.27272727272727
+    }
+  }
+}
