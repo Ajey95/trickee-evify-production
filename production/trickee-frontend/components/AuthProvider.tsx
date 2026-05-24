@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import { createClient, isSupabaseConfigured } from "@/utils/supabase/client";
 import type { User } from "@/types";
 import { readCachedProfile, readLegacyToken, writeCachedProfile, writeLegacyToken } from "@/lib/auth-storage";
+import { clearPendingAccessRequest, readPendingAccessRequest } from "@/lib/pending-access";
 
 type AuthState = "loading" | "authenticated" | "unauthenticated";
 
@@ -23,7 +24,25 @@ type CurrentUserResult = { user: User | null; error: string | null };
 async function fetchCurrentUser(): Promise<CurrentUserResult> {
   const { api } = await import("@/lib/api");
   const result = await api.auth.me();
-  if (!result.success) return { user: null, error: result.error || "Unable to access workspace." };
+  if (!result.success) {
+    if (isSupabaseConfigured) {
+      const supabase = createClient();
+      const { data } = await supabase.auth.getUser();
+      const account = data.user;
+      if (account?.email) {
+        const pending = readPendingAccessRequest();
+        await api.auth.accessRequest({
+          email: account.email,
+          full_name: pending?.full_name || account.user_metadata?.full_name || account.user_metadata?.name || account.email.split("@")[0],
+          company: pending?.company || account.user_metadata?.company,
+          requested_role: pending?.requested_role || account.user_metadata?.requested_role || "driver",
+          supabase_user_id: account.id,
+        });
+        clearPendingAccessRequest();
+      }
+    }
+    return { user: null, error: result.error || "Unable to access workspace." };
+  }
   writeCachedProfile(result.data);
   return { user: result.data, error: null };
 }

@@ -1,5 +1,5 @@
 # Trickee Implementation Status And Remaining Work
-**Last reconciled:** 2026-05-22
+**Last reconciled:** 2026-05-25
 **Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
 **Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
@@ -85,6 +85,13 @@ Implemented:
 - Legacy password auth supported only when `LEGACY_AUTH_ENABLED=true`.
 - Production config refuses legacy auth when `ENVIRONMENT=production`.
 - Backend workspace authorization remains separate from Supabase identity.
+- New OAuth/password signups create a pending workspace access request; the requested role is treated as user intent only, not authorization.
+- Unknown Supabase OAuth sessions default to a pending `driver` request unless the signup flow stored a selected role before OAuth redirect.
+- 2026-05-25 auth flow update:
+  - Email/password signup captures full name, company/fleet, and requested role.
+  - Google OAuth signup also captures company/fleet and requested role before redirect, then writes the pending access request after Supabase returns the session.
+  - Pending users are not allowed into the dashboard until backend workspace approval succeeds.
+  - Login now shows a clear admin-approval dialog for pending accounts instead of a vague workspace-access error.
 - User roles:
   - `trickee_admin`
   - `fleet_operator`
@@ -97,12 +104,16 @@ Implemented:
   - `POST /api/v1/admin/access-requests/{request_id}/reject`
 - Server-side scope checks for fleet, driver, vehicle, and role-sensitive endpoints.
 - Security event table and admin approval audit events.
+- Admin approval is the only path that activates a workspace user role and, for driver accounts, maps the login to an existing driver telemetry profile.
+- Driver account approval requires admin mapping from the login identity to an existing telemetry driver profile.
+- Current mapping is manual because Evify telemetry does not provide a guaranteed email/phone/employee/order-partner identity that can prove which Gmail belongs to which driver.
 
 Production requirements still open:
 
 - Confirm Render has correct `SUPABASE_URL`, `SUPABASE_JWKS_URL`, `SUPABASE_JWT_SECRET`, and `SUPABASE_JWT_AUDIENCE=authenticated`.
 - Keep `LEGACY_AUTH_ENABLED=false` in production.
 - Seed/approve production admin through Supabase Auth plus internal `users` role mapping.
+- For clean driver onboarding, add an invite-code or QR onboarding flow where an admin creates an invite against a specific existing driver profile and the driver signs up through that link. This makes driver-profile mapping deterministic instead of relying on manual Gmail-to-driver matching.
 
 ### 2.3 Telemetry Ingestion
 
@@ -455,8 +466,9 @@ Implemented frontend foundations:
 - Role-based route/sidebar access.
 - Dashboard shell is mobile-responsive for pilot browser use: desktop keeps the left sidebar, mobile uses a bottom scrollable nav with role-filtered links.
 - Premium public landing page.
-- Auth pages and access-request flow.
-- Admin workspace approval UI.
+- Auth pages and access-request flow. Signup supports both email/password and Google OAuth with a requested role selector.
+- Pending users are returned to login with a clear admin-approval dialog instead of seeing a vague workspace error.
+- Admin workspace approval UI shows the requested role, allows final role override, and requires explicit driver-profile mapping only when approving a Driver account.
 - FCM token registration helper.
 - AI workspace for assistant/notification/route/battery/charger/fleet/coaching flows.
 - Dashboard pages for live map, fleet, decisions, routes, reports, scorecards, alerts, impact, data quality, observability, and model health.
@@ -933,6 +945,7 @@ A long cross-source audit was moved to `future_backlog_cross_source_audit.md` so
 
 Important backlog themes captured there:
 
+- Auth future implementation: invite-code or QR onboarding for drivers. Admin should generate an invite linked to an existing driver profile/vehicle proxy; the driver signs up from that invite, so the backend can map `supabase_user_id` to the correct internal `driver_id` without guessing from Gmail/name alone.
 - Android-first rider app for fleets without direct Evify telemetry API access.
 - PostGIS geometry columns and persistent H3 cells for spatial intelligence.
 - H3 aggregation tables for pickup/wait clusters, low-SOC hotspots, and charging opportunity zones.

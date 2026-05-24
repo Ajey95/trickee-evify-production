@@ -33,6 +33,12 @@ function statusVariant(status: string): "success" | "error" | "warning" {
   return "warning";
 }
 
+function driverOptionLabel(driver: Driver) {
+  const code = driver.driver_code ? ` (${driver.driver_code})` : "";
+  const vehicle = driver.current_vehicle ? ` - ${driver.current_vehicle}` : "";
+  return `${driver.full_name}${code}${vehicle}`;
+}
+
 export default function AdminPage() {
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
   const [users, setUsers] = useState<TrickeeUser[]>([]);
@@ -127,7 +133,8 @@ export default function AdminPage() {
   }, [drivers]);
 
   function draftFor(row: AccessRequest): Draft {
-    return drafts[row.id] || { role: row.requested_role, fleet_id: fleets[0]?.id, driver_id: undefined };
+    const role = row.requested_role || "driver";
+    return drafts[row.id] || { role, fleet_id: role === "trickee_admin" ? undefined : fleets[0]?.id, driver_id: undefined };
   }
 
   function updateDraft(id: string, patch: Partial<Draft>) {
@@ -226,23 +233,31 @@ export default function AdminPage() {
                     <TableHead>Requested</TableHead>
                     <TableHead>Access</TableHead>
                     <TableHead>Team</TableHead>
-                    <TableHead>Driver</TableHead>
+                    <TableHead>Map to driver profile</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {pendingRequests.map((row) => {
                     const draft = draftFor(row);
-                    const fleetDrivers = draft.fleet_id ? driversByFleet[draft.fleet_id] || [] : [];
+                    const fleetDrivers = draft.role === "driver" && draft.fleet_id ? driversByFleet[draft.fleet_id] || [] : [];
                     return (
                       <TableRow key={row.id}>
                         <TableCell>
                           <p className="font-medium text-text-primary">{row.full_name}</p>
                           <p className="text-xs text-text-dim">{row.email}</p>
                           {row.company && <p className="mt-1 text-[11px] text-text-dim">{row.company}</p>}
+                          {row.requested_role === "driver" && (
+                            <p className="mt-1 max-w-[210px] text-[10px] leading-4 text-accent-amber">
+                              Confirm this Gmail belongs to the rider before mapping it to telemetry.
+                            </p>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant="warning">{roleLabel(row.requested_role)}</Badge>
+                          {row.requested_role === "fleet_operator" && (
+                            <p className="mt-1 text-[10px] leading-4 text-text-dim">User requested fleet access. Change below if this should be a driver account.</p>
+                          )}
                         </TableCell>
                         <TableCell>
                           <select
@@ -278,19 +293,28 @@ export default function AdminPage() {
                           </select>
                         </TableCell>
                         <TableCell>
-                          <select
-                            value={draft.driver_id || ""}
-                            disabled={draft.role !== "driver"}
-                            onChange={(event) => updateDraft(row.id, { driver_id: event.target.value })}
-                            className="h-9 w-full min-w-[145px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none disabled:opacity-45"
-                          >
-                            <option value="">Select driver</option>
-                            {fleetDrivers.map((driver) => (
-                              <option key={driver.id} value={driver.id}>
-                                {driver.full_name}
-                              </option>
-                            ))}
-                          </select>
+                          {draft.role === "driver" ? (
+                            <>
+                              <select
+                                value={draft.driver_id || ""}
+                                onChange={(event) => updateDraft(row.id, { driver_id: event.target.value })}
+                                className="h-9 w-full min-w-[145px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
+                              >
+                                <option value="">Select driver</option>
+                                {fleetDrivers.map((driver) => (
+                                  <option key={driver.id} value={driver.id}>
+                                    {driverOptionLabel(driver)}
+                                  </option>
+                                ))}
+                              </select>
+                              <p className="mt-1 max-w-[190px] text-[10px] leading-4 text-text-dim">
+                                Link this login to the existing telemetry driver record.
+                              </p>
+                              {!fleetDrivers.length && <p className="mt-1 text-[10px] text-accent-amber">No drivers in selected team.</p>}
+                            </>
+                          ) : (
+                            <p className="min-w-[145px] text-xs text-text-dim">Only required for Driver accounts.</p>
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex justify-end gap-2">

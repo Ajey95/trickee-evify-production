@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
 import { Driver, Vehicle } from "@/types";
+import { useAuth } from "@/components/AuthProvider";
 
 type PanelKey = "assistant" | "notification" | "route" | "battery" | "charger" | "profile" | "fleet" | "coaching";
 type ContextItem = { label: string; value: string; hint?: string };
@@ -92,6 +93,7 @@ function ResultView({ result }: { result: any }) {
 }
 
 export default function AiFeaturesPage() {
+  const { user } = useAuth();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState("");
@@ -104,7 +106,13 @@ export default function AiFeaturesPage() {
 
   useEffect(() => {
     async function load() {
-      const [driverList, vehicleList] = await Promise.all([api.drivers.list(), api.vehicles.list()]);
+      const [driverList, vehicleList] =
+        user?.role === "driver"
+          ? await Promise.all([
+              api.drivers.me().then((result) => ({ ...result, data: result.success ? [result.data] : [] })),
+              api.vehicles.mine(),
+            ])
+          : await Promise.all([api.drivers.list(), api.vehicles.list()]);
       if (driverList.success) {
         setDrivers(driverList.data);
         setSelectedDriverId(driverList.data[0]?.id || "");
@@ -115,8 +123,17 @@ export default function AiFeaturesPage() {
       }
       if (!driverList.success || !vehicleList.success) setError(driverList.error || vehicleList.error || "Unable to load AI context.");
     }
-    load();
-  }, []);
+    if (user) load();
+  }, [user]);
+
+  const visiblePanels = useMemo(
+    () => panels.filter((panel) => user?.role !== "driver" || panel.key !== "fleet"),
+    [user?.role]
+  );
+
+  useEffect(() => {
+    if (user?.role === "driver" && active === "fleet") setActive("assistant");
+  }, [active, user?.role]);
 
   const selectedVehicle = useMemo(() => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || vehicles[0], [vehicles, selectedVehicleId]);
   const selectedDriver = useMemo(() => drivers.find((driver) => driver.id === selectedDriverId) || drivers[0], [drivers, selectedDriverId]);
@@ -127,7 +144,7 @@ export default function AiFeaturesPage() {
   );
   const soc = Number(latest.soc || 42);
   const routeDestination = useMemo(() => ({ lat: point.lat + 0.035, lng: point.lng + 0.032 }), [point.lat, point.lng]);
-  const activePanel = panels.find((panel) => panel.key === active) || panels[0];
+  const activePanel = visiblePanels.find((panel) => panel.key === active) || visiblePanels[0] || panels[0];
   const contextItems: ContextItem[] = (() => {
     const driverLabel = selectedDriver ? `${selectedDriver.driver_code} - ${selectedDriver.full_name}` : "No driver selected";
     const vehicleLabel = selectedVehicle?.vehicle_code || "No vehicle selected";
@@ -208,7 +225,15 @@ export default function AiFeaturesPage() {
 
   async function runPanel() {
     if (!selectedDriverId || !selectedVehicle?.id) {
-      setError("Select a driver and vehicle first.");
+      setError(
+        user?.role === "driver"
+          ? "Your driver account has no mapped vehicle telemetry yet. Ask an admin to map this account to the right driver/vehicle before using AI checks."
+          : "Select a driver and vehicle first."
+      );
+      return;
+    }
+    if (active === "fleet" && user?.role === "driver") {
+      setError("Fleet summary is available only to fleet managers and admins.");
       return;
     }
     setIsLoading(true);
@@ -269,7 +294,7 @@ export default function AiFeaturesPage() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
-          {panels.map(({ key, label, icon: Icon }) => (
+          {visiblePanels.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setActive(key)}

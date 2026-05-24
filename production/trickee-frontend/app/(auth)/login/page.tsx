@@ -43,6 +43,7 @@ export default function LoginPage() {
   const canSubmit = useMemo(() => email.trim().length > 3 && password.length > 0 && !isLoading, [email, password, isLoading]);
   const canSendOtp = useMemo(() => codeTarget.trim().length > 3 && !otpLoading, [codeTarget, otpLoading]);
   const canVerifyOtp = useMemo(() => otpSent && otpCode.trim().length >= 6 && !otpLoading, [otpCode, otpLoading, otpSent]);
+  const pendingApprovalNotice = error.toLowerCase().includes("admin approval") || error.toLowerCase().includes("workspace access");
 
   useEffect(() => {
     if (status === "authenticated" && user) {
@@ -56,6 +57,12 @@ export default function LoginPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (authError === "Workspace access is pending approval") {
+      setError("This account is waiting for admin approval.");
+    }
+  }, [authError]);
+
   const redirectAfterAuth = async () => {
     resetApiClientState();
     const nextUser = await refreshUser();
@@ -68,7 +75,7 @@ export default function LoginPage() {
             email: account.email,
             full_name: account.user_metadata?.full_name || account.user_metadata?.name || account.email.split("@")[0],
             company: account.user_metadata?.company,
-            requested_role: account.user_metadata?.requested_role || "fleet_operator",
+            requested_role: account.user_metadata?.requested_role || "driver",
             supabase_user_id: account.id,
           });
         }
@@ -241,6 +248,22 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-[#05070a] text-text-primary">
+      {pendingApprovalNotice && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-accent-amber/30 bg-[#0b0f16] p-6 shadow-[0_24px_100px_rgba(0,0,0,0.55)]">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-accent-amber/12 text-accent-amber">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <h2 className="text-xl font-semibold tracking-tight text-white">Waiting for admin approval</h2>
+            <p className="mt-3 text-sm leading-6 text-text-dim">
+              Your account was created, but it is not mapped to a Trickee workspace yet. An admin must approve the requested role before the dashboard opens.
+            </p>
+            <Button type="button" className="mt-6 h-10 w-full" onClick={() => setError("")}>
+              Got it
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="mx-auto grid min-h-screen w-full max-w-6xl grid-cols-1 px-6 py-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-16 lg:px-10">
         <section className="hidden lg:block">
           <div className="mb-10 flex items-center gap-3">
@@ -465,9 +488,20 @@ export default function LoginPage() {
                 )}
 
                 {error && (
-                  <div role="alert" className="flex items-start gap-2 rounded-lg border border-accent-red/25 bg-accent-red/10 p-3 text-sm text-accent-red">
+                  <div
+                    role="alert"
+                    className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                      error.toLowerCase().includes("admin approval") || error.toLowerCase().includes("workspace access")
+                        ? "border-accent-amber/30 bg-accent-amber/10 text-accent-amber"
+                        : "border-accent-red/25 bg-accent-red/10 text-accent-red"
+                    }`}
+                  >
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{error}</span>
+                    <span>
+                      {error}
+                      {(error.toLowerCase().includes("admin approval") || error.toLowerCase().includes("workspace access")) &&
+                        " You can close this page and try again after the workspace admin approves your request."}
+                    </span>
                   </div>
                 )}
               </div>

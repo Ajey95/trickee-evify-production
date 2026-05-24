@@ -26,6 +26,7 @@ export default function RouteSchedulePage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [origin, setOrigin] = useState<PickedPoint>(defaultOrigin);
   const [destination, setDestination] = useState<PickedPoint>(defaultDestination);
   const [schedule, setSchedule] = useState<any[]>([]);
@@ -42,7 +43,10 @@ export default function RouteSchedulePage() {
         setDrivers(driversResult.data);
         setSelectedDriverId(driversResult.data[0]?.id || "");
       }
-      if (vehiclesResult.success) setVehicles(vehiclesResult.data);
+      if (vehiclesResult.success) {
+        setVehicles(vehiclesResult.data);
+        setSelectedVehicleId(vehiclesResult.data[0]?.id || "");
+      }
       if (!driversResult.success || !vehiclesResult.success) {
         setError(driversResult.error || vehiclesResult.error || "Unable to load schedule context.");
       }
@@ -50,7 +54,13 @@ export default function RouteSchedulePage() {
     load();
   }, [user?.role]);
 
-  const selectedVehicle = useMemo(() => vehicles.find((vehicle) => (vehicle.latest_telemetry || vehicle.latest)?.driver_id === selectedDriverId) || vehicles[0], [selectedDriverId, vehicles]);
+  const selectedVehicle = useMemo(
+    () =>
+      vehicles.find((vehicle) => vehicle.id === selectedVehicleId) ||
+      vehicles.find((vehicle) => (vehicle.latest_telemetry || vehicle.latest)?.driver_id === selectedDriverId) ||
+      vehicles[0],
+    [selectedDriverId, selectedVehicleId, vehicles]
+  );
   const socStart = Math.round((selectedVehicle?.latest_telemetry || selectedVehicle?.latest)?.soc || 60);
 
   const buildSchedule = async () => {
@@ -65,6 +75,8 @@ export default function RouteSchedulePage() {
         soc_start: Math.max(25, socStart - day * 3),
         day_type: day === 5 || day === 6 ? "weekend" : "weekday",
         slot,
+        origin: { lat: origin.lat, lng: origin.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
         origin_label: origin.label,
         dest_label: destination.label,
       });
@@ -90,7 +102,7 @@ export default function RouteSchedulePage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="page-title mb-1">7-Day Route Schedule</h1>
-            <p className="text-text-dim">Plan a week of route choices from selected origin and destination points.</p>
+            <p className="text-text-dim">Build a route-readiness plan using the selected driver, vehicle SOC, origin, destination, weekday/weekend pattern, and time slots.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <select
@@ -102,6 +114,15 @@ export default function RouteSchedulePage() {
                 <option key={driver.id} value={driver.id}>{driver.driver_code} - {driver.full_name}</option>
               ))}
             </select>
+            <select
+              value={selectedVehicle?.id || selectedVehicleId}
+              onChange={(event) => setSelectedVehicleId(event.target.value)}
+              className="h-10 min-w-[180px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal"
+            >
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>{vehicle.vehicle_code}</option>
+              ))}
+            </select>
             <Button onClick={buildSchedule} isLoading={isBuilding} className="gap-2">
               <RefreshCcw className="w-4 h-4" />
               Build Schedule
@@ -110,6 +131,22 @@ export default function RouteSchedulePage() {
         </div>
 
         {error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
+
+        <Card>
+          <CardContent className="grid grid-cols-1 gap-3 p-4 md:grid-cols-4">
+            {[
+              ["Driver", drivers.find((driver) => driver.id === selectedDriverId)?.full_name || "No driver selected"],
+              ["Vehicle", selectedVehicle?.vehicle_code || "No vehicle selected"],
+              ["Start SOC", `${socStart}%`],
+              ["Plan basis", "Route score + battery margin"],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-text-dim">{label}</p>
+                <p className="mt-1 text-sm font-semibold text-text-primary">{value}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

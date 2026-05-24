@@ -177,7 +177,7 @@ def record_supabase_access_request(db: Session, payload: dict[str, Any]) -> Acce
     if not email:
         return None
     metadata = payload.get("user_metadata") or {}
-    requested_role = metadata.get("requested_role") or metadata.get("role") or "fleet_operator"
+    requested_role = metadata.get("requested_role") or metadata.get("role") or "driver"
     if requested_role not in {"fleet_operator", "driver", "trickee_admin"}:
         requested_role = "fleet_operator"
     full_name = metadata.get("full_name") or metadata.get("name") or email.split("@")[0]

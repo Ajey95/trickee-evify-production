@@ -10,6 +10,7 @@ import { homeForRole } from "@/lib/roles";
 import { UserRole } from "@/types";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient, isSupabaseConfigured } from "@/utils/supabase/client";
+import { writePendingAccessRequest } from "@/lib/pending-access";
 
 type SignupState = "idle" | "created" | "pending_mapping";
 
@@ -63,6 +64,7 @@ export default function SignupPage() {
   }, [company, confirmPassword, email, fullName, password]);
 
   const canSubmit = !validationError && !isLoading;
+  const canUseGoogle = Boolean(company.trim()) && !googleLoading;
 
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
@@ -73,6 +75,16 @@ export default function SignupPage() {
         setGoogleLoading(false);
         return;
       }
+      if (!canUseGoogle) {
+        setError("Select your access type and enter your company or fleet name before continuing with Google.");
+        setGoogleLoading(false);
+        return;
+      }
+      writePendingAccessRequest({
+        full_name: fullName.trim() || undefined,
+        company: company.trim(),
+        requested_role: requestedRole,
+      });
       const { error: googleError } = await createClient().auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -171,19 +183,8 @@ export default function SignupPage() {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-dim">Account access</p>
                   <h1 className="mt-3 text-2xl font-semibold tracking-tight text-white">Create your Trickee account</h1>
                   <p className="mt-2 text-sm leading-6 text-text-dim">
-                    Request access to your operations workspace.
+                    Select the access you need. Admin approval decides final workspace access.
                   </p>
-                </div>
-
-                <Button type="button" variant="outline" className="mb-5 h-11 w-full gap-2" onClick={handleGoogleSignIn} isLoading={googleLoading}>
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-white text-xs font-bold text-[#111827]">G</span>
-                  Continue with Google
-                </Button>
-
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-white/[0.08]" />
-                  <span className="text-[11px] font-medium text-text-dim">or</span>
-                  <div className="h-px flex-1 bg-white/[0.08]" />
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
@@ -227,7 +228,7 @@ export default function SignupPage() {
 
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-text-dim">
-                      Access type
+                      Requested access
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       {[
@@ -248,6 +249,20 @@ export default function SignupPage() {
                         </button>
                       ))}
                     </div>
+                    <p className="text-[11px] leading-5 text-text-dim">
+                      This requested role is shown to the admin. It does not grant access until approval.
+                    </p>
+                  </div>
+
+                  <Button type="button" variant="outline" className="h-11 w-full gap-2" onClick={handleGoogleSignIn} isLoading={googleLoading} disabled={!canUseGoogle}>
+                    <span className="grid h-5 w-5 place-items-center rounded-full bg-white text-xs font-bold text-[#111827]">G</span>
+                    Continue with Google as {requestedRole === "driver" ? "Driver" : "Fleet manager"}
+                  </Button>
+
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-white/[0.08]" />
+                    <span className="text-[11px] font-medium text-text-dim">or use email password</span>
+                    <div className="h-px flex-1 bg-white/[0.08]" />
                   </div>
 
                   <div className="space-y-2">

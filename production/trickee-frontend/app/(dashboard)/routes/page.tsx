@@ -12,11 +12,13 @@ import { Badge } from "@/components/ui/Badge";
 import { Route as RouteIcon, Search, Clock, BarChart2, AlertTriangle, RefreshCw, BatteryCharging } from "lucide-react";
 import { Driver, Route, Vehicle } from "@/types";
 import { api } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 
 const defaultOrigin: PickedPoint = { label: "Ring Road Depot", lat: 21.1702, lng: 72.8311 };
 const defaultDestination: PickedPoint = { label: "Varachha Pickup", lat: 21.2131, lng: 72.8708 };
 
 export default function RouteIntelligencePage() {
+  const { user } = useAuth();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState("");
@@ -37,9 +39,13 @@ export default function RouteIntelligencePage() {
   useEffect(() => {
     async function loadContext() {
       setIsLoading(true);
-      const [myDriverResult, myVehiclesResult] = await Promise.all([api.drivers.me(), api.vehicles.mine()]);
-      const driversResult = myDriverResult.success ? { success: true, data: [myDriverResult.data] } : await api.drivers.list();
-      const vehiclesResult = myVehiclesResult.success ? myVehiclesResult : await api.vehicles.list();
+      const [driversResult, vehiclesResult] =
+        user?.role === "driver"
+          ? await Promise.all([
+              api.drivers.me().then((result) => ({ ...result, data: result.success ? [result.data] : [] })),
+              api.vehicles.mine(),
+            ])
+          : await Promise.all([api.drivers.list(), api.vehicles.list()]);
       if (driversResult.success) {
         setDrivers(driversResult.data);
         setSelectedDriverId(driversResult.data[0]?.id || "");
@@ -55,8 +61,8 @@ export default function RouteIntelligencePage() {
       }
       setIsLoading(false);
     }
-    loadContext();
-  }, []);
+    if (user) loadContext();
+  }, [user]);
 
   const selectedDriver = useMemo(() => drivers.find((driver) => driver.id === selectedDriverId), [drivers, selectedDriverId]);
   const selectedVehicle = useMemo(() => vehicles.find((vehicle) => vehicle.id === selectedVehicleId), [vehicles, selectedVehicleId]);
@@ -160,7 +166,7 @@ export default function RouteIntelligencePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="page-title mb-1">Route Intelligence</h1>
-          <p className="text-text-dim">Compare routes by time, range, traffic, and battery margin.</p>
+          <p className="text-text-dim">Score route choices using driver profile, current SOC, selected GPS points, time slot, and EV battery margin.</p>
         </div>
       </div>
 
@@ -233,6 +239,23 @@ export default function RouteIntelligencePage() {
       </Card>
 
       <Card>
+        <CardContent className="grid grid-cols-1 gap-3 p-4 md:grid-cols-5">
+          {[
+            ["Driver", selectedDriver?.full_name || "No driver selected"],
+            ["Vehicle", selectedVehicle?.vehicle_code || "No vehicle selected"],
+            ["Origin", origin.label],
+            ["Destination", destination.label],
+            ["Route basis", "ETA + SOC + energy + traffic"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-bg-border bg-bg-primary/40 p-3">
+              <p className="text-[10px] uppercase tracking-wider text-text-dim">{label}</p>
+              <p className="mt-1 text-sm font-semibold text-text-primary">{value}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="p-4">
           <MapPicker
             origin={origin}
@@ -281,7 +304,7 @@ export default function RouteIntelligencePage() {
             <div className="flex-1">
               <h3 className="font-bold text-text-primary text-lg mb-2">Reroute Check</h3>
               <p className="text-sm text-text-dim leading-relaxed">
-                Re-check the current route when road conditions change.
+                Re-score the current ranked route against a simulated traffic slowdown and current SOC. This is a decision check, not free-text AI advice.
               </p>
             </div>
             <Button variant="outline" className="border-accent-amber/50 text-accent-amber hover:bg-accent-amber/10 whitespace-nowrap gap-2" onClick={handleSimulateJam} isLoading={isLoading} disabled={!routes.length}>

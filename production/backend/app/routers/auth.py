@@ -49,7 +49,7 @@ class AccessRequestPayload(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=255)
     company: str | None = Field(default=None, max_length=255)
-    requested_role: str = Field(default="fleet_operator", pattern="^(fleet_operator|driver|trickee_admin)$")
+    requested_role: str = Field(default="driver", pattern="^(fleet_operator|driver|trickee_admin)$")
     supabase_user_id: str | None = Field(default=None, max_length=128)
 
 
