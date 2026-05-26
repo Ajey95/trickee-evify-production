@@ -319,6 +319,11 @@ export const api = {
     fleets: () => fetcher<Fleet[]>("/admin/fleets"),
     drivers: () => fetcher<Driver[]>("/admin/drivers"),
     accessRequests: () => fetcher<AccessRequest[]>("/admin/access-requests", { cacheTtlMs: 0 }),
+    updateUserMapping: (id: string, data: { role: string; fleet_id?: string; driver_id?: string; full_name?: string; is_active?: boolean }) => fetcher<User>(`/admin/users/${id}/mapping`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      cacheTtlMs: 0,
+    }),
     createAccessRequest: (data: { email: string; full_name: string; company?: string; requested_role: string; requested_vehicle_id?: string; supabase_user_id?: string }) => fetcher<AccessRequest>("/admin/access-requests", {
       method: "POST",
       body: JSON.stringify(data),

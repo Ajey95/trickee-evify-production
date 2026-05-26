@@ -18,6 +18,14 @@ type Draft = {
   requested_vehicle_id?: string;
 };
 
+type UserMappingDraft = {
+  role: UserRole;
+  fleet_id?: string;
+  driver_id?: string;
+  full_name?: string;
+  is_active: boolean;
+};
+
 const roleOptions: { value: UserRole; label: string }[] = [
   { value: "fleet_operator", label: "Fleet manager" },
   { value: "driver", label: "Driver" },
@@ -52,6 +60,7 @@ export default function AdminPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [userDrafts, setUserDrafts] = useState<Record<string, UserMappingDraft>>({});
   const [newRequest, setNewRequest] = useState({ email: "", full_name: "", company: "", requested_role: "fleet_operator" as UserRole, requested_vehicle_id: "" });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -148,6 +157,20 @@ export default function AdminPage() {
     }, {});
   }, [vehicles]);
 
+  const fleetsById = useMemo(() => {
+    return fleets.reduce<Record<string, Fleet>>((acc, fleet) => {
+      acc[fleet.id] = fleet;
+      return acc;
+    }, {});
+  }, [fleets]);
+
+  const driversById = useMemo(() => {
+    return drivers.reduce<Record<string, Driver>>((acc, driver) => {
+      acc[driver.id] = driver;
+      return acc;
+    }, {});
+  }, [drivers]);
+
   function draftFor(row: AccessRequest): Draft {
     const role = row.requested_role || "driver";
     const requestedVehicle = row.requested_vehicle_id ? vehicles.find((vehicle) => vehicle.id === row.requested_vehicle_id) : undefined;
@@ -164,6 +187,30 @@ export default function AdminPage() {
   function updateDraft(id: string, patch: Partial<Draft>) {
     setDrafts((current) => {
       const existing = current[id] || { role: "fleet_operator" as UserRole };
+      return { ...current, [id]: { ...existing, ...patch } };
+    });
+  }
+
+  function userDraftFor(user: TrickeeUser): UserMappingDraft {
+    return userDrafts[user.id] || {
+      role: user.role,
+      fleet_id: user.role === "trickee_admin" ? undefined : user.fleet_id,
+      driver_id: user.role === "driver" ? user.driver_id : undefined,
+      full_name: user.full_name,
+      is_active: user.is_active !== false,
+    };
+  }
+
+  function updateUserDraft(id: string, patch: Partial<UserMappingDraft>) {
+    setUserDrafts((current) => {
+      const user = users.find((row) => row.id === id);
+      const existing = current[id] || {
+        role: user?.role || "fleet_operator",
+        fleet_id: user?.fleet_id,
+        driver_id: user?.driver_id,
+        full_name: user?.full_name,
+        is_active: user?.is_active !== false,
+      };
       return { ...current, [id]: { ...existing, ...patch } };
     });
   }
@@ -198,6 +245,32 @@ export default function AdminPage() {
       return;
     }
     setNotice("Request rejected.");
+    await loadAdminData();
+  }
+
+  async function saveUserMapping(user: TrickeeUser) {
+    const draft = userDraftFor(user);
+    setBusyId(user.id);
+    setNotice("");
+    setError("");
+    const result = await api.admin.updateUserMapping(user.id, {
+      role: draft.role,
+      fleet_id: draft.role === "trickee_admin" ? undefined : draft.fleet_id,
+      driver_id: draft.role === "driver" ? draft.driver_id : undefined,
+      full_name: draft.full_name?.trim() || user.full_name,
+      is_active: draft.is_active,
+    });
+    setBusyId("");
+    if (!result.success) {
+      setError(result.error || "Could not update user.");
+      return;
+    }
+    setNotice("User updated.");
+    setUserDrafts((current) => {
+      const next = { ...current };
+      delete next[user.id];
+      return next;
+    });
     await loadAdminData();
   }
 
@@ -520,29 +593,110 @@ export default function AdminPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>User</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Fleet</TableHead>
+                    <TableHead>Access</TableHead>
+                    <TableHead>Team</TableHead>
+                    <TableHead>Driver</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell className="font-medium text-text-primary">{user.full_name}</TableCell>
-                      <TableCell>
-                        <Badge variant={user.role === "trickee_admin" ? "info" : "default"}>
-                          {roleLabel(user.role)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs uppercase text-text-dim">{user.fleet_id || "Global"}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-accent-green">
-                          <div className="h-1.5 w-1.5 rounded-full bg-accent-green" />
-                          {user.is_active === false ? "Inactive" : "Active"}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {users.map((user) => {
+                    const draft = userDraftFor(user);
+                    const fleetDrivers = draft.role === "driver" && draft.fleet_id ? driversByFleet[draft.fleet_id] || [] : [];
+                    const hasValidMapping = draft.role === "trickee_admin" || (draft.role === "fleet_operator" && !!draft.fleet_id) || (draft.role === "driver" && !!draft.fleet_id && !!draft.driver_id);
+                    return (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <input
+                            value={draft.full_name || ""}
+                            onChange={(event) => updateUserDraft(user.id, { full_name: event.target.value })}
+                            className="mb-1 h-8 w-full min-w-[150px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs font-semibold text-text-primary outline-none"
+                          />
+                          <p className="text-xs text-text-dim">{user.email}</p>
+                          {user.driver_id && <p className="mt-1 text-[10px] text-text-dim">Current: {driversById[user.driver_id]?.full_name || user.driver_id}</p>}
+                        </TableCell>
+                        <TableCell>
+                          <select
+                            value={draft.role}
+                            onChange={(event) => {
+                              const role = event.target.value as UserRole;
+                              updateUserDraft(user.id, {
+                                role,
+                                fleet_id: role === "trickee_admin" ? undefined : draft.fleet_id,
+                                driver_id: role === "driver" ? draft.driver_id : undefined,
+                              });
+                            }}
+                            className="h-9 w-full min-w-[130px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
+                          >
+                            {roleOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </TableCell>
+                        <TableCell>
+                          <select
+                            value={draft.fleet_id || ""}
+                            disabled={draft.role === "trickee_admin"}
+                            onChange={(event) => updateUserDraft(user.id, { fleet_id: event.target.value, driver_id: undefined })}
+                            className="h-9 w-full min-w-[145px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none disabled:opacity-45"
+                          >
+                            <option value="">Select team</option>
+                            {fleets.map((fleet) => (
+                              <option key={fleet.id} value={fleet.id}>
+                                {fleet.name}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="mt-1 text-[10px] text-text-dim">{draft.role === "trickee_admin" ? "Global access" : fleetsById[draft.fleet_id || ""]?.name || "Team required"}</p>
+                        </TableCell>
+                        <TableCell>
+                          {draft.role === "driver" ? (
+                            <select
+                              value={draft.driver_id || ""}
+                              onChange={(event) => updateUserDraft(user.id, { driver_id: event.target.value })}
+                              className="h-9 w-full min-w-[155px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
+                            >
+                              <option value="">Select driver</option>
+                              {fleetDrivers.map((driver) => (
+                                <option key={driver.id} value={driver.id}>
+                                  {driverOptionLabel(driver)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <p className="min-w-[125px] text-xs text-text-dim">Not required</p>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <select
+                            value={draft.is_active ? "active" : "inactive"}
+                            onChange={(event) => updateUserDraft(user.id, { is_active: event.target.value === "active" })}
+                            className="h-9 w-full min-w-[95px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
+                          >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </select>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-end">
+                            <Button
+                              size="sm"
+                              onClick={() => saveUserMapping(user)}
+                              disabled={busyId === user.id || !hasValidMapping}
+                              isLoading={busyId === user.id}
+                              className="h-9 gap-1"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Update
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
               {!users.length && <div className="p-6 text-sm text-text-dim">No users available.</div>}

@@ -96,6 +96,8 @@ Implemented:
   - Signup now exposes active vehicle numbers as a driver-only vehicle hint for both email/password and Google OAuth.
   - Access requests persist `requested_vehicle_id` through migration `0012_access_request_vehicle_hint`.
   - Admin approval can verify or change the requested vehicle number before mapping the account to the final driver profile.
+  - Admins can now edit already-approved user mappings after approval: role, fleet/team, driver profile, display name, and active status.
+  - Approved-user remapping is server-validated and audited through `admin_user_mapping_updated` security events.
 - User roles:
   - `trickee_admin`
   - `fleet_operator`
@@ -104,11 +106,12 @@ Implemented:
   - `POST /api/v1/auth/access-request`
   - `GET /api/v1/admin/access-requests`
   - `POST /api/v1/admin/access-requests`
+  - `PATCH /api/v1/admin/users/{user_id}/mapping`
   - `POST /api/v1/admin/access-requests/{request_id}/approve`
   - `POST /api/v1/admin/access-requests/{request_id}/reject`
 - Server-side scope checks for fleet, driver, vehicle, and role-sensitive endpoints.
 - Security event table and admin approval audit events.
-- Admin approval is the only path that activates a workspace user role and, for driver accounts, maps the login to an existing driver telemetry profile.
+- Admin approval is the path that activates a workspace user role; after approval, admins can still correct user role/team/driver mapping from the admin console.
 - Driver account approval requires admin mapping from the login identity to an existing telemetry driver profile.
 - Current mapping is semi-manual because Evify telemetry does not provide a guaranteed email/phone/employee/order-partner identity that can prove which Gmail belongs to which driver. The selected vehicle number is a hint, not proof.
 
@@ -475,12 +478,13 @@ Implemented frontend foundations:
 - Driver signup includes a vehicle-number dropdown; admins can verify or override that vehicle hint during approval.
 - Pending users are returned to login with a clear admin-approval dialog instead of seeing a vague workspace error.
 - Admin workspace approval UI shows the requested role, allows final role override, and requires explicit driver-profile mapping only when approving a Driver account.
+- Admin user management now allows correcting approved users after the fact, including role, team, driver profile, display name, and active/inactive status.
 - FCM token registration helper.
 - AI workspace for assistant/notification/route/battery/charger/fleet/coaching flows.
 - Dashboard pages for live map, fleet, decisions, routes, reports, scorecards, alerts, impact, data quality, observability, and model health.
 - Fleet carousel now shows a center-highlighted, side-faded vehicle carousel without duplicated vehicle-card stack below it.
 - Daily Impact now supports selecting a driver and viewing a detailed driver panel with value, time, orders, top-ups, actions, telemetry count, confidence, and proportional bars.
-- Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`, plus a large trip-detail view with route path, source/destination, SOC, energy, speed, duration, and route/nudge metrics.
+- Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`, plus a large trip-detail view with route path, source/destination, SOC, energy, speed, duration, route/nudge metrics, estimated trip energy cost, estimated cost per km, estimated savings, and future placeholders for order-linked wait/charging savings.
 - Data Quality now separates feed tags from issue text and checks GPS validity, battery validity, thermal validity, stale feed age, and current spikes.
 - Live Map charger list shows all charger points returned by backend and explains that chargers are ranked from current visible driver/fleet GPS context.
 - Live Map now supports mobile browser geolocation permission through a user-triggered "Use my location" action and displays the current browser location marker on the map.
@@ -740,6 +744,7 @@ Admin and ops:
 
 - `GET /api/v1/admin/metrics`
 - `GET /api/v1/admin/users`
+- `PATCH /api/v1/admin/users/{user_id}/mapping`
 - `GET /api/v1/admin/fleets`
 - `GET /api/v1/admin/drivers`
 - `GET /api/v1/admin/access-requests`

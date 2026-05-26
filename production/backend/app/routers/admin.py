@@ -62,6 +62,17 @@ class AccessRejectRequest(BaseModel):
     review_note: str | None = Field(default=None, max_length=255)
 
 
+class UserMappingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["trickee_admin", "fleet_operator", "driver"]
+    fleet_id: str | None = Field(default=None, max_length=36)
+    driver_id: str | None = Field(default=None, max_length=36)
+    requested_vehicle_id: str | None = Field(default=None, max_length=36)
+    full_name: str | None = Field(default=None, max_length=255)
+    is_active: bool = True
+
+
 def _fleet_dict(fleet: Fleet) -> dict:
     return {"id": fleet.id, "name": fleet.name, "city": fleet.city}
 
@@ -161,6 +172,56 @@ def metrics(db: Session = Depends(get_db), _: User = Depends(require_roles("tric
 @router.get("/users")
 def users(db: Session = Depends(get_db), _: User = Depends(require_roles("trickee_admin"))):
     return ok([user_dict(user) for user in db.query(User).filter(User.deleted_at.is_(None)).order_by(User.email).all()])
+
+
+@router.patch("/users/{user_id}/mapping")
+def update_user_mapping(
+    user_id: str,
+    payload: UserMappingUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("trickee_admin")),
+):
+    user = db.get(User, user_id)
+    if not user or user.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    previous = {
+        "role": user.role,
+        "fleet_id": user.fleet_id,
+        "driver_id": user.driver_id,
+        "is_active": user.is_active,
+    }
+    _validate_access_mapping(db, payload)
+
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip() or user.full_name
+    user.role = payload.role
+    user.fleet_id = payload.fleet_id if payload.role in {"fleet_operator", "driver"} else None
+    user.driver_id = payload.driver_id if payload.role == "driver" else None
+    user.is_active = payload.is_active
+    user.deleted_at = None
+
+    record_security_event(
+        db,
+        event_type="admin_user_mapping_updated",
+        request=request,
+        user=current_user,
+        metadata={
+            "target_domain": user.email.split("@")[-1],
+            "target_user_id": user.id,
+            "previous": previous,
+            "updated": {
+                "role": user.role,
+                "fleet_id": user.fleet_id,
+                "driver_id": user.driver_id,
+                "is_active": user.is_active,
+            },
+        },
+    )
+    db.commit()
+    db.refresh(user)
+    return ok(user_dict(user))
 
 
 @router.get("/fleets")

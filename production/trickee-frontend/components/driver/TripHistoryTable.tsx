@@ -51,6 +51,28 @@ export const TripHistoryTable = ({ trips }: TripHistoryTableProps) => {
       ? socValues[0] - socValues[socValues.length - 1]
       : null;
   const avgSpeed = speedValues.length ? speedValues.reduce((sum: number, value: number) => sum + value, 0) / speedValues.length : null;
+  const distanceKm = Number(selectedTrip?.distance_km);
+  const energyKwh = Number(selectedTrip?.kwh_used);
+  const hasDistance = Number.isFinite(distanceKm) && distanceKm > 0;
+  const hasEnergy = Number.isFinite(energyKwh) && energyKwh >= 0;
+  const tariffPerKwhInr = 8;
+  const fuelBenchmarkPerKmInr = 3.5;
+  const estimatedEnergyCost = hasEnergy ? energyKwh * tariffPerKwhInr : null;
+  const estimatedCostPerKm = hasDistance && estimatedEnergyCost !== null ? estimatedEnergyCost / distanceKm : null;
+  const estimatedBenchmarkCost = hasDistance ? distanceKm * fuelBenchmarkPerKmInr : null;
+  const estimatedTripSaving = estimatedBenchmarkCost !== null && estimatedEnergyCost !== null ? Math.max(estimatedBenchmarkCost - estimatedEnergyCost, 0) : null;
+  const estimatedEnergyPerKm = hasDistance && hasEnergy ? energyKwh / distanceKm : null;
+  const savingsCards = [
+    ["Energy used", hasEnergy ? `${energyKwh.toFixed(2)} kWh` : "Pending"],
+    ["Estimated energy cost", estimatedEnergyCost !== null ? `Rs ${estimatedEnergyCost.toFixed(0)}` : "Pending"],
+    ["Estimated cost / km", estimatedCostPerKm !== null ? `Rs ${estimatedCostPerKm.toFixed(2)}` : "Pending"],
+    ["Estimated saving", estimatedTripSaving !== null ? `Rs ${estimatedTripSaving.toFixed(0)}` : "Pending"],
+  ];
+  const futureOrderCards = [
+    ["Orders linked", "Pending order feed"],
+    ["Pickup wait window", "Pending order timestamps"],
+    ["Charge during pickup", "Pending charger session link"],
+  ];
 
   const loadTrace = useCallback(async (trip: any) => {
     setTraceLoading(true);
@@ -261,6 +283,9 @@ export const TripHistoryTable = ({ trips }: TripHistoryTableProps) => {
                   ["SOC used", socDrop !== null ? `${Number(socDrop).toFixed(1)}%` : "-"],
                   ["SOC start/end", typeof selectedTrip?.soc_start === "number" || typeof selectedTrip?.soc_end === "number" ? `${selectedTrip?.soc_start ?? "-"}% -> ${selectedTrip?.soc_end ?? "-"}%` : "-"],
                   ["Energy", typeof selectedTrip?.kwh_used === "number" ? `${selectedTrip.kwh_used.toFixed(2)} kWh` : "-"],
+                  ["Energy / km", estimatedEnergyPerKm !== null ? `${estimatedEnergyPerKm.toFixed(2)} kWh/km` : "-"],
+                  ["Trip cost", estimatedEnergyCost !== null ? `Rs ${estimatedEnergyCost.toFixed(0)}` : "-"],
+                  ["Saving", estimatedTripSaving !== null ? `Rs ${estimatedTripSaving.toFixed(0)}` : "-"],
                   ["Avg speed", avgSpeed !== null ? `${avgSpeed.toFixed(1)} km/h` : "-"],
                   ["GPS samples", String(trace?.sample_count || path.length || 0)],
                   ["Route taken", selectedTrip?.route_taken || "Unknown"],
@@ -272,6 +297,29 @@ export const TripHistoryTable = ({ trips }: TripHistoryTableProps) => {
                     <p className="mt-1 font-semibold text-text-primary">{value}</p>
                   </div>
                 ))}
+                <div className="rounded-lg border border-accent-green/25 bg-accent-green/5 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent-green">Savings model</p>
+                  <p className="mt-1 text-xs leading-5 text-text-dim">
+                    Estimated with Rs {tariffPerKwhInr}/kWh and Rs {fuelBenchmarkPerKmInr.toFixed(1)}/km benchmark.
+                  </p>
+                </div>
+                {savingsCards.map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-bg-border bg-bg-primary/50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-dim">{label}</p>
+                    <p className="mt-1 font-semibold text-text-primary">{value}</p>
+                  </div>
+                ))}
+                <div className="rounded-lg border border-bg-border bg-bg-primary/50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-dim">Future order metrics</p>
+                  <div className="mt-2 space-y-2">
+                    {futureOrderCards.map(([label, value]) => (
+                      <div key={label} className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-text-dim">{label}</span>
+                        <span className="text-right font-medium text-text-primary">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
