@@ -17,6 +17,7 @@ export interface AccessRequest {
   full_name: string;
   company?: string;
   requested_role: UserRole;
+  requested_vehicle_id?: string;
   status: 'pending' | 'approved' | 'rejected';
   reviewed_by_user_id?: string;
   review_note?: string;

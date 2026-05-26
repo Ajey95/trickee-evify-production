@@ -1,5 +1,5 @@
 # Trickee Implementation Status And Remaining Work
-**Last reconciled:** 2026-05-25
+**Last reconciled:** 2026-05-26
 **Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
 **Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
@@ -92,6 +92,10 @@ Implemented:
   - Google OAuth signup also captures company/fleet and requested role before redirect, then writes the pending access request after Supabase returns the session.
   - Pending users are not allowed into the dashboard until backend workspace approval succeeds.
   - Login now shows a clear admin-approval dialog for pending accounts instead of a vague workspace-access error.
+- 2026-05-26 auth flow update:
+  - Signup now exposes active vehicle numbers as a driver-only vehicle hint for both email/password and Google OAuth.
+  - Access requests persist `requested_vehicle_id` through migration `0012_access_request_vehicle_hint`.
+  - Admin approval can verify or change the requested vehicle number before mapping the account to the final driver profile.
 - User roles:
   - `trickee_admin`
   - `fleet_operator`
@@ -106,7 +110,7 @@ Implemented:
 - Security event table and admin approval audit events.
 - Admin approval is the only path that activates a workspace user role and, for driver accounts, maps the login to an existing driver telemetry profile.
 - Driver account approval requires admin mapping from the login identity to an existing telemetry driver profile.
-- Current mapping is manual because Evify telemetry does not provide a guaranteed email/phone/employee/order-partner identity that can prove which Gmail belongs to which driver.
+- Current mapping is semi-manual because Evify telemetry does not provide a guaranteed email/phone/employee/order-partner identity that can prove which Gmail belongs to which driver. The selected vehicle number is a hint, not proof.
 
 Production requirements still open:
 
@@ -199,6 +203,7 @@ Implemented migrations:
 - `0009_ai_feature_logs.py`
 - `0010_access_requests.py`
 - `0011_telemetry_ingest_scale_guards.py` / revision `0011_ingest_scale`
+- `0012_access_request_vehicle_hint.py` / revision `0012_access_request_vehicle_hint`
 
 Key tables/foundations:
 
@@ -467,6 +472,7 @@ Implemented frontend foundations:
 - Dashboard shell is mobile-responsive for pilot browser use: desktop keeps the left sidebar, mobile uses a bottom scrollable nav with role-filtered links.
 - Premium public landing page.
 - Auth pages and access-request flow. Signup supports both email/password and Google OAuth with a requested role selector.
+- Driver signup includes a vehicle-number dropdown; admins can verify or override that vehicle hint during approval.
 - Pending users are returned to login with a clear admin-approval dialog instead of seeing a vague workspace error.
 - Admin workspace approval UI shows the requested role, allows final role override, and requires explicit driver-profile mapping only when approving a Driver account.
 - FCM token registration helper.
@@ -474,7 +480,7 @@ Implemented frontend foundations:
 - Dashboard pages for live map, fleet, decisions, routes, reports, scorecards, alerts, impact, data quality, observability, and model health.
 - Fleet carousel now shows a center-highlighted, side-faded vehicle carousel without duplicated vehicle-card stack below it.
 - Daily Impact now supports selecting a driver and viewing a detailed driver panel with value, time, orders, top-ups, actions, telemetry count, confidence, and proportional bars.
-- Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`.
+- Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`, plus a large trip-detail view with route path, source/destination, SOC, energy, speed, duration, and route/nudge metrics.
 - Data Quality now separates feed tags from issue text and checks GPS validity, battery validity, thermal validity, stale feed age, and current spikes.
 - Live Map charger list shows all charger points returned by backend and explains that chargers are ranked from current visible driver/fleet GPS context.
 - Live Map now supports mobile browser geolocation permission through a user-triggered "Use my location" action and displays the current browser location marker on the map.
@@ -666,6 +672,7 @@ Core:
 
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/firebase-login`
+- `GET /api/v1/auth/signup-options`
 - `POST /api/v1/auth/access-request`
 - `GET /api/v1/auth/me`
 - `GET /api/v1/auth/ws-ticket`
@@ -749,7 +756,7 @@ Admin and ops:
 
 P0 before pilot:
 
-1. Run `alembic upgrade head` in production and verify revision `0011_ingest_scale`.
+1. Run `alembic upgrade head` in production and verify revision `0012_access_request_vehicle_hint`.
 2. Add Evify 7.0 aliases to `evify_adapter.py`.
 3. Implement vehicle-proxy driver creation from `RegNo` or `VehicleId` when no real driver ID exists.
 4. Confirm generated trip/session IDs populate under Evify 7.0 replay.
@@ -775,14 +782,15 @@ P1 before wider pilot:
 6. Add performance checks for latest-vehicle/latest-driver queries.
 7. Add data-quality dashboard cards for SOC jumps, missing driver IDs, missing charge plug, and GPS gaps.
 
-Latest local test pass - 2026-05-22:
+Latest local test pass - 2026-05-26:
 
 - Backend unit/eval suite: 48 tests passed.
-- Focused WebSocket manager scale test - 2026-05-22: 2 tests passed.
+- Backend compile: passed.
+- Alembic single-head check: `0012_access_request_vehicle_hint`.
 - Frontend lint: passed.
 - Frontend production build: passed.
-- Latest Alembic migration in code: `0011_ingest_scale`.
-- Previous configured DB state before new scale migration: `0010_access_requests (head)`.
+- Latest Alembic migration in code: `0012_access_request_vehicle_hint`.
+- Production DB must run `alembic upgrade head` before deploying this build so `access_requests.requested_vehicle_id` exists.
 - Render `/health`: 200 OK, V4.1 model ready.
 - Google external context smoke:
   - Directions: `google_directions`

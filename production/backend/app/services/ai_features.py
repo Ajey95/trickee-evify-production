@@ -7,6 +7,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.models import Driver, DriverCoachingEvent, DriverProfileSnapshot, FleetSummaryLog, Telemetry, Trip, User, Vehicle
+from app.services.alert_service import CHARGERS
 from app.services.ai import AIToolRegistry, ToolResult, llm_client
 from app.services.ai.safety import clamp_sentences, sanitize_text
 from app.services.live_intelligence import fleet_live_overview, live_driver_decision
@@ -150,6 +151,16 @@ def recommend_charger(db: Session, user: User, driver: Driver, vehicle: Vehicle,
     charger_result = registry.call("get_nearest_charger", {"driver_id": driver.id, "lat": lat, "lng": lng, "radius_m": 2500})
     profile = profile_result.data
     chargers = charger_result.data.get("chargers") or []
+    if not chargers:
+        chargers = [
+            {
+                **charger,
+                "distance_m": int(((float(charger["lat"]) - lat) ** 2 + (float(charger["lng"]) - lng) ** 2) ** 0.5 * 111_000),
+                "source": "static_fallback",
+            }
+            for charger in CHARGERS
+        ]
+        chargers.sort(key=lambda row: row["distance_m"])
     alternatives: list[dict[str, Any]] = []
     prefers_fast = bool(profile.get("prefers_fast_chargers", soc < 35))
     for charger in chargers:

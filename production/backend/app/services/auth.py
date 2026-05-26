@@ -180,17 +180,25 @@ def record_supabase_access_request(db: Session, payload: dict[str, Any]) -> Acce
     requested_role = metadata.get("requested_role") or metadata.get("role") or "driver"
     if requested_role not in {"fleet_operator", "driver", "trickee_admin"}:
         requested_role = "fleet_operator"
+    requested_vehicle_id = metadata.get("requested_vehicle_id") or metadata.get("vehicle_id")
     full_name = metadata.get("full_name") or metadata.get("name") or email.split("@")[0]
     company = metadata.get("company") or metadata.get("fleet") or metadata.get("organization")
     row = db.query(AccessRequest).filter(AccessRequest.email == email).first()
     if not row:
-        row = AccessRequest(email=email, full_name=full_name, company=company, requested_role=requested_role)
+        row = AccessRequest(
+            email=email,
+            full_name=full_name,
+            company=company,
+            requested_role=requested_role,
+            requested_vehicle_id=requested_vehicle_id,
+        )
         db.add(row)
     row.supabase_user_id = str(payload.get("sub")) if payload.get("sub") else row.supabase_user_id
     row.full_name = full_name or row.full_name
     row.company = company or row.company
     if row.status == "pending":
         row.requested_role = requested_role
+        row.requested_vehicle_id = requested_vehicle_id or row.requested_vehicle_id
     db.commit()
     return row
 

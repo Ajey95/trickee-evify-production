@@ -76,6 +76,7 @@ export default function LoginPage() {
             full_name: account.user_metadata?.full_name || account.user_metadata?.name || account.email.split("@")[0],
             company: account.user_metadata?.company,
             requested_role: account.user_metadata?.requested_role || "driver",
+            requested_vehicle_id: account.user_metadata?.requested_vehicle_id,
             supabase_user_id: account.id,
           });
         }

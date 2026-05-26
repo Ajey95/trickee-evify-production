@@ -31,6 +31,7 @@ def access_request_dict(row) -> dict[str, Any]:
         "full_name": row.full_name,
         "company": row.company,
         "requested_role": row.requested_role,
+        "requested_vehicle_id": getattr(row, "requested_vehicle_id", None),
         "status": row.status,
         "reviewed_by_user_id": row.reviewed_by_user_id,
         "review_note": row.review_note,

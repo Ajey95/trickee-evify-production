@@ -41,6 +41,7 @@ class AccessRequestCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     company: str | None = Field(default=None, max_length=255)
     requested_role: Literal["trickee_admin", "fleet_operator", "driver"] = "fleet_operator"
+    requested_vehicle_id: str | None = Field(default=None, max_length=36)
     supabase_user_id: str | None = Field(default=None, max_length=128)
 
 
@@ -50,6 +51,7 @@ class AccessApprovalRequest(BaseModel):
     role: Literal["trickee_admin", "fleet_operator", "driver"]
     fleet_id: str | None = Field(default=None, max_length=36)
     driver_id: str | None = Field(default=None, max_length=36)
+    requested_vehicle_id: str | None = Field(default=None, max_length=36)
     full_name: str | None = Field(default=None, max_length=255)
     review_note: str | None = Field(default=None, max_length=255)
 
@@ -74,12 +76,19 @@ def _get_access_request(db: Session, request_id: str) -> AccessRequest:
 def _validate_access_mapping(db: Session, payload: AccessApprovalRequest) -> tuple[Fleet | None, Driver | None]:
     fleet = None
     driver = None
+    requested_vehicle = None
     if payload.role in {"fleet_operator", "driver"}:
         if not payload.fleet_id:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Fleet is required")
         fleet = db.get(Fleet, payload.fleet_id)
         if not fleet or fleet.deleted_at is not None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fleet not found")
+    if payload.requested_vehicle_id:
+        requested_vehicle = db.get(Vehicle, payload.requested_vehicle_id)
+        if not requested_vehicle or requested_vehicle.deleted_at is not None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested vehicle not found")
+        if fleet and requested_vehicle.fleet_id != fleet.id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Requested vehicle does not belong to this fleet")
     if payload.role == "driver":
         if not payload.driver_id:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Driver is required")
@@ -189,6 +198,7 @@ def create_access_request(
             full_name=payload.full_name,
             company=payload.company,
             requested_role=payload.requested_role,
+            requested_vehicle_id=payload.requested_vehicle_id,
             supabase_user_id=payload.supabase_user_id,
         )
         db.add(row)
@@ -196,6 +206,7 @@ def create_access_request(
         row.full_name = payload.full_name
         row.company = payload.company
         row.requested_role = payload.requested_role
+        row.requested_vehicle_id = payload.requested_vehicle_id
         row.supabase_user_id = payload.supabase_user_id or row.supabase_user_id
     else:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Access request already reviewed")
@@ -250,6 +261,7 @@ def approve_access_request(
     user.driver_id = payload.driver_id if payload.role == "driver" else None
 
     row.status = "approved"
+    row.requested_vehicle_id = payload.requested_vehicle_id or row.requested_vehicle_id
     row.reviewed_by_user_id = current_user.id
     row.reviewed_at = datetime.utcnow()
     row.review_note = payload.review_note

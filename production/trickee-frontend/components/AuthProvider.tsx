@@ -36,6 +36,7 @@ async function fetchCurrentUser(): Promise<CurrentUserResult> {
           full_name: pending?.full_name || account.user_metadata?.full_name || account.user_metadata?.name || account.email.split("@")[0],
           company: pending?.company || account.user_metadata?.company,
           requested_role: pending?.requested_role || account.user_metadata?.requested_role || "driver",
+          requested_vehicle_id: pending?.requested_vehicle_id || account.user_metadata?.requested_vehicle_id,
           supabase_user_id: account.id,
         });
         clearPendingAccessRequest();

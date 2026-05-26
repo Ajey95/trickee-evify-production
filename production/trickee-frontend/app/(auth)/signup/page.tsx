@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, Eye, EyeOff, Lock, Mail, UserRound } from "lucide-react";
@@ -13,6 +13,7 @@ import { createClient, isSupabaseConfigured } from "@/utils/supabase/client";
 import { writePendingAccessRequest } from "@/lib/pending-access";
 
 type SignupState = "idle" | "created" | "pending_mapping";
+type SignupVehicleOption = { id: string; vehicle_code: string; fleet_id?: string; fleet_name?: string };
 
 function passwordScore(password: string) {
   let score = 0;
@@ -43,6 +44,8 @@ export default function SignupPage() {
   const [fullName, setFullName] = useState("");
   const [company, setCompany] = useState("");
   const [requestedRole, setRequestedRole] = useState<Exclude<UserRole, "trickee_admin">>("fleet_operator");
+  const [requestedVehicleId, setRequestedVehicleId] = useState("");
+  const [vehicleOptions, setVehicleOptions] = useState<SignupVehicleOption[]>([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -54,17 +57,26 @@ export default function SignupPage() {
   const router = useRouter();
   const { refreshUser } = useAuth();
 
+  useEffect(() => {
+    api.auth.signupOptions().then((result) => {
+      if (result.success) {
+        setVehicleOptions(result.data.vehicles || []);
+      }
+    });
+  }, []);
+
   const validationError = useMemo(() => {
     if (!fullName.trim()) return "Full name is required.";
     if (!company.trim()) return "Company or fleet name is required.";
+    if (requestedRole === "driver" && !requestedVehicleId) return "Select your driver vehicle number.";
     if (!email.trim()) return "Work email is required.";
     if (password.length < 8) return "Password must be at least 8 characters.";
     if (password !== confirmPassword) return "Passwords do not match.";
     return "";
-  }, [company, confirmPassword, email, fullName, password]);
+  }, [company, confirmPassword, email, fullName, password, requestedRole, requestedVehicleId]);
 
   const canSubmit = !validationError && !isLoading;
-  const canUseGoogle = Boolean(company.trim()) && !googleLoading;
+  const canUseGoogle = Boolean(company.trim()) && (requestedRole !== "driver" || Boolean(requestedVehicleId)) && !googleLoading;
 
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
@@ -84,6 +96,7 @@ export default function SignupPage() {
         full_name: fullName.trim() || undefined,
         company: company.trim(),
         requested_role: requestedRole,
+        requested_vehicle_id: requestedRole === "driver" ? requestedVehicleId : undefined,
       });
       const { error: googleError } = await createClient().auth.signInWithOAuth({
         provider: "google",
@@ -131,6 +144,7 @@ export default function SignupPage() {
             full_name: fullName.trim(),
             company: company.trim(),
             requested_role: requestedRole,
+            requested_vehicle_id: requestedRole === "driver" ? requestedVehicleId : undefined,
             access_request_source: "trickee_web",
           },
         },
@@ -148,6 +162,7 @@ export default function SignupPage() {
         full_name: fullName.trim(),
         company: company.trim(),
         requested_role: requestedRole,
+        requested_vehicle_id: requestedRole === "driver" ? requestedVehicleId : undefined,
         supabase_user_id: data.user?.id,
       });
       if (data.session) {
@@ -238,7 +253,10 @@ export default function SignupPage() {
                         <button
                           key={value}
                           type="button"
-                          onClick={() => setRequestedRole(value as Exclude<UserRole, "trickee_admin">)}
+                          onClick={() => {
+                            setRequestedRole(value as Exclude<UserRole, "trickee_admin">);
+                            if (value !== "driver") setRequestedVehicleId("");
+                          }}
                           className={`h-10 rounded-lg border text-sm font-medium transition ${
                             requestedRole === value
                               ? "border-accent-teal/60 bg-accent-teal/10 text-text-primary"
@@ -253,6 +271,31 @@ export default function SignupPage() {
                       This requested role is shown to the admin. It does not grant access until approval.
                     </p>
                   </div>
+
+                  {requestedRole === "driver" && (
+                    <div className="space-y-2">
+                      <label htmlFor="driver-vehicle" className="text-xs font-medium text-text-dim">
+                        Driver vehicle number
+                      </label>
+                      <select
+                        id="driver-vehicle"
+                        value={requestedVehicleId}
+                        onChange={(event) => setRequestedVehicleId(event.target.value)}
+                        className="h-11 w-full rounded-lg border border-white/[0.1] bg-white/[0.035] px-3 text-sm text-text-primary outline-none transition focus:border-accent-teal/70 focus:bg-white/[0.055] focus:ring-2 focus:ring-accent-teal/15"
+                        required
+                      >
+                        <option value="">Select your vehicle number</option>
+                        {vehicleOptions.map((vehicle) => (
+                          <option key={vehicle.id} value={vehicle.id}>
+                            {vehicle.vehicle_code}{vehicle.fleet_name ? ` - ${vehicle.fleet_name}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] leading-5 text-text-dim">
+                        Admin can verify or change this vehicle before approving your driver access.
+                      </p>
+                    </div>
+                  )}
 
                   <Button type="button" variant="outline" className="h-11 w-full gap-2" onClick={handleGoogleSignIn} isLoading={googleLoading} disabled={!canUseGoogle}>
                     <span className="grid h-5 w-5 place-items-center rounded-full bg-white text-xs font-bold text-[#111827]">G</span>

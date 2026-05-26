@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/Button";
 import { AdminMetricCarousel } from "@/components/admin/AdminMetricCarousel";
 import { Activity, CheckCircle2, Cpu, Database, Layers, Settings, ShieldCheck, UserPlus, Users, XCircle, Zap } from "lucide-react";
 import { api } from "@/lib/api";
-import { AccessRequest, Driver, Fleet, ModelMetrics, User as TrickeeUser, UserRole } from "@/types";
+import { AccessRequest, Driver, Fleet, ModelMetrics, User as TrickeeUser, UserRole, Vehicle } from "@/types";
 
 type Draft = {
   role: UserRole;
   fleet_id?: string;
   driver_id?: string;
+  requested_vehicle_id?: string;
 };
 
 const roleOptions: { value: UserRole; label: string }[] = [
@@ -39,14 +40,19 @@ function driverOptionLabel(driver: Driver) {
   return `${driver.full_name}${code}${vehicle}`;
 }
 
+function vehicleOptionLabel(vehicle: Vehicle) {
+  return `${vehicle.vehicle_code}${vehicle.latest_driver?.full_name ? ` - ${vehicle.latest_driver.full_name}` : ""}`;
+}
+
 export default function AdminPage() {
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
   const [users, setUsers] = useState<TrickeeUser[]>([]);
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [newRequest, setNewRequest] = useState({ email: "", full_name: "", company: "", requested_role: "fleet_operator" as UserRole });
+  const [newRequest, setNewRequest] = useState({ email: "", full_name: "", company: "", requested_role: "fleet_operator" as UserRole, requested_vehicle_id: "" });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -54,20 +60,22 @@ export default function AdminPage() {
 
   async function loadAdminData() {
     setIsLoading(true);
-    const [metricsResult, usersResult, accessResult, fleetsResult, driversResult] = await Promise.all([
+    const [metricsResult, usersResult, accessResult, fleetsResult, driversResult, vehiclesResult] = await Promise.all([
       api.admin.metrics(),
       api.admin.users(),
       api.admin.accessRequests(),
       api.admin.fleets(),
       api.admin.drivers(),
+      api.vehicles.list(),
     ]);
     if (metricsResult.success) setModelMetrics(metricsResult.data);
     if (usersResult.success) setUsers(usersResult.data);
     if (accessResult.success) setAccessRequests(accessResult.data);
     if (fleetsResult.success) setFleets(fleetsResult.data);
     if (driversResult.success) setDrivers(driversResult.data);
-    if (!metricsResult.success || !usersResult.success || !accessResult.success || !fleetsResult.success || !driversResult.success) {
-      setError(metricsResult.error || usersResult.error || accessResult.error || fleetsResult.error || driversResult.error || "Unable to load admin data.");
+    if (vehiclesResult.success) setVehicles(vehiclesResult.data);
+    if (!metricsResult.success || !usersResult.success || !accessResult.success || !fleetsResult.success || !driversResult.success || !vehiclesResult.success) {
+      setError(metricsResult.error || usersResult.error || accessResult.error || fleetsResult.error || driversResult.error || vehiclesResult.error || "Unable to load admin data.");
     } else {
       setError("");
     }
@@ -132,9 +140,25 @@ export default function AdminPage() {
     }, {});
   }, [drivers]);
 
+  const vehiclesByFleet = useMemo(() => {
+    return vehicles.reduce<Record<string, Vehicle[]>>((acc, vehicle) => {
+      const fleetId = vehicle.fleet_id || "none";
+      acc[fleetId] = [...(acc[fleetId] || []), vehicle];
+      return acc;
+    }, {});
+  }, [vehicles]);
+
   function draftFor(row: AccessRequest): Draft {
     const role = row.requested_role || "driver";
-    return drafts[row.id] || { role, fleet_id: role === "trickee_admin" ? undefined : fleets[0]?.id, driver_id: undefined };
+    const requestedVehicle = row.requested_vehicle_id ? vehicles.find((vehicle) => vehicle.id === row.requested_vehicle_id) : undefined;
+    const fleetId = role === "trickee_admin" ? undefined : requestedVehicle?.fleet_id || fleets[0]?.id;
+    const latestDriverId = requestedVehicle?.latest_driver?.id;
+    return drafts[row.id] || {
+      role,
+      fleet_id: fleetId,
+      driver_id: role === "driver" ? latestDriverId : undefined,
+      requested_vehicle_id: row.requested_vehicle_id,
+    };
   }
 
   function updateDraft(id: string, patch: Partial<Draft>) {
@@ -152,6 +176,7 @@ export default function AdminPage() {
       role: draft.role,
       fleet_id: draft.role === "trickee_admin" ? undefined : draft.fleet_id,
       driver_id: draft.role === "driver" ? draft.driver_id : undefined,
+      requested_vehicle_id: draft.role === "driver" ? draft.requested_vehicle_id : undefined,
       full_name: row.full_name,
     });
     setBusyId("");
@@ -185,13 +210,14 @@ export default function AdminPage() {
       full_name: newRequest.full_name.trim(),
       company: newRequest.company.trim() || undefined,
       requested_role: newRequest.requested_role,
+      requested_vehicle_id: newRequest.requested_role === "driver" ? newRequest.requested_vehicle_id || undefined : undefined,
     });
     if (!result.success) {
       setError(result.error || "Could not add request.");
       return;
     }
     setNotice("Request added.");
-    setNewRequest({ email: "", full_name: "", company: "", requested_role: "fleet_operator" });
+    setNewRequest({ email: "", full_name: "", company: "", requested_role: "fleet_operator", requested_vehicle_id: "" });
     await loadAdminData();
   }
 
@@ -241,6 +267,7 @@ export default function AdminPage() {
                   {pendingRequests.map((row) => {
                     const draft = draftFor(row);
                     const fleetDrivers = draft.role === "driver" && draft.fleet_id ? driversByFleet[draft.fleet_id] || [] : [];
+                    const fleetVehicles = draft.role === "driver" && draft.fleet_id ? vehiclesByFleet[draft.fleet_id] || [] : [];
                     return (
                       <TableRow key={row.id}>
                         <TableCell>
@@ -255,6 +282,11 @@ export default function AdminPage() {
                         </TableCell>
                         <TableCell>
                           <Badge variant="warning">{roleLabel(row.requested_role)}</Badge>
+                          {row.requested_vehicle_id && (
+                            <p className="mt-1 text-[10px] leading-4 text-text-dim">
+                              Vehicle requested: {vehicles.find((vehicle) => vehicle.id === row.requested_vehicle_id)?.vehicle_code || row.requested_vehicle_id}
+                            </p>
+                          )}
                           {row.requested_role === "fleet_operator" && (
                             <p className="mt-1 text-[10px] leading-4 text-text-dim">User requested fleet access. Change below if this should be a driver account.</p>
                           )}
@@ -266,6 +298,7 @@ export default function AdminPage() {
                               updateDraft(row.id, {
                                 role: event.target.value as UserRole,
                                 driver_id: undefined,
+                                requested_vehicle_id: event.target.value === "driver" ? draft.requested_vehicle_id : undefined,
                               })
                             }
                             className="h-9 w-full min-w-[135px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
@@ -281,7 +314,7 @@ export default function AdminPage() {
                           <select
                             value={draft.fleet_id || ""}
                             disabled={draft.role === "trickee_admin"}
-                            onChange={(event) => updateDraft(row.id, { fleet_id: event.target.value, driver_id: undefined })}
+                            onChange={(event) => updateDraft(row.id, { fleet_id: event.target.value, driver_id: undefined, requested_vehicle_id: undefined })}
                             className="h-9 w-full min-w-[150px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none disabled:opacity-45"
                           >
                             <option value="">Select team</option>
@@ -295,6 +328,25 @@ export default function AdminPage() {
                         <TableCell>
                           {draft.role === "driver" ? (
                             <>
+                              <select
+                                value={draft.requested_vehicle_id || ""}
+                                onChange={(event) => {
+                                  const vehicle = vehicles.find((row) => row.id === event.target.value);
+                                  updateDraft(row.id, {
+                                    requested_vehicle_id: event.target.value,
+                                    fleet_id: vehicle?.fleet_id || draft.fleet_id,
+                                    driver_id: vehicle?.latest_driver?.id,
+                                  });
+                                }}
+                                className="mb-2 h-9 w-full min-w-[170px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
+                              >
+                                <option value="">Select vehicle no</option>
+                                {fleetVehicles.map((vehicle) => (
+                                  <option key={vehicle.id} value={vehicle.id}>
+                                    {vehicleOptionLabel(vehicle)}
+                                  </option>
+                                ))}
+                              </select>
                               <select
                                 value={draft.driver_id || ""}
                                 onChange={(event) => updateDraft(row.id, { driver_id: event.target.value })}
@@ -375,7 +427,13 @@ export default function AdminPage() {
                 />
                 <select
                   value={newRequest.requested_role}
-                  onChange={(event) => setNewRequest((current) => ({ ...current, requested_role: event.target.value as UserRole }))}
+                  onChange={(event) =>
+                    setNewRequest((current) => ({
+                      ...current,
+                      requested_role: event.target.value as UserRole,
+                      requested_vehicle_id: event.target.value === "driver" ? current.requested_vehicle_id : "",
+                    }))
+                  }
                   className="h-10 w-full rounded-lg border border-bg-border bg-bg-primary px-3 text-sm text-text-primary outline-none"
                 >
                   {roleOptions.map((option) => (
@@ -384,6 +442,20 @@ export default function AdminPage() {
                     </option>
                   ))}
                 </select>
+                {newRequest.requested_role === "driver" && (
+                  <select
+                    value={newRequest.requested_vehicle_id}
+                    onChange={(event) => setNewRequest((current) => ({ ...current, requested_vehicle_id: event.target.value }))}
+                    className="h-10 w-full rounded-lg border border-bg-border bg-bg-primary px-3 text-sm text-text-primary outline-none"
+                  >
+                    <option value="">Optional vehicle no hint</option>
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicleOptionLabel(vehicle)}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <Button type="submit" className="h-10 w-full gap-2">
                   <UserPlus className="h-4 w-4" />
                   Add request

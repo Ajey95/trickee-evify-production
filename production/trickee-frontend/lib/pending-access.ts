@@ -6,6 +6,7 @@ export type PendingAccessRequest = {
   full_name?: string;
   company?: string;
   requested_role?: Exclude<UserRole, "trickee_admin">;
+  requested_vehicle_id?: string;
 };
 
 export function writePendingAccessRequest(data: PendingAccessRequest) {

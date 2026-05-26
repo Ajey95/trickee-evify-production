@@ -205,13 +205,16 @@ async function runNetworkRequest<T>(
 export const api = {
   // 6.1 Auth
   auth: {
+    signupOptions: () => fetcher<{ vehicles: Array<{ id: string; vehicle_code: string; fleet_id?: string; fleet_name?: string }> }>("/auth/signup-options", {
+      cacheTtlMs: 60_000,
+    }),
     me: () => fetcher<User>("/auth/me"),
     legacyLogin: (email: string, password: string) => fetcher<{ access_token: string; token_type: string; user: User }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
       cacheTtlMs: 0,
     }),
-    accessRequest: (data: { email: string; full_name: string; company?: string; requested_role?: string; supabase_user_id?: string }) => fetcher<{ status: string }>("/auth/access-request", {
+    accessRequest: (data: { email: string; full_name: string; company?: string; requested_role?: string; requested_vehicle_id?: string; supabase_user_id?: string }) => fetcher<{ status: string }>("/auth/access-request", {
       method: "POST",
       body: JSON.stringify(data),
       cacheTtlMs: 0,
@@ -316,12 +319,12 @@ export const api = {
     fleets: () => fetcher<Fleet[]>("/admin/fleets"),
     drivers: () => fetcher<Driver[]>("/admin/drivers"),
     accessRequests: () => fetcher<AccessRequest[]>("/admin/access-requests", { cacheTtlMs: 0 }),
-    createAccessRequest: (data: { email: string; full_name: string; company?: string; requested_role: string; supabase_user_id?: string }) => fetcher<AccessRequest>("/admin/access-requests", {
+    createAccessRequest: (data: { email: string; full_name: string; company?: string; requested_role: string; requested_vehicle_id?: string; supabase_user_id?: string }) => fetcher<AccessRequest>("/admin/access-requests", {
       method: "POST",
       body: JSON.stringify(data),
       cacheTtlMs: 0,
     }),
-    approveAccessRequest: (id: string, data: { role: string; fleet_id?: string; driver_id?: string; full_name?: string; review_note?: string }) => fetcher<{ access_request: AccessRequest; user: User }>(`/admin/access-requests/${id}/approve`, {
+    approveAccessRequest: (id: string, data: { role: string; fleet_id?: string; driver_id?: string; requested_vehicle_id?: string; full_name?: string; review_note?: string }) => fetcher<{ access_request: AccessRequest; user: User }>(`/admin/access-requests/${id}/approve`, {
       method: "POST",
       body: JSON.stringify(data),
       cacheTtlMs: 0,

@@ -58,6 +58,7 @@ class AccessRequest(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="Pending user")
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     requested_role: Mapped[str] = mapped_column(String(50), nullable=False, default="fleet_operator")
+    requested_vehicle_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", index=True)
     reviewed_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
     review_note: Mapped[str | None] = mapped_column(String(255), nullable=True)

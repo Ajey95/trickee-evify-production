@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.config import get_settings
-from app.models import AccessRequest, DevicePushToken, User
+from app.models import AccessRequest, DevicePushToken, Fleet, User, Vehicle
 from app.schemas.api import ok
 from app.services.audit import record_security_event
 from app.services.auth import create_access_token, get_current_user, verify_password
@@ -50,6 +50,7 @@ class AccessRequestPayload(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     company: str | None = Field(default=None, max_length=255)
     requested_role: str = Field(default="driver", pattern="^(fleet_operator|driver|trickee_admin)$")
+    requested_vehicle_id: str | None = Field(default=None, max_length=36)
     supabase_user_id: str | None = Field(default=None, max_length=128)
 
 
@@ -91,6 +92,32 @@ def _session_payload(user: User) -> dict:
         {"sub": user.id, "role": user.role, "fleet_id": user.fleet_id, "driver_id": user.driver_id}
     )
     return {"access_token": token, "token_type": "bearer", "user": user_dict(user)}
+
+
+@router.get("/signup-options")
+def signup_options(
+    db: Session = Depends(get_db),
+    _: None = Depends(ip_rate_limit("signup-options", lambda: get_settings().auth_rate_limit_per_minute)),
+):
+    vehicles = db.query(Vehicle).filter(Vehicle.deleted_at.is_(None)).order_by(Vehicle.vehicle_code).limit(500).all()
+    fleet_ids = {vehicle.fleet_id for vehicle in vehicles if vehicle.fleet_id}
+    fleets = {
+        fleet.id: fleet
+        for fleet in db.query(Fleet).filter(Fleet.id.in_(fleet_ids)).all()
+    } if fleet_ids else {}
+    return ok(
+        {
+            "vehicles": [
+                {
+                    "id": vehicle.id,
+                    "vehicle_code": vehicle.vehicle_code,
+                    "fleet_id": vehicle.fleet_id,
+                    "fleet_name": fleets.get(vehicle.fleet_id).name if vehicle.fleet_id in fleets else None,
+                }
+                for vehicle in vehicles
+            ]
+        }
+    )
 
 
 @router.post("/login")
@@ -175,6 +202,7 @@ def request_workspace_access(
             full_name=payload.full_name,
             company=payload.company,
             requested_role=payload.requested_role,
+            requested_vehicle_id=payload.requested_vehicle_id,
             supabase_user_id=payload.supabase_user_id,
         )
         db.add(row)
@@ -182,6 +210,7 @@ def request_workspace_access(
         row.full_name = payload.full_name or row.full_name
         row.company = payload.company or row.company
         row.requested_role = payload.requested_role
+        row.requested_vehicle_id = payload.requested_vehicle_id
         row.supabase_user_id = payload.supabase_user_id or row.supabase_user_id
     record_security_event(
         db,
