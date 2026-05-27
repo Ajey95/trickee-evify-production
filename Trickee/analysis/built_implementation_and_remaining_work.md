@@ -328,14 +328,20 @@ Verified on 2026-05-27 against the configured Postgres/Cloud SQL target:
 | CORS PATCH support | implemented in `app/main.py` |
 | 500-row Evify 7.0 bulk replay | inserted 500 rows successfully |
 | Latest bounded replay throughput | 500 rows in 6.06s ingest time, about 82.55 rows/sec |
-| Proxy driver creation | created `Vehicle Profile GJ01YK7039` |
-| Trip inference | created 60 inferred trips from the 500-row sample |
+| Full Evify 7.0 replay | completed 205 batches / 90,833 raw rows |
+| Full replay inserted delta | 88,833 new telemetry rows after prior bounded test inserts |
+| Full replay elapsed | 1,170.25s, about 77.62 raw rows/sec |
+| Evify 7.0 DB coverage after replay | 90,833 / 90,833 distinct Evify 7.0 keys present |
+| Vehicle-proxy drivers after replay | 48 |
+| Trip inference after replay | total trips increased to 7,066 |
+| Deployed Redis health flags | `/health` shows `redis_configured=true`, `live_state_redis_enabled=true` |
 
 Replay implementation detail:
 
 - Bulk ingest is DB-bound for historical replay.
 - Bulk trip inference does not call external Google ETA/personal-factor updates.
 - Live single-row trip closure can still update `personal_factor`; historical replay avoids that external fan-out.
+- Deployed Redis env wiring is verified through safe `/health` booleans. Actual Redis read/write proof still requires authenticated telemetry ingest followed by live-map source verification, or a local Redis roundtrip with `REDIS_URL` set in the shell.
 
 ### 2.9 AI/LLM Infrastructure
 

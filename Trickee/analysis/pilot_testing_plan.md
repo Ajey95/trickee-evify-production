@@ -761,6 +761,35 @@ Bounded ingest replay evidence from 2026-05-27:
 | Proxy driver delta | +1 |
 | Trip delta | +60 |
 
+Full DB-level replay evidence from 2026-05-27:
+
+| Check | Result |
+|---|---:|
+| Evify 7.0 source rows | 90,833 |
+| Batches processed | 205 |
+| New rows inserted during full replay | 88,833 |
+| Full replay elapsed | 1,170.25s |
+| Full replay throughput | 77.62 raw rows/sec |
+| Evify 7.0 distinct keys present after replay | 90,833 / 90,833 |
+| Total telemetry rows after replay | 189,815 |
+| Total vehicles after replay | 55 |
+| Total drivers after replay | 57 |
+| Vehicle-proxy drivers after replay | 48 |
+| Total trips after replay | 7,066 |
+
+Redis deployed config evidence from 2026-05-27:
+
+| Check | Result |
+|---|---|
+| Render `/health` | 200 OK |
+| `redis_configured` | `true` |
+| `live_state_redis_enabled` | `true` |
+
+This confirms deployed Redis environment wiring. Actual Redis read/write proof still needs either:
+
+1. authenticated telemetry ingest, followed by `/api/v1/intelligence/live-map` showing `source=redis_live_state`, or
+2. local Redis roundtrip test with `REDIS_URL` set in the shell without printing the secret.
+
 Implementation detail:
 
 - Bulk replay is DB-bound and does not call external Google ETA/personal-factor updates per closed historical trip.
