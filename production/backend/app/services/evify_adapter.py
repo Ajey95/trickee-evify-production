@@ -6,18 +6,19 @@ from typing import Any
 
 
 CAN_ALIASES = {
-    "soc": ["Battery SOC", "SOC", "soc"],
+    "soc": ["Battery SOC", "SOC", "soc", "BatteryPercentage"],
     "soh": ["SOH", "soH"],
-    "battery_voltage": ["Battery Voltage", "battVoltage"],
-    "current": ["Battery Current", "battCurrent"],
+    "battery_voltage": ["Battery Voltage", "battVoltage", "BatteryVoltage", "battery_voltage"],
+    "current": ["Battery Current", "battCurrent", "current"],
     "mcu_dc_current": ["MCU DC Current", "mcuDcCurrent"],
-    "mcu_speed": ["MCU Speed", "mcuSpeed"],
-    "temp_max": ["Max Temperature", "maxTemp"],
-    "cycle_count": ["BatteryCycle", "cycleCount"],
+    "mcu_speed": ["MCU Speed", "mcuSpeed", "vehicle_speed"],
+    "temp_max": ["Max Temperature", "maxTemp", "maximum_temperature", "MCUTemperature"],
+    "cycle_count": ["BatteryCycle", "cycleCount", "bms_chargingcycles"],
     "cell_min_mv": ["CellVoltage_Min", "minCellVoltage"],
     "cell_max_mv": ["CellVoltage_Max", "maxCellVoltage"],
-    "wh_throughput": ["Wh Throughput", "Throughput", "battEnergy"],
-    "charge_plug": ["ChargePlugStatus", "chargePlugStatus"],
+    "cell_imbalance_mv": ["cellvoltage_mismatch", "cell_voltage_mismatch", "CellVoltageMismatch"],
+    "wh_throughput": ["Wh Throughput", "Throughput", "battEnergy", "throughput"],
+    "charge_plug": ["ChargePlugStatus", "chargePlugStatus", "charge_plug_status"],
     "charge_status": ["Battery Charge Status"],
     "regen_status": ["MCU Regen Status", "regen_status"],
     "throttle_status": ["MCU Throttle Status", "throttle_status"],
@@ -104,8 +105,27 @@ def _selected_current(payload: dict[str, Any], can: dict[str, Any]) -> float:
 
 def _selected_speed(payload: dict[str, Any], can: dict[str, Any]) -> float:
     if "Speed" in payload or "speed" in payload:
-        return parse_number(payload.get("Speed") if "Speed" in payload else payload.get("speed"), 0.0)
+        speed = parse_number(payload.get("Speed") if "Speed" in payload else payload.get("speed"), 0.0)
+        if speed:
+            return speed
     return parse_number(_first(payload, can, CAN_ALIASES["mcu_speed"]), 0.0)
+
+
+def _selected_temp_max(payload: dict[str, Any], can: dict[str, Any]) -> float:
+    direct = parse_number(_first(payload, can, CAN_ALIASES["temp_max"]), 0.0)
+    cell_temps = [
+        parse_number(value)
+        for key, value in {**can, **payload}.items()
+        if str(key).lower().startswith("cell_temperature")
+    ]
+    valid_cell_temps = [value for value in cell_temps if value > 0]
+    if direct > 0 and valid_cell_temps:
+        return max(direct, *valid_cell_temps)
+    if direct > 0:
+        return direct
+    if valid_cell_temps:
+        return max(valid_cell_temps)
+    return 30.0
 
 
 def normalize_evify_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -116,7 +136,7 @@ def normalize_evify_payload(payload: dict[str, Any]) -> dict[str, Any]:
     soh = parse_number(_first(payload, can, CAN_ALIASES["soh"], payload.get("soH")), 100.0)
     voltage = parse_number(_first(payload, can, CAN_ALIASES["battery_voltage"]))
     current = _selected_current(payload, can)
-    temp_max = parse_number(_first(payload, can, CAN_ALIASES["temp_max"]), 30.0)
+    temp_max = _selected_temp_max(payload, can)
     cycle_count = int(parse_number(_first(payload, can, CAN_ALIASES["cycle_count"]), 0.0))
 
     cell_min = parse_number(_first(payload, can, CAN_ALIASES["cell_min_mv"]), 0.0)
@@ -125,12 +145,13 @@ def normalize_evify_payload(payload: dict[str, Any]) -> dict[str, Any]:
         cell_min *= 1000.0
     if 0 < cell_max < 10:
         cell_max *= 1000.0
-    cell_imbalance = abs(cell_max - cell_min) if cell_min and cell_max else 0.0
+    direct_cell_imbalance = parse_number(_first(payload, can, CAN_ALIASES["cell_imbalance_mv"]), 0.0)
+    cell_imbalance = direct_cell_imbalance or (abs(cell_max - cell_min) if cell_min and cell_max else 0.0)
 
     return {
-        "vehicle_code": payload.get("RegNo") or payload.get("vehicle_id") or payload.get("vehicleCode"),
+        "vehicle_code": payload.get("RegNo") or payload.get("VehicleId") or payload.get("vehicle_id") or payload.get("vehicleCode"),
         "driver_code": payload.get("driverID") or payload.get("driver_id") or payload.get("driverCode"),
-        "recorded_at": parse_time(payload.get("eventTime") or payload.get("event_time") or payload.get("time")),
+        "recorded_at": parse_time(payload.get("eventTime") or payload.get("event_time") or payload.get("DateTimeOfLog") or payload.get("time")),
         "soc": soc,
         "current": current,
         "battery_voltage": voltage,

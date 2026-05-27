@@ -13,7 +13,7 @@ from app.models import Driver, User, Vehicle
 from app.schemas.api import ok
 from app.services.auth import require_roles
 from app.services.rate_limit import check_rate_limit
-from app.services.telemetry_ingest import ingest_evify_payload, live_vehicle_point
+from app.services.telemetry_ingest import ingest_evify_payload, ingest_evify_payloads_bulk, live_vehicle_point
 from app.services.serializers import alert_dict, telemetry_dict
 from app.services.ws_manager import manager
 
@@ -87,10 +87,7 @@ async def ingest_evify_bulk(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Bulk telemetry ingest is limited to {MAX_BULK_TELEMETRY_ROWS} rows per request",
         )
-    rows = []
-    for payload in request:
-        row, _ = ingest_evify_payload(db, payload, user=current_user, commit=False)
-        rows.append(row)
+    rows = ingest_evify_payloads_bulk(db, request, user=current_user)
     db.commit()
     _publish_bulk_live_points(db, rows)
     elapsed_ms = (time.perf_counter() - started_at) * 1000

@@ -369,6 +369,9 @@ Minimum production telemetry database requirements:
 | Time index | `ix_telemetry_recorded_at_desc` |
 | BRIN time index | `ix_telemetry_recorded_at_brin` |
 | Duplicate protection | Unique index `ux_telemetry_vehicle_recorded_at` in migration `0011_telemetry_ingest_scale_guards.py` / revision `0011_ingest_scale` |
+| Evify 7.0 adapter aliases | Present for `BatteryPercentage`, `BatteryVoltage`, `current`, `vehicle_speed`, `charge_plug_status`, cell temperatures, `bms_chargingcycles`, `cellvoltage_mismatch`, `DateTimeOfLog`, and `VehicleId` |
+| Vehicle-proxy drivers | Present; missing Evify driver IDs use `RegNo` / `VehicleId` as a temporary proxy driver code |
+| Trip inference for Evify 7.0 | Present; proxy drivers allow inferred trip/session rows even when Evify does not provide `trip_id` or `driver_id` |
 | External API caching | Present in `external_context.py` |
 | H3 cache keys | Present for spatial bucketing |
 | External quota guards | Present in settings/config |
@@ -379,8 +382,8 @@ Minimum production telemetry database requirements:
 
 ### Must Verify Before Pilot
 
-- Confirm Alembic migrations are applied in production DB through `0011_ingest_scale`.
-- Confirm `REDIS_URL` is configured for Redis live state/pub-sub/rate limits/cache.
+- Confirm Alembic migrations are applied in production DB through `0012_access_request_vehicle_hint`.
+- Confirm `REDIS_URL` is configured for Redis live state/pub-sub/rate limits/cache. Operator says this is set in Render; runtime proof should use `/health` boolean flags plus Render logs after the next deploy, without exposing the Redis URL.
 - Confirm `/telemetry/evify/bulk` is used by Evify integration instead of only single-row ingest.
 - Confirm current Render instance has enough CPU/DB connections for burst writes.
 - Confirm scheduled WebSocket fanout does not block ingest under active dashboard sessions.
@@ -743,6 +746,27 @@ Current dry-run evidence from Evify 7.0:
 | Rows | 90,833 |
 | 500-row batches | 205 |
 
+Bounded ingest replay evidence from 2026-05-27:
+
+| Check | Result |
+|---|---:|
+| Backend tests | 51 passed |
+| Focused Evify 7.0 regression tests | 3 passed |
+| Alembic current on configured Postgres/Cloud SQL | `0012_access_request_vehicle_hint (head)` |
+| 500-row replay file | `GJ01YK7039.json` |
+| Rows inserted | 500 |
+| Bulk ingest time | 6.06s |
+| Throughput | 82.55 rows/sec |
+| Vehicle delta | +1 |
+| Proxy driver delta | +1 |
+| Trip delta | +60 |
+
+Implementation detail:
+
+- Bulk replay is DB-bound and does not call external Google ETA/personal-factor updates per closed historical trip.
+- Live/single-row trip closure can still update `personal_factor`.
+- This split keeps historical replay and backfills from burning external API quota or blocking ingestion.
+
 Local/staging replay command shape:
 
 ```powershell
@@ -1026,7 +1050,7 @@ Cloud SQL target is now migrated and upgraded:
 | Cloud SQL database | `trickee` |
 | Cloud SQL user | `trickee1` |
 | PostgreSQL version | 16.13 |
-| Alembic current | `0011_ingest_scale` |
+| Alembic current | `0012_access_request_vehicle_hint` after 2026-05-27 upgrade |
 | Critical unique index | `ux_telemetry_vehicle_recorded_at` present |
 
 Data migration result:
@@ -1054,6 +1078,7 @@ Restore notes:
 - Source Supabase Postgres was 17.6; target Cloud SQL Postgres is 16.13. This is acceptable for Trickee because the schema uses normal Postgres features and does not depend on Postgres 17-only behavior.
 - The restore warning for `SET transaction_timeout = 0` came from the Postgres 17 dump and was ignored by Cloud SQL 16; it did not affect table/data restore.
 - Keep production/staging migrations tested against Cloud SQL Postgres 16 unless the project intentionally upgrades later.
+- 2026-05-27: `alembic upgrade head` and `alembic current` verified the configured Postgres/Cloud SQL DB at `0012_access_request_vehicle_hint (head)`.
 
 Remaining cutover steps:
 
@@ -1073,8 +1098,8 @@ Remaining cutover steps:
 |---|---|---|
 | Backend tests | `python -m pytest tests -q` from `production/backend` | 48 passed on 2026-05-22 |
 | Backend syntax | `python -m py_compile` for changed routers/services | Passed |
-| Alembic head | `alembic heads` | Previously `0010_access_requests`; current code adds `0011_ingest_scale` |
-| DB migration state | `alembic current` against configured DB | Must be upgraded to `0011_ingest_scale` before pilot |
+| Alembic head | `alembic heads` | Current head is `0012_access_request_vehicle_hint` |
+| DB migration state | `alembic current` against configured DB | Verified at `0012_access_request_vehicle_hint (head)` on 2026-05-27 |
 | Frontend lint | `npm run lint` from `production/trickee-frontend` | Passed |
 | Frontend production build | `npm run build` | Passed |
 | Render health | `GET https://trickee-evify-production.onrender.com/health` | 200 OK, V4.1 model ready |
@@ -1245,8 +1270,8 @@ alembic heads
 Expected current baseline:
 
 ```txt
-48 tests passing
-single Alembic head: 0011_ingest_scale
+51 tests passing
+single Alembic head: 0012_access_request_vehicle_hint
 ```
 
 Backend CI must fail if:

@@ -4,12 +4,14 @@ from app.services.external_context import ExternalContextService, external_conte
 from app.services.intelligence_history import persist_charging_decision, persist_order_assignment
 from app.services.live_intelligence import fleet_live_overview, live_driver_decision, live_map_context, weekly_live_metrics
 from app.services.live_driver_profile import classify_driver_archetype, detect_soc_rise_charging, live_driver_profile
+from app.services.evify_adapter import normalize_evify_payload
 from app.services.soc_quality import is_plausible_eval_soc_delta, is_plausible_soc_transition, latest_plausible_soc_segment
 from app.services.order_assignment_engine import assign_order
 from app.services.route_scorer import route_scores
+from app.services.telemetry_ingest import ingest_evify_payload, ingest_evify_payloads_bulk
 from app.services.wait_time_estimator import estimate_wait_window
 from app.services.weekly_report import generate_weekly_report, send_weekly_report_email
-from app.models import Alert, ChargingDecisionRecord, Driver, Fleet, NudgeEvent, Telemetry, Trip, Vehicle, WaitEvent
+from app.models import Alert, ChargingDecisionRecord, Driver, Fleet, NudgeEvent, Telemetry, Trip, User, Vehicle, WaitEvent
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -22,6 +24,107 @@ def test_route_context_fallback_without_external_keys():
     assert "weather" in context
     assert "traffic" in context
     assert context["traffic"]["distance_km"] > 0
+
+
+def evify_7_payload(**overrides):
+    payload = {
+        "RegNo": "GJ01YK7023",
+        "VehicleId": "GJ01YK7023",
+        "eventTime": "2026-05-14T02:24:30.000Z",
+        "BatteryVoltage": 51.4,
+        "BatteryCycle": 118,
+        "Speed": 18.5,
+        "IgnitionOn": True,
+        "Latitude": 22.986492,
+        "Longitude": 72.4949965,
+        "soc": 66,
+        "soH": 100,
+        "Throughput": 858,
+        "CanData": {
+            "cell_temperature_02": 32,
+            "cell_temperature_04": 35,
+            "current": 12.4,
+            "charge_plug_status": 0,
+            "cellvoltage_mismatch": 22,
+            "soc": 66,
+            "soH": 100,
+            "Throughput": 858,
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_evify_7_adapter_aliases_are_normalized():
+    normalized = normalize_evify_payload(evify_7_payload())
+
+    assert normalized["vehicle_code"] == "GJ01YK7023"
+    assert normalized["driver_code"] is None
+    assert normalized["battery_voltage"] == 51.4
+    assert normalized["current"] == 12.4
+    assert normalized["speed"] == 18.5
+    assert normalized["temp_max"] == 35
+    assert normalized["cycle_count"] == 118
+    assert normalized["cell_imbalance_mv"] == 22
+    assert normalized["lat"] == 22.986492
+    assert normalized["lng"] == 72.4949965
+
+
+def test_evify_7_ingest_creates_vehicle_proxy_driver_and_trip(db_session):
+    fleet = Fleet(name="Evify", city="Surat")
+    user = User(email="fleet@example.com", full_name="Fleet Ops", role="fleet_operator", fleet=fleet)
+    db_session.add_all([fleet, user])
+    db_session.commit()
+
+    first, _ = ingest_evify_payload(db_session, evify_7_payload(eventTime="2026-05-14T02:24:30.000Z"), user=user)
+    second, _ = ingest_evify_payload(
+        db_session,
+        evify_7_payload(eventTime="2026-05-14T02:25:30.000Z", Latitude=22.9868, Longitude=72.4953, soc=65),
+        user=user,
+    )
+    final, _ = ingest_evify_payload(
+        db_session,
+        evify_7_payload(eventTime="2026-05-14T02:30:30.000Z", Speed=0, IgnitionOn=False, Latitude=22.987, Longitude=72.496, soc=63),
+        user=user,
+    )
+
+    driver = db_session.query(Driver).filter(Driver.driver_code == "GJ01YK7023").one()
+    trip = db_session.query(Trip).filter(Trip.driver_id == driver.id).one()
+
+    assert first.driver_id == driver.id
+    assert second.driver_id == driver.id
+    assert final.driver_id == driver.id
+    assert driver.full_name == "Vehicle Profile GJ01YK7023"
+    assert trip.ended_at is not None
+    assert trip.soc_start == 66
+    assert trip.soc_end == 63
+    assert trip.distance_km is not None
+
+
+def test_evify_7_bulk_ingest_creates_vehicle_proxy_driver_and_trip(db_session):
+    fleet = Fleet(name="Evify", city="Surat")
+    user = User(email="bulk@example.com", full_name="Bulk Ops", role="fleet_operator", fleet=fleet)
+    db_session.add_all([fleet, user])
+    db_session.commit()
+
+    rows = ingest_evify_payloads_bulk(
+        db_session,
+        [
+            evify_7_payload(RegNo="GJ01YK7026", VehicleId="GJ01YK7026", eventTime="2026-05-14T02:24:30.000Z"),
+            evify_7_payload(RegNo="GJ01YK7026", VehicleId="GJ01YK7026", eventTime="2026-05-14T02:25:30.000Z", Latitude=22.9868, Longitude=72.4953, soc=65),
+            evify_7_payload(RegNo="GJ01YK7026", VehicleId="GJ01YK7026", eventTime="2026-05-14T02:30:30.000Z", Speed=0, IgnitionOn=False, Latitude=22.987, Longitude=72.496, soc=63),
+        ],
+        user=user,
+    )
+    db_session.commit()
+
+    driver = db_session.query(Driver).filter(Driver.driver_code == "GJ01YK7026").one()
+    trip = db_session.query(Trip).filter(Trip.driver_id == driver.id).one()
+
+    assert len(rows) == 3
+    assert all(row.driver_id == driver.id for row in rows)
+    assert driver.full_name == "Vehicle Profile GJ01YK7026"
+    assert trip.ended_at is not None
 
 
 def _external_context_settings(**overrides):

@@ -22,7 +22,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origin_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 app.add_exception_handler(HTTPException, http_exception_handler)
@@ -61,5 +61,7 @@ def health():
         "seq_len": SEQ_LEN,
         "feature_count": len(FEATURE_COLS),
         "delta_soc_input": False,
+        "redis_configured": bool(settings.redis_url),
+        "live_state_redis_enabled": settings.live_state_redis_enabled,
         "version": "1.0.0",
     }

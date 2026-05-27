@@ -1,5 +1,5 @@
 # Trickee Implementation Status And Remaining Work
-**Last reconciled:** 2026-05-26
+**Last reconciled:** 2026-05-27
 **Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
 **Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
@@ -140,14 +140,7 @@ Implemented:
 - Bulk ingest commits once and publishes only the latest live-map point per vehicle after commit, not every row.
 - Single-row ingest schedules live-map publish after commit without waiting on WebSocket fanout in the request path.
 
-Important current gap for Evify Data 7.0:
-
-- Evify Data 7.0 has `RegNo` and `VehicleId`, but no `driver_id`.
-- Current `telemetry_ingest.py` creates a Driver only when `driver_code` exists.
-- Current `trip_inference.py` returns early when `row.driver_id` is missing.
-- Therefore, with Evify 7.0 as-is, telemetry can ingest as vehicle data, but driver profiles and trip inference will not fully populate unless we implement the pilot vehicle-proxy driver rule.
-
-Required pilot fix:
+Evify 7.0 vehicle-proxy driver support:
 
 ```text
 if Evify driver_id is missing:
@@ -155,7 +148,12 @@ if Evify driver_id is missing:
   profile_source = vehicle_proxy
 ```
 
-This must be labeled as vehicle-attached behavior, not true human-driver identity.
+- Implemented in `telemetry_ingest.py`.
+- Missing Evify driver IDs now create/use a proxy `Driver` based on `RegNo` or `VehicleId`.
+- Proxy driver display name uses `Vehicle Profile <vehicle_code>`.
+- Trip inference now works for these vehicle-proxy drivers.
+- This is still vehicle-attached behavior, not a true human-driver identity.
+- Regression tests cover single-row and bulk Evify 7.0 ingest with proxy driver/trip creation.
 
 ### 2.4 Evify Adapter Readiness
 
@@ -165,31 +163,25 @@ Implemented:
 - Handles `RegNo`, `eventTime`, `Latitude`, `Longitude`, `Speed`, `IgnitionOn`, `soc`, `soH`, and several CAN aliases.
 - Caps unusable current spikes by falling back between pack current and MCU DC current.
 
-Important current gap for Evify Data 7.0:
+Evify 7.0 aliases now covered:
 
-- Evify 7.0 CAN keys include snake_case fields such as:
-  - `current`
-  - `battery_voltage`
-  - `vehicle_speed`
-  - `charge_plug_status`
-  - `cell_temperature_01`
-  - `maximum_temperature`
-  - `bms_chargingcycles`
-  - `cellvoltage_mismatch`
-- Current adapter aliases do not fully cover all of these exact key names.
-- Result: some Evify 7.0 fields may normalize to defaults even though the raw data has usable values.
+- `BatteryPercentage`
+- `BatteryVoltage`, `battery_voltage`
+- `current`
+- `vehicle_speed`
+- `charge_plug_status`
+- `cell_temperature_*`, `maximum_temperature`, `MCUTemperature`
+- `bms_chargingcycles`
+- `cellvoltage_mismatch`
+- `throughput`
+- `DateTimeOfLog`
+- `VehicleId`
 
-Required pilot fix:
+Regression coverage:
 
-- Add Evify 7.0 aliases before load testing or replay:
-  - `BatteryVoltage`, `battery_voltage`
-  - `current`
-  - `vehicle_speed`
-  - `charge_plug_status`
-  - `cell_temperature_01`, `maximum_temperature`
-  - `bms_chargingcycles`
-  - `cellvoltage_mismatch`
-- Keep current spike guards.
+- `test_evify_7_adapter_aliases_are_normalized`
+- `test_evify_7_ingest_creates_vehicle_proxy_driver_and_trip`
+- `test_evify_7_bulk_ingest_creates_vehicle_proxy_driver_and_trip`
 
 ### 2.5 Database And Migrations
 
@@ -244,8 +236,9 @@ Pilot indexes already exist in migration `0005_timeseries_pilot_indexes.py`:
 
 Production requirement:
 
-- Run and verify `alembic upgrade head` on the deployed database.
+- Run and verify `alembic upgrade head` on the deployed database before every pilot deployment.
 - Cloud SQL target database was migrated from Supabase public schema and upgraded to `0011_ingest_scale` on 2026-05-22.
+- 2026-05-27 verification: configured Postgres/Cloud SQL database is at `0012_access_request_vehicle_hint (head)`.
 - Render still needs `DATABASE_URL` cutover to the Cloud SQL connection string before deployed traffic uses Cloud SQL.
 
 Cloud SQL migration evidence - 2026-05-22:
@@ -254,7 +247,7 @@ Cloud SQL migration evidence - 2026-05-22:
 |---|---|
 | Cloud SQL DB | `trickee` |
 | PostgreSQL version | 16.13 |
-| Alembic current | `0011_ingest_scale` |
+| Alembic current | `0012_access_request_vehicle_hint` after 2026-05-27 upgrade |
 | `users` | 4 |
 | `fleets` | 1 |
 | `vehicles` | 7 |
@@ -312,6 +305,8 @@ Known risk:
 
 - Need load test to confirm the scheduled publish path stays non-blocking with slow WebSocket clients.
 - Redis should be enabled for pilot through `REDIS_URL` so live state, pub/sub, cache, and rate-limit paths are exercised before field testing.
+- Operator confirmed `REDIS_URL` is set in Render. Local `.env` does not contain Redis, and this session does not have Render CLI/MCP access, so deployed Redis runtime proof still needs Render log/API verification without exposing the secret.
+- `/health` now reports boolean `redis_configured` and `live_state_redis_enabled` flags so deployed verification can confirm Redis wiring without exposing the Redis URL.
 
 Required pilot verification:
 
@@ -319,7 +314,30 @@ Required pilot verification:
 - Test bulk ingest with 50 concurrent 500-row batches and dashboards open.
 - Confirm live-map point source reports Redis when live-state keys are warm and Postgres fallback when Redis is unavailable.
 
-### 2.8 AI/LLM Infrastructure
+### 2.8 Evify 7.0 Replay And Load Evidence
+
+Verified on 2026-05-27 against the configured Postgres/Cloud SQL target:
+
+| Check | Result |
+|---|---|
+| `alembic upgrade head` | completed |
+| `alembic current` | `0012_access_request_vehicle_hint (head)` |
+| Backend compile | passed |
+| Backend tests | `51 passed` |
+| Focused Evify 7.0 regression tests | `3 passed` |
+| CORS PATCH support | implemented in `app/main.py` |
+| 500-row Evify 7.0 bulk replay | inserted 500 rows successfully |
+| Latest bounded replay throughput | 500 rows in 6.06s ingest time, about 82.55 rows/sec |
+| Proxy driver creation | created `Vehicle Profile GJ01YK7039` |
+| Trip inference | created 60 inferred trips from the 500-row sample |
+
+Replay implementation detail:
+
+- Bulk ingest is DB-bound for historical replay.
+- Bulk trip inference does not call external Google ETA/personal-factor updates.
+- Live single-row trip closure can still update `personal_factor`; historical replay avoids that external fan-out.
+
+### 2.9 AI/LLM Infrastructure
 
 Implemented:
 
@@ -436,7 +454,7 @@ Current limitations / risks:
 - Prompt-injection detection is basic pattern matching, not a full classifier.
 - Tool registry defines allowed tool names and auth checks, but does not yet expose full JSON schemas per tool.
 - Cost tracking records token usage when provider returns usage, but no hard monthly budget enforcement exists yet.
-- Tool outputs depend on telemetry/profile quality; Evify 7.0 vehicle-proxy driver fix is still needed for reliable driver-grounded personalization.
+- Tool outputs depend on telemetry/profile quality; Evify 7.0 vehicle-proxy drivers now unblock vehicle-grounded personalization, but true human-driver identity still requires Evify-provided mapping or admin invite/QR onboarding.
 
 ---
 
@@ -511,22 +529,22 @@ Admin profile correction:
 | 3 | Route Reasoning Agent | Built | `POST /api/v1/routes/explain`, route scorer wrapper, tool-grounded explanation | Needs real route/traffic calibration in production |
 | 4 | Battery Insight Agent | Built | `POST /api/v1/battery/insight`, baseline/prediction/environment-aware fallback | Accuracy depends on clean telemetry and populated profiles |
 | 5 | Charging Recommendation Agent | Built with deterministic ranking | `POST /api/v1/chargers/recommend`, Google/fallback charger context, "availability not confirmed" guard | Real slot availability requires Bolt/Pulse/UBC or partner API |
-| 6 | Driver Profile Memory | Partially built | `GET/POST /api/v1/drivers/{id}/profile`, snapshots, rolling metrics, archetype logic | Evify 7.0 needs vehicle-proxy driver creation before live profiles populate |
+| 6 | Driver Profile Memory | Partially built | `GET/POST /api/v1/drivers/{id}/profile`, snapshots, rolling metrics, archetype logic, vehicle-proxy profiles for Evify 7.0 | True human-driver identity still requires Evify mapping/invite flow |
 | 7 | Fleet Monitoring Agent | Built foundation | `POST /api/v1/fleet/summary`, fleet live overview, LLM summary with backend facts | Daily email/WhatsApp summary delivery not built |
 | 8 | Driver Coaching Agent | Built foundation | `POST /api/v1/drivers/{id}/coaching`, metrics, coaching events | Needs better trip/session metrics and true driver identity for production-grade coaching |
 | 9 | Smart Order Assignment | Backend built | `POST /api/v1/intelligence/orders/assign`, persistence/history | Needs real order feed and frontend operator workflow validation |
 | 10 | True Wait Time Model | Backend built | `POST /api/v1/intelligence/wait-time`, travel/prep/buffer calculation | Needs restaurant location, prep time, order assignment timestamp |
 | 11 | 3-Option Charging Decision | Backend built | `POST /api/v1/intelligence/charging/decision`, records/history | Needs real order feed and real charger availability for production claims |
-| 12 | V5-A Driver Behavioral Model | Training foundation built | `app/ml/v5a_training.py`, 24-feature list, SOC-quality filtering | Not promoted to production inference; Evify 7.0 needs adapter/proxy fixes first |
+| 12 | V5-A Driver Behavioral Model | Training foundation built | `app/ml/v5a_training.py`, 24-feature list, SOC-quality filtering | Not promoted to production inference; Evify 7.0 replay can now populate proxy behavior data |
 | 13 | External APIs | Built foundation | Weather/elevation/directions/places service with H3/cache/quota/fallback; map charger points are ranked from current live driver/fleet GPS context and capped to relevant returned points | Needs production keys, quota monitoring, and real charger inventory/slot provider for full-city availability claims |
 | 14 | Personalized Departure Nudge | Partial | route scoring and personal_factor foundations exist | No full ignition-triggered FCM/WhatsApp pipeline yet |
 | 15 | Opportunistic Charging Alert | Partial | alert service, wait classifier, charger lookup, stop/SOC foundations | Needs context-aware stop engine and push verification |
-| 16 | Trip Digital Twin | Partial | `trips` table, GPS trip inference, and click-to-view trip trace endpoint/UI exist | Current trip inference requires `driver_id`; vehicle-proxy trip generation must be implemented before Evify 7.0 fully populates trips |
+| 16 | Trip Digital Twin | Partial | `trips` table, GPS trip inference, vehicle-proxy trip generation, and click-to-view trip trace endpoint/UI exist | Needs richer trip-twin metrics and true driver identity for production-grade coaching |
 | 17 | Driver Scorecard & Fleet Intelligence | Partial | `/scorecards`, fleet live, driver behavior history | Formula is basic; needs trip-twin and profile confidence improvements |
 | 18 | RL Nudge Optimizer | Future | `nudge_events` outcome fields exist | Needs months of A/B outcome data |
 | 19 | V6 Driver Embedding Model | Future | Tables and outcome data path exist | Needs stable driver IDs and 3+ months/500+ trips per driver |
 | 20 | Real-Time Streaming Architecture | Future scale path | Current pilot indexes and bulk ingest exist | Build after pilot success or load-test failure |
-| 21 | Driver Archetype Classifier | Built | live driver profile archetype output and snapshot fields | Needs vehicle-proxy driver support for Evify 7.0 |
+| 21 | Driver Archetype Classifier | Built | live driver profile archetype output, snapshot fields, and Evify 7.0 vehicle-proxy support | Needs true driver mapping for person-level coaching claims |
 | 22 | Platform Integrations | Not built | Docs only | Swiggy/Zomato/Twilio/Bolt/Pulse/UBC access required |
 | 23 | ETA Personalization | Built foundation | personal_factor update from trip outcome | Needs trip inference to populate reliably with proxy driver |
 | 24 | Agent vs Backend Framework | Implemented in design | deterministic backend decisions + LLM wording/explanation only | Continue enforcing tool boundary |
@@ -604,11 +622,10 @@ Current code status:
 
 - `trips.id` exists and defaults to UUID.
 - `trip_inference.py` creates trip rows from ignition/speed/GPS.
-- Gap: it currently requires `row.driver_id`; Evify 7.0 does not provide one.
+- Evify 7.0 now gets a vehicle-proxy driver from `RegNo` or `VehicleId`, so trip inference can populate rows even without a real Evify driver ID.
 
-Required pilot implementation:
+Remaining pilot/production improvement:
 
-- create/use vehicle-proxy driver when no real driver ID exists
 - persist `trip_source = gps_inferred` or equivalent metadata later if schema is expanded
 - preserve migration path to real driver IDs
 
@@ -761,21 +778,22 @@ Admin and ops:
 
 P0 before pilot:
 
-1. Run `alembic upgrade head` in production and verify revision `0012_access_request_vehicle_hint`.
-2. Add Evify 7.0 aliases to `evify_adapter.py`.
-3. Implement vehicle-proxy driver creation from `RegNo` or `VehicleId` when no real driver ID exists.
-4. Confirm generated trip/session IDs populate under Evify 7.0 replay.
-5. Load test `/api/v1/telemetry/evify/bulk`:
+1. Completed 2026-05-27: ran `alembic upgrade head` and verified revision `0012_access_request_vehicle_hint`.
+2. Completed 2026-05-27: added Evify 7.0 aliases to `evify_adapter.py`.
+3. Completed 2026-05-27: implemented vehicle-proxy driver creation from `RegNo` or `VehicleId` when no real driver ID exists.
+4. Completed 2026-05-27: confirmed generated trip/session rows populate under Evify 7.0 replay.
+5. Partially completed 2026-05-27: bounded 500-row bulk replay passed against configured Postgres/Cloud SQL at about 82.55 rows/sec after DB-bound bulk optimization.
+6. Still required: full load test `/api/v1/telemetry/evify/bulk`:
    - 500 rows accepted
    - 501 rows rejected with 413
    - 50 concurrent 500-row batches tested
    - use `production/backend/scripts/replay_evify_bulk.py` to replay `Evify data 7.0` into the real bulk endpoint
    - temporarily raise `TELEMETRY_RATE_LIMIT_PER_MINUTE` in staging for capacity testing, or expected HTTP 429 responses will hide DB/API capacity
-6. Confirm scheduled WebSocket fanout does not block ingest under dashboard load.
-7. Configure/verify `REDIS_URL`, `LIVE_STATE_REDIS_ENABLED=true`, and `LIVE_STATE_TTL_SECONDS=300` for Redis live state, rate limits, cache, and pub/sub in pilot.
-8. Verify external API cache/quota behavior under replay.
-9. Verify FCM production push receipt on deployed Vercel URL.
-10. Keep WhatsApp soft-locked until opt-in, templates, provider, and abuse limits are implemented.
+7. Confirm scheduled WebSocket fanout does not block ingest under dashboard load.
+8. Configure/verify `REDIS_URL`, `LIVE_STATE_REDIS_ENABLED=true`, and `LIVE_STATE_TTL_SECONDS=300` for Redis live state, rate limits, cache, and pub/sub in pilot.
+9. Verify external API cache/quota behavior under replay.
+10. Verify FCM production push receipt on deployed Vercel URL.
+11. Keep WhatsApp soft-locked until opt-in, templates, provider, and abuse limits are implemented.
 
 P1 before wider pilot:
 
@@ -787,15 +805,19 @@ P1 before wider pilot:
 6. Add performance checks for latest-vehicle/latest-driver queries.
 7. Add data-quality dashboard cards for SOC jumps, missing driver IDs, missing charge plug, and GPS gaps.
 
-Latest local test pass - 2026-05-26:
+Latest backend verification - 2026-05-27:
 
-- Backend unit/eval suite: 48 tests passed.
+- Backend unit/eval suite: 51 tests passed.
 - Backend compile: passed.
 - Alembic single-head check: `0012_access_request_vehicle_hint`.
+- Configured Postgres/Cloud SQL migration state: `0012_access_request_vehicle_hint (head)`.
+- Focused Evify 7.0 adapter/proxy/trip regression tests: 3 passed.
+- Bounded Evify 7.0 bulk replay: 500 rows inserted in 6.06s ingest time, about 82.55 rows/sec.
+
+Latest frontend verification - 2026-05-26:
+
 - Frontend lint: passed.
 - Frontend production build: passed.
-- Latest Alembic migration in code: `0012_access_request_vehicle_hint`.
-- Production DB must run `alembic upgrade head` before deploying this build so `access_requests.requested_vehicle_id` exists.
 - Render `/health`: 200 OK, V4.1 model ready.
 - Google external context smoke:
   - Directions: `google_directions`
@@ -915,16 +937,15 @@ Do not claim as live production:
 
 ## 12. Final Pilot Position
 
-Current codebase is strong enough to proceed toward a 50-100 vehicle pilot **after** the adapter/proxy/load-test hardening items are completed.
+Current codebase is stronger after the 2026-05-27 adapter/proxy/replay hardening, but full pilot sign-off still needs concurrency and live-state verification.
 
 The most important blockers are not the AI features. They are:
 
-1. Evify 7.0 adapter alias completeness.
-2. Vehicle-proxy driver creation for missing `driver_id`.
-3. Trickee-generated trip/session inference working under real replay.
-4. Bulk ingest concurrency test.
-5. WebSocket fanout load test.
-6. FCM deployed verification.
+1. Bulk ingest concurrency test.
+2. WebSocket fanout load test.
+3. Redis live-state runtime proof in deployed Render environment.
+4. External API cache/quota behavior under replay.
+5. FCM deployed verification.
 
 After these are fixed and verified, Trickee can honestly pilot:
 
