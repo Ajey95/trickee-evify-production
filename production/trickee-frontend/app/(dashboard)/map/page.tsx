@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { useDriverLocationWS } from "@/hooks/useDriverLocationWS";
 import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
+import { useAuth } from "@/components/AuthProvider";
 
 const MAP_POLL_MS = 30_000;
 const MAP_REQUEST_TIMEOUT_MS = 20_000;
@@ -20,6 +21,7 @@ function isTransientMapError(message?: string) {
 }
 
 export default function LiveMapPage() {
+  const { user } = useAuth();
   const [mapData, setMapData] = useState<any | null>(null);
   const [fleetLive, setFleetLive] = useState<any | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState("");
@@ -30,6 +32,7 @@ export default function LiveMapPage() {
   const [locationStatus, setLocationStatus] = useState<"idle" | "requesting" | "enabled" | "blocked">("idle");
   const mapDataRef = React.useRef<any | null>(null);
   const pollingRef = React.useRef(false);
+  const locationWatchIdRef = React.useRef<number | null>(null);
 
   useEffect(() => {
     mapDataRef.current = mapData;
@@ -112,7 +115,35 @@ export default function LiveMapPage() {
     loadMap();
   }, [loadMap]);
 
+  const applyBrowserPosition = useCallback((position: GeolocationPosition) => {
+    setBrowserLocation({
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy_m: position.coords.accuracy,
+      captured_at: new Date(position.timestamp).toISOString(),
+    });
+    setLocationStatus("enabled");
+    setError("");
+  }, []);
+
+  const clearBrowserLocationWatch = useCallback(() => {
+    if (locationWatchIdRef.current !== null && "geolocation" in navigator) {
+      navigator.geolocation.clearWatch(locationWatchIdRef.current);
+      locationWatchIdRef.current = null;
+    }
+  }, []);
+
+  const stopBrowserLocation = useCallback(() => {
+    clearBrowserLocationWatch();
+    setLocationStatus("idle");
+  }, [clearBrowserLocationWatch]);
+
   const requestBrowserLocation = useCallback(() => {
+    if (locationStatus === "enabled") {
+      stopBrowserLocation();
+      return;
+    }
+
     if (!("geolocation" in navigator)) {
       setLocationStatus("blocked");
       setError("This browser does not support location access.");
@@ -120,28 +151,39 @@ export default function LiveMapPage() {
     }
 
     setLocationStatus("requesting");
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      maximumAge: 10_000,
+      timeout: 15_000,
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setBrowserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          accuracy_m: position.coords.accuracy,
-          captured_at: new Date(position.timestamp).toISOString(),
-        });
-        setLocationStatus("enabled");
-        setError("");
-      },
+      applyBrowserPosition,
       (geoError) => {
         setLocationStatus("blocked");
         setError(geoError.message || "Location permission was not allowed.");
       },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 20_000,
-        timeout: 12_000,
-      }
+      options
     );
-  }, []);
+
+    clearBrowserLocationWatch();
+    locationWatchIdRef.current = navigator.geolocation.watchPosition(
+      applyBrowserPosition,
+      (geoError) => {
+        setLocationStatus("blocked");
+        setError(geoError.message || "Location permission was not allowed.");
+      },
+      options
+    );
+  }, [applyBrowserPosition, clearBrowserLocationWatch, locationStatus, stopBrowserLocation]);
+
+  useEffect(() => clearBrowserLocationWatch, [clearBrowserLocationWatch]);
+
+  useEffect(() => {
+    if (user?.role === "driver" && locationStatus === "idle") {
+      requestBrowserLocation();
+    }
+  }, [locationStatus, requestBrowserLocation, user?.role]);
 
   return (
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
@@ -151,11 +193,11 @@ export default function LiveMapPage() {
             <h1 className="page-title mb-1">Live Fleet Map</h1>
             <p className="text-text-dim">Real-time vehicle locations, charging context, and operating risk zones.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <select
               value={selectedDriverId}
               onChange={(event) => setSelectedDriverId(event.target.value)}
-              className="h-10 min-w-[220px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal"
+              className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[220px] sm:w-auto"
             >
               <option value="">All drivers</option>
               {drivers.map((driver: any) => (
@@ -164,14 +206,14 @@ export default function LiveMapPage() {
                 </option>
               ))}
             </select>
-            <Button variant="outline" size="sm" className="gap-2" onClick={loadMap} disabled={isLoading}>
+            <Button variant="outline" size="sm" className="min-h-10 gap-2" onClick={loadMap} disabled={isLoading}>
               <RefreshCcw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
             <Button
               variant={locationStatus === "enabled" ? "primary" : "outline"}
               size="sm"
-              className="gap-2"
+              className="min-h-10 gap-2"
               onClick={requestBrowserLocation}
               disabled={locationStatus === "requesting"}
               title="Ask this browser for location permission"

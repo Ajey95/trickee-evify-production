@@ -1,5 +1,5 @@
 # Trickee Implementation Status And Remaining Work
-**Last reconciled:** 2026-05-27
+**Last reconciled:** 2026-05-28
 **Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
 **Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
@@ -511,7 +511,13 @@ Implemented frontend foundations:
 - Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`, plus a large trip-detail view with route path, source/destination, SOC, energy, speed, duration, route/nudge metrics, estimated trip energy cost, estimated cost per km, estimated savings, and future placeholders for order-linked wait/charging savings.
 - Data Quality now separates feed tags from issue text and checks GPS validity, battery validity, thermal validity, stale feed age, and current spikes.
 - Live Map charger list shows all charger points returned by backend and explains that chargers are ranked from current visible driver/fleet GPS context.
-- Live Map now supports mobile browser geolocation permission through a user-triggered "Use my location" action and displays the current browser location marker on the map.
+- Driver mobile browser readiness is now implemented for pilot use:
+  - Driver profile page prompts for geolocation on entry and keeps a `watchPosition` active while the page remains open.
+  - Live Map auto-prompts driver accounts for location and keeps the current browser location marker updated while the map remains open.
+  - Driver-accessible pages now have tighter mobile spacing, safe-area bottom navigation, full-width mobile controls, and mobile-safe alert cards.
+  - FCM notification click-through now lands on `/alerts` by default, which is valid for driver accounts.
+  - The app shell cache includes driver routes (`/driver`, `/map`, `/alerts`, `/ai`) for a better PWA browser experience.
+- Browser limitation: mobile Chrome can receive background push through service worker/FCM after permission and token registration, but reliable always-on background GPS tracking is not guaranteed in a browser. Continuous ride GPS is active while the driver page/map is open; native Android/PWA platform behavior is required for stronger background tracking.
 - Frontend `Permissions-Policy` now allows same-origin geolocation for the dashboard instead of blocking it globally.
 
 Role route status:
@@ -852,7 +858,7 @@ Current implemented notification surfaces:
 - LLM notification personalization endpoint exists.
 - Alert-triggered FCM now calls the grounded personalization layer before sending.
 - Browser foreground FCM messages now surface via the Notification API.
-- Background FCM is served by `/firebase-messaging-sw.js` with click-through to `/alerts` or `/fleet`.
+- Background FCM is served by `/firebase-messaging-sw.js`; notification clicks now default to `/alerts` unless a safe same-origin `data.url` is provided.
 - `POST /api/v1/alerts/test-push` sends a test push to the current user's active browser tokens and records an FCM nudge event.
 
 Not yet verified/implemented:

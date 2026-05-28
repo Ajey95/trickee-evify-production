@@ -86,10 +86,11 @@ export const Topbar = () => {
           <Button
             variant="ghost"
             size="sm"
-            className="gap-2"
+            className="h-10 w-10 gap-2 sm:w-auto"
             onClick={enablePush}
             disabled={pushState === "saving" || pushState === "enabled"}
             title="Enable browser push alerts"
+            aria-label="Enable browser push alerts"
           >
             <BellRing className="w-4 h-4" />
             <span className="hidden sm:inline">{pushState === "enabled" ? "Alerts On" : "Push Alerts"}</span>
@@ -99,8 +100,9 @@ export const Topbar = () => {
         <Button 
           variant="ghost" 
           size="sm" 
-          className="gap-2"
+          className="h-10 w-10 gap-2 sm:w-auto"
           onClick={handleSignOut}
+          aria-label="Sign out"
         >
           <LogOut className="w-4 h-4" />
           <span className="hidden sm:inline">Sign Out</span>

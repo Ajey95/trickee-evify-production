@@ -98,17 +98,17 @@ export default function RouteSchedulePage() {
 
   return (
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
-      <div className="space-y-8 pb-12">
+      <div className="space-y-5 pb-12 sm:space-y-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="page-title mb-1">7-Day Route Schedule</h1>
             <p className="text-text-dim">Build a route-readiness plan using the selected driver, vehicle SOC, origin, destination, weekday/weekend pattern, and time slots.</p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap lg:w-auto">
             <select
               value={selectedDriverId}
               onChange={(event) => setSelectedDriverId(event.target.value)}
-              className="h-10 min-w-[240px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal"
+              className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[240px] sm:w-auto"
             >
               {drivers.map((driver) => (
                 <option key={driver.id} value={driver.id}>{driver.driver_code} - {driver.full_name}</option>
@@ -117,13 +117,13 @@ export default function RouteSchedulePage() {
             <select
               value={selectedVehicle?.id || selectedVehicleId}
               onChange={(event) => setSelectedVehicleId(event.target.value)}
-              className="h-10 min-w-[180px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal"
+              className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[180px] sm:w-auto"
             >
               {vehicles.map((vehicle) => (
                 <option key={vehicle.id} value={vehicle.id}>{vehicle.vehicle_code}</option>
               ))}
             </select>
-            <Button onClick={buildSchedule} isLoading={isBuilding} className="gap-2">
+            <Button onClick={buildSchedule} isLoading={isBuilding} className="min-h-10 w-full gap-2 sm:w-auto">
               <RefreshCcw className="w-4 h-4" />
               Build Schedule
             </Button>

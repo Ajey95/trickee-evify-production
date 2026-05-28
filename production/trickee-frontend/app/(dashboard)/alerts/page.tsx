@@ -68,13 +68,13 @@ export default function AlertsPage() {
 
   return (
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
-    <div className="space-y-8 pb-12">
-      <div className="flex justify-between items-end">
+    <div className="space-y-5 pb-12 sm:space-y-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="page-title mb-1">Real-time Alerts</h1>
           <p className="text-text-dim">Actionable intelligence to optimize fleet range and uptime.</p>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-bg-card border border-bg-border rounded-xl">
+        <div className="flex w-fit items-center gap-2 rounded-xl border border-bg-border bg-bg-card px-4 py-2">
            <span className="text-xs font-bold text-text-primary">{alerts.filter(a => !a.is_resolved).length} Unresolved</span>
         </div>
       </div>
@@ -95,13 +95,13 @@ export default function AlertsPage() {
               key={alert.id} 
               className={`transition-all duration-300 ${alert.is_resolved ? 'opacity-40 grayscale pointer-events-none' : 'hover:border-accent-teal/40'}`}
             >
-              <div className="flex gap-6">
-                <div className={`p-4 rounded-2xl border h-fit shrink-0 ${colorClass}`}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">
+                <div className={`h-fit w-fit shrink-0 rounded-2xl border p-3 sm:p-4 ${colorClass}`}>
                   <Icon className="w-6 h-6" />
                 </div>
                 
                 <div className="flex-1 space-y-4">
-                  <div className="flex justify-between items-start">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <Badge variant={alert.alert_type === "low_soc_parked" || alert.alert_type === "driver_risk" ? "error" : alert.alert_type === "reroute" ? "warning" : "info"}>
@@ -109,7 +109,7 @@ export default function AlertsPage() {
                         </Badge>
                         <span className="text-[10px] text-text-dim uppercase font-bold tracking-widest">{new Date(alert.created_at).toLocaleTimeString()}</span>
                       </div>
-                      <h3 className="text-lg font-bold text-text-primary flex items-center gap-2">
+                      <h3 className="flex flex-wrap items-center gap-2 text-base font-bold text-text-primary sm:text-lg">
                         <Car className="w-4 h-4 text-text-dim" />
                         {alert.vehicle_code}
                         <span className="text-text-dim font-normal text-sm">/ {alert.driver_name}</span>
@@ -127,7 +127,7 @@ export default function AlertsPage() {
                     {alert.message}
                   </p>
 
-                  <div className="flex flex-wrap gap-6 pt-2">
+                  <div className="flex flex-col gap-4 pt-2 sm:flex-row sm:flex-wrap sm:gap-6">
                     <div className="flex items-center gap-2">
                       <Battery className="w-4 h-4 text-text-dim" />
                       <div>
@@ -151,7 +151,7 @@ export default function AlertsPage() {
                       <Button 
                         variant="secondary" 
                         size="sm" 
-                        className="gap-2"
+                        className="min-h-10 w-full gap-2 sm:w-auto"
                         onClick={() => resolveAlert(alert.id)}
                       >
                         <CheckCircle2 className="w-4 h-4" />

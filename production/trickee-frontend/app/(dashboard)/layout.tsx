@@ -17,7 +17,7 @@ export default function DashboardLayout({
         <Sidebar />
         <div className="pl-0 md:pl-[224px]">
           <Topbar />
-          <main className="flex min-h-screen flex-col pb-20 pt-16 md:pb-0">
+          <main className="flex min-h-screen flex-col pb-[calc(6rem+env(safe-area-inset-bottom))] pt-16 md:pb-0">
             <FloatingSocBadge />
             <div className="w-full max-w-[1640px] flex-1 px-4 py-5 sm:px-6 md:px-8 md:py-8 2xl:pr-[280px]">
               {children}

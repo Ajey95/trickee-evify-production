@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { DriverMobileReadiness } from "@/components/driver/DriverMobileReadiness";
 import { DriverProfileCard } from "@/components/driver/DriverProfileCard";
 import { NudgeCard } from "@/components/driver/NudgeCard";
 import { TripHistoryTable } from "@/components/driver/TripHistoryTable";
@@ -74,13 +75,15 @@ export default function DriverProfilePage() {
 
   return (
     <RoleGuard allowedRoles={["driver"]}>
-      <div className="space-y-8 pb-12">
-        <div className="flex justify-between items-end">
+      <div className="space-y-5 pb-12 sm:space-y-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="page-title mb-1">Driver Performance Profile</h1>
             <p className="text-text-dim">Driving behavior, trips, and current vehicle state.</p>
           </div>
         </div>
+
+        <DriverMobileReadiness />
 
         {isLoading && <Card><p className="text-sm text-text-dim">Loading driver profile...</p></Card>}
         {!isLoading && error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
@@ -90,8 +93,8 @@ export default function DriverProfilePage() {
             <DriverProfileCard driver={{ ...driver, ...(behavior || {}) }} currentVehicle={currentVehicle} />
             <ArchetypePanel archetype={liveProfile?.archetype || behavior?.archetype} history={behaviorHistory} />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 space-y-8">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-8">
+              <div className="space-y-5 lg:col-span-2 lg:space-y-8">
                 <section>
                   <div className="flex items-center gap-3 mb-4">
                     <Zap className="w-5 h-5 text-accent-teal" />
@@ -109,7 +112,7 @@ export default function DriverProfilePage() {
                 </section>
               </div>
 
-              <div className="space-y-8">
+              <div className="space-y-5 lg:space-y-8">
                 <Card className="border-accent-teal/20">
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">

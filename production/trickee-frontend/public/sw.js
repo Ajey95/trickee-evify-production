@@ -1,5 +1,5 @@
-const CACHE_NAME = "trickee-shell-v1";
-const SHELL_ASSETS = ["/", "/login", "/fleet", "/map", "/icon.png", "/trickee.png"];
+const CACHE_NAME = "trickee-shell-v2";
+const SHELL_ASSETS = ["/", "/login", "/driver", "/map", "/alerts", "/ai", "/icon.png", "/trickee.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

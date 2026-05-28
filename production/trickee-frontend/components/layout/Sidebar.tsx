@@ -54,7 +54,7 @@ export const Sidebar = () => {
   const sidebarItems = React.useMemo(() => routesForRole(role), [role]);
 
   return (
-    <aside className="fixed bottom-0 left-0 right-0 z-50 flex h-[72px] w-full flex-row border-t border-bg-border/70 bg-[#080b10]/95 backdrop-blur-xl md:inset-y-0 md:right-auto md:h-auto md:w-[224px] md:flex-col md:border-r md:border-t-0">
+    <aside className="fixed bottom-0 left-0 right-0 z-50 flex h-[calc(72px+env(safe-area-inset-bottom))] w-full flex-row border-t border-bg-border/70 bg-[#080b10]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:inset-y-0 md:right-auto md:h-auto md:w-[224px] md:flex-col md:border-r md:border-t-0 md:pb-0">
       <div className="hidden h-16 items-center border-b border-bg-border/70 px-6 md:flex">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-accent-teal rounded-lg flex items-center justify-center shadow-lg shadow-accent-teal/20">

@@ -162,8 +162,8 @@ export default function RouteIntelligencePage() {
 
   return (
     <RoleGuard allowedRoles={["trickee_admin", "fleet_operator", "driver"]}>
-    <div className="space-y-8 pb-12">
-      <div className="flex justify-between items-end">
+    <div className="space-y-5 pb-12 sm:space-y-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="page-title mb-1">Route Intelligence</h1>
           <p className="text-text-dim">Score route choices using driver profile, current SOC, selected GPS points, time slot, and EV battery margin.</p>
@@ -300,14 +300,14 @@ export default function RouteIntelligencePage() {
           <h2 className="section-title mb-0">Dynamic Rerouting</h2>
         </div>
         <Card className="border-accent-amber/20 bg-accent-amber/[0.02]">
-          <CardContent className="flex flex-col md:flex-row items-center justify-between gap-6 p-6">
+          <CardContent className="flex flex-col items-start justify-between gap-6 p-5 md:flex-row md:items-center md:p-6">
             <div className="flex-1">
               <h3 className="font-bold text-text-primary text-lg mb-2">Reroute Check</h3>
               <p className="text-sm text-text-dim leading-relaxed">
                 Re-score the current ranked route against a simulated traffic slowdown and current SOC. This is a decision check, not free-text AI advice.
               </p>
             </div>
-            <Button variant="outline" className="border-accent-amber/50 text-accent-amber hover:bg-accent-amber/10 whitespace-nowrap gap-2" onClick={handleSimulateJam} isLoading={isLoading} disabled={!routes.length}>
+            <Button variant="outline" className="w-full gap-2 whitespace-nowrap border-accent-amber/50 text-accent-amber hover:bg-accent-amber/10 md:w-auto" onClick={handleSimulateJam} isLoading={isLoading} disabled={!routes.length}>
               <RefreshCw className="w-4 h-4" />
               Check Reroute
             </Button>

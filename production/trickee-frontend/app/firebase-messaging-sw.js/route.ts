@@ -22,7 +22,8 @@ self.addEventListener("activate", function (event) {
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
   const data = event.notification.data || {};
-  const targetUrl = data.alert_id ? "/alerts" : "/fleet";
+  const requestedUrl = typeof data.url === "string" && data.url.startsWith("/") && !data.url.startsWith("//") ? data.url : "";
+  const targetUrl = requestedUrl || "/alerts";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clients) {
       for (const client of clients) {

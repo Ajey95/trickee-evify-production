@@ -283,17 +283,17 @@ export default function AiFeaturesPage() {
             <h1 className="page-title mb-1">EV Intelligence Workspace</h1>
             <p className="text-text-dim">Driver assistant, notification previews, route reasoning, charging guidance, and coaching.</p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <select value={selectedDriverId} onChange={(event) => setSelectedDriverId(event.target.value)} className="h-10 min-w-[220px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap xl:w-auto">
+            <select value={selectedDriverId} onChange={(event) => setSelectedDriverId(event.target.value)} className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[220px] sm:w-auto">
               {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.driver_code} - {driver.full_name}</option>)}
             </select>
-            <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="h-10 min-w-[180px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal">
+            <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[180px] sm:w-auto">
               {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.vehicle_code}</option>)}
             </select>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 xl:grid-cols-8">
           {visiblePanels.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
