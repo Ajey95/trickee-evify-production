@@ -17,6 +17,7 @@ export const ROLE_ROUTES: RoleRoute[] = [
   { label: "Fleet Overview", href: "/fleet", roles: ["trickee_admin", "fleet_operator"] },
   { label: "Vehicle Forecasts", href: "/vehicle", activePrefix: "/vehicle", roles: ["trickee_admin", "fleet_operator"] },
   { label: "My Profile", href: "/driver", roles: ["driver"] },
+  { label: "Past Trips", href: "/trips", roles: ["driver", "trickee_admin", "fleet_operator"] },
   { label: "Live Map", href: "/map", roles: ["driver", "trickee_admin", "fleet_operator"] },
   { label: "Assistant", href: "/ai", roles: ["driver", "trickee_admin", "fleet_operator"] },
   { label: "Decisions", href: "/decisions", roles: ["trickee_admin", "fleet_operator"] },

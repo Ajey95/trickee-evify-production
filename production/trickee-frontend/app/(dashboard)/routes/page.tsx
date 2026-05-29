@@ -29,6 +29,7 @@ export default function RouteIntelligencePage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [nudge, setNudge] = useState<any | null>(null);
   const [origin, setOrigin] = useState<PickedPoint>(defaultOrigin);
+  const [originAuto, setOriginAuto] = useState(true);
   const [destination, setDestination] = useState<PickedPoint>(defaultDestination);
   const [isLoading, setIsLoading] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -66,6 +67,28 @@ export default function RouteIntelligencePage() {
 
   const selectedDriver = useMemo(() => drivers.find((driver) => driver.id === selectedDriverId), [drivers, selectedDriverId]);
   const selectedVehicle = useMemo(() => vehicles.find((vehicle) => vehicle.id === selectedVehicleId), [vehicles, selectedVehicleId]);
+  const selectedVehiclePoint = useMemo(() => {
+    const latest: any = selectedVehicle?.latest_telemetry || selectedVehicle?.latest;
+    const lat = Number(latest?.lat);
+    const lng = Number(latest?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return null;
+    return {
+      label: `${selectedVehicle?.vehicle_code || "Vehicle"} live GPS`,
+      lat,
+      lng,
+    };
+  }, [selectedVehicle]);
+
+  useEffect(() => {
+    if (originAuto && selectedVehiclePoint) {
+      setOrigin(selectedVehiclePoint);
+    }
+  }, [originAuto, selectedVehiclePoint]);
+
+  const handleOriginChange = (point: PickedPoint) => {
+    setOriginAuto(false);
+    setOrigin(point);
+  };
 
   const normalizeRoutes = (rows: any[]): Route[] => rows.map((route, index) => {
     const socEnd = route.soc_end_pct ?? route.soc_end ?? 0;
@@ -260,7 +283,7 @@ export default function RouteIntelligencePage() {
           <MapPicker
             origin={origin}
             destination={destination}
-            onOriginChange={setOrigin}
+            onOriginChange={handleOriginChange}
             onDestinationChange={setDestination}
           />
         </CardContent>

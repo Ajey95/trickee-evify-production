@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, MapPinned, RefreshCcw, Route as RouteIcon } from "lucide-react";
 import { RoleGuard } from "@/components/layout/RoleGuard";
-import { MapPicker, PickedPoint } from "@/components/intelligence/MapPicker";
+import { MapPicker, mapPresets, PickedPoint } from "@/components/intelligence/MapPicker";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -14,6 +14,11 @@ import { useAuth } from "@/components/AuthProvider";
 const defaultOrigin: PickedPoint = { label: "Ring Road Depot", lat: 21.1702, lng: 72.8311 };
 const defaultDestination: PickedPoint = { label: "Varachha Pickup", lat: 21.2131, lng: 72.8708 };
 const slots = ["morning", "lunch_peak", "evening", "night"];
+const scheduleDestinationPlan = mapPresets.filter((point) => point.label !== defaultOrigin.label);
+
+function isSamePoint(a: PickedPoint, b: PickedPoint) {
+  return Math.abs(a.lat - b.lat) < 0.0001 && Math.abs(a.lng - b.lng) < 0.0001;
+}
 
 function dateLabel(offset: number) {
   const date = new Date();
@@ -28,6 +33,7 @@ export default function RouteSchedulePage() {
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [origin, setOrigin] = useState<PickedPoint>(defaultOrigin);
+  const [originAuto, setOriginAuto] = useState(true);
   const [destination, setDestination] = useState<PickedPoint>(defaultDestination);
   const [schedule, setSchedule] = useState<any[]>([]);
   const [isBuilding, setIsBuilding] = useState(false);
@@ -62,6 +68,29 @@ export default function RouteSchedulePage() {
     [selectedDriverId, selectedVehicleId, vehicles]
   );
   const socStart = Math.round((selectedVehicle?.latest_telemetry || selectedVehicle?.latest)?.soc || 60);
+  const selectedVehiclePoint = useMemo(() => {
+    const latest: any = selectedVehicle?.latest_telemetry || selectedVehicle?.latest;
+    const lat = Number(latest?.lat);
+    const lng = Number(latest?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0 || lng === 0) return null;
+    return {
+      label: `${selectedVehicle?.vehicle_code || "Vehicle"} live GPS`,
+      lat,
+      lng,
+    };
+  }, [selectedVehicle]);
+  const useRotatingDestinations = isSamePoint(destination, defaultDestination);
+
+  useEffect(() => {
+    if (originAuto && selectedVehiclePoint) {
+      setOrigin(selectedVehiclePoint);
+    }
+  }, [originAuto, selectedVehiclePoint]);
+
+  const handleOriginChange = (point: PickedPoint) => {
+    setOriginAuto(false);
+    setOrigin(point);
+  };
 
   const buildSchedule = async () => {
     if (!selectedDriverId) return;
@@ -69,6 +98,9 @@ export default function RouteSchedulePage() {
     setError("");
     const rows: any[] = [];
     for (let day = 0; day < 7; day += 1) {
+      const dayDestination = useRotatingDestinations
+        ? scheduleDestinationPlan[day % scheduleDestinationPlan.length] || destination
+        : destination;
       const slot = slots[day % slots.length];
       const result = await api.routes.score({
         driver_id: selectedDriverId,
@@ -76,15 +108,16 @@ export default function RouteSchedulePage() {
         day_type: day === 5 || day === 6 ? "weekend" : "weekday",
         slot,
         origin: { lat: origin.lat, lng: origin.lng },
-        destination: { lat: destination.lat, lng: destination.lng },
+        destination: { lat: dayDestination.lat, lng: dayDestination.lng },
         origin_label: origin.label,
-        dest_label: destination.label,
+        dest_label: dayDestination.label,
       });
       const best: any = result.success ? result.data.ranked_routes?.[0] : null;
       rows.push({
         day,
         label: dateLabel(day),
         slot,
+        destination: dayDestination.label,
         status: result.success ? "planned" : "needs_review",
         route: best?.route_name || best?.name || "Route unavailable",
         eta: best?.personalized_eta_min || best?.duration_min || 0,
@@ -156,7 +189,7 @@ export default function RouteSchedulePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <MapPicker origin={origin} destination={destination} onOriginChange={setOrigin} onDestinationChange={setDestination} />
+            <MapPicker origin={origin} destination={destination} onOriginChange={handleOriginChange} onDestinationChange={setDestination} />
           </CardContent>
         </Card>
 
@@ -186,6 +219,7 @@ export default function RouteSchedulePage() {
                   <RouteIcon className="w-4 h-4 text-accent-teal" />
                   <p className="text-xs text-text-primary font-semibold">{row.route}</p>
                 </div>
+                {row.destination && <p className="text-xs text-text-dim">{row.destination}</p>}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded-lg border border-bg-border bg-bg-primary/40 p-2">
                     <p className="text-text-dim">ETA</p>
@@ -211,7 +245,7 @@ export default function RouteSchedulePage() {
           <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               ["Origin", origin.label],
-              ["Destination", destination.label],
+              ["Destination", useRotatingDestinations ? "7-day pilot zone rotation" : destination.label],
               ["Vehicle SOC", `${socStart}%`],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-bg-border bg-bg-primary/40 p-4">

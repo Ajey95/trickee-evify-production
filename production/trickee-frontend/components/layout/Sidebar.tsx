@@ -18,7 +18,8 @@ import {
   DatabaseZap,
   Radio,
   BrainCircuit,
-  CircleDollarSign
+  CircleDollarSign,
+  History,
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -33,6 +34,7 @@ const iconByLabel = {
   "Fleet Overview": LayoutDashboard,
   "Vehicle Forecasts": BatteryCharging,
   "My Profile": User,
+  "Past Trips": History,
   "Live Map": Map,
   Decisions: ClipboardCheck,
   "Route Intel": Route,

@@ -1,5 +1,5 @@
 # Trickee Implementation Status And Remaining Work
-**Last reconciled:** 2026-05-28
+**Last reconciled:** 2026-05-29
 **Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
 **Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
@@ -509,8 +509,13 @@ Implemented frontend foundations:
 - Fleet carousel now shows a center-highlighted, side-faded vehicle carousel without duplicated vehicle-card stack below it.
 - Daily Impact now supports selecting a driver and viewing a detailed driver panel with value, time, orders, top-ups, actions, telemetry count, confidence, and proportional bars.
 - Driver trip history now supports click-to-view trip route reconstruction via `GET /api/v1/drivers/{driver_id}/trips/{trip_id}/trace`, plus a large trip-detail view with route path, source/destination, SOC, energy, speed, duration, route/nudge metrics, estimated trip energy cost, estimated cost per km, estimated savings, and future placeholders for order-linked wait/charging savings.
+- Dedicated `/trips` page now exists for driver, fleet operator, and admin roles. It exposes past trips as a first-class navigation item instead of burying trip replay only inside the driver profile page.
 - Data Quality now separates feed tags from issue text and checks GPS validity, battery validity, thermal validity, stale feed age, and current spikes.
 - Live Map charger list shows all charger points returned by backend and explains that chargers are ranked from current visible driver/fleet GPS context.
+- Route Intel and 7-Day Schedule no longer rely only on the original five demo places:
+  - Map picker presets were expanded across more Surat pilot zones.
+  - Route Intel and Schedule auto-seed origin from the selected vehicle's latest GPS when available.
+  - 7-Day Schedule rotates pilot destinations by day while the default destination is unchanged; if the user chooses a custom destination, it uses that selected destination for all days.
 - Driver mobile browser readiness is now implemented for pilot use:
   - Driver profile page prompts for geolocation on entry and keeps a `watchPosition` active while the page remains open.
   - Live Map auto-prompts driver accounts for location and keeps the current browser location marker updated while the map remains open.
@@ -1023,3 +1028,57 @@ Current interpretation:
 - These are future or pilot-plus backlog items unless Section 2-12 above marks them as already implemented.
 - They must not be represented as shipped functionality in pitch/demo material.
 - Pilot-critical items from this backlog are already promoted into Section 8: Evify 7.0 adapter aliases, vehicle-proxy driver creation, generated trip/session inference, bulk ingest load testing, WebSocket fanout testing, and FCM deployed verification.
+
+---
+
+## 14. Latest Production Feature - Mobile Action Button Pilot Foundation
+
+Status: implemented in production codebase on 2026-05-29.
+
+Source:
+
+- `Trickee/mobfeatures.md`
+- `Trickee/analysis/mobfeatures.md`
+- Extracted: 2026-05-29
+- Confidence: High for implemented backend/app scaffold; Medium for field reliability until Android device testing is completed.
+
+Implemented backend surface:
+
+- Added dedicated mobile persistence tables for phone GPS, action-button trip sessions, waiting events, charging sessions, and issue events.
+- Added Alembic migration `0013_mobile_action_button`.
+- Added `GET /api/v1/mobile/me`.
+- Added `POST /api/v1/mobile/location`.
+- Added `POST /api/v1/mobile/voice/resolve-destination`.
+- Added `POST /api/v1/mobile/trips/start` and `POST /api/v1/mobile/trips/end`.
+- Added `POST /api/v1/mobile/charging/start` and `POST /api/v1/mobile/charging/end`.
+- Added `POST /api/v1/mobile/waiting/start` and `POST /api/v1/mobile/waiting/end`.
+- Added `POST /api/v1/mobile/issues`.
+- Added driver-scoped `GET /api/v1/mobile/alerts` and `POST /api/v1/mobile/alerts/{alert_id}/ack`.
+
+Implementation notes:
+
+- Mobile phone GPS is stored separately from Evify vehicle telemetry in `mobile_location_points`.
+- Location pings can update Redis live state with `source = android_app` when Redis live-state is enabled.
+- Action endpoints accept idempotency keys so the mobile offline queue can retry without duplicating sessions.
+- Voice destination handling is backend-owned and currently performs deterministic text cleanup only. External Google Places/Routes or LLM-backed place resolution remains a follow-up because privileged API keys must not live in the mobile app.
+- Driver access requires an approved mapped `driver` user with `driver_id`.
+
+Implemented mobile app foundation:
+
+- Added standalone React Native CLI Android app at `production/trickee-driver-mobile`.
+- Kept Trickee logic isolated under `src/features/trickee-driver`.
+- Added isolated services for backend API, Supabase auth, location tracking, FCM registration, voice input, and offline queue.
+- Added Android permissions for foreground/background location, foreground service, notifications, and internet.
+- Implemented the MVP action-button gestures:
+  - single tap starts voice destination trip flow
+  - double tap starts charging
+  - swipe right starts waiting
+  - long press opens issue reporting
+- Added basic trip end, waiting end, charging end, issue submit, and mobile state sync.
+
+Remaining verification:
+
+- Run the React Native app on an Android device/emulator with real Supabase and Firebase config.
+- Verify `google-services.json` and FCM delivery through Firebase App Distribution setup.
+- Verify background geolocation behavior on target Android versions and battery-optimization settings.
+- Add production Google Places/Routes-backed destination resolver on the backend when map API keys and quota policy are finalized.

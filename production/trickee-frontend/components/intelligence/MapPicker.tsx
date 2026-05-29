@@ -16,12 +16,21 @@ type MapPickerProps = {
   onDestinationChange: (point: PickedPoint) => void;
 };
 
-const presets = [
+export const mapPresets = [
   { label: "Ring Road Depot", lat: 21.1702, lng: 72.8311 },
   { label: "Varachha Pickup", lat: 21.2131, lng: 72.8708 },
   { label: "Katargam", lat: 21.2244, lng: 72.8313 },
   { label: "Adajan", lat: 21.1959, lng: 72.7925 },
   { label: "Hotel Kohinoor", lat: 21.1862, lng: 72.8316 },
+  { label: "Surat Railway Station", lat: 21.2045, lng: 72.8402 },
+  { label: "Udhna", lat: 21.1700, lng: 72.8526 },
+  { label: "Vesu", lat: 21.1419, lng: 72.7709 },
+  { label: "Piplod", lat: 21.1598, lng: 72.7779 },
+  { label: "Dumas Road", lat: 21.1266, lng: 72.7411 },
+  { label: "Sarthana", lat: 21.2307, lng: 72.9021 },
+  { label: "Ghod Dod Road", lat: 21.1747, lng: 72.8052 },
+  { label: "Textile Market", lat: 21.1933, lng: 72.8336 },
+  { label: "Pal", lat: 21.1806, lng: 72.7669 },
 ];
 
 function isPicked(a: PickedPoint, b: PickedPoint) {
@@ -226,7 +235,7 @@ export function MapPicker({ origin, destination, onOriginChange, onDestinationCh
           ))}
 
           <div className="grid grid-cols-1 gap-2">
-            {presets.map((preset) => (
+            {mapPresets.map((preset) => (
               <button
                 key={preset.label}
                 type="button"
