@@ -438,6 +438,114 @@ class WaitEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
+class MobileLocationPoint(Base):
+    __tablename__ = "mobile_location_points"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speed_mps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    heading_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    battery_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tracking_state: Mapped[str] = mapped_column(String(40), nullable=False, default="ready", index=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="android_app")
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class MobileTripSession(Base):
+    __tablename__ = "mobile_trip_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    origin_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    origin_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    destination_text: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    destination_place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    destination_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    destination_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active", index=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="action_button")
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MobileWaitEvent(Base):
+    __tablename__ = "mobile_wait_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    trip_session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("mobile_trip_sessions.id"), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wait_type: Mapped[str] = mapped_column(String(50), nullable=False, default="unknown")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MobileChargingSession(Base):
+    __tablename__ = "mobile_charging_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    trip_session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("mobile_trip_sessions.id"), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    charger_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    charger_place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    soc_start: Mapped[float | None] = mapped_column(Float, nullable=True)
+    soc_end: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MobileIssueEvent(Base):
+    __tablename__ = "mobile_issue_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    trip_session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("mobile_trip_sessions.id"), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=False, index=True)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id"), nullable=True, index=True)
+    issue_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="open", index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Alert(Base):
     __tablename__ = "alerts"
 

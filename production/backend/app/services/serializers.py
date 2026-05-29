@@ -278,3 +278,108 @@ def wait_event_dict(row) -> dict[str, Any]:
         "context": row.context,
         "created_at": iso(row.created_at),
     }
+
+
+def mobile_location_point_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "driver_id": row.driver_id,
+        "vehicle_id": row.vehicle_id,
+        "lat": row.lat,
+        "lng": row.lng,
+        "accuracy_m": row.accuracy_m,
+        "speed_mps": row.speed_mps,
+        "heading_deg": row.heading_deg,
+        "battery_pct": row.battery_pct,
+        "tracking_state": row.tracking_state,
+        "source": row.source,
+        "captured_at": iso(row.captured_at),
+        "received_at": iso(row.received_at),
+    }
+
+
+def mobile_trip_session_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "user_id": row.user_id,
+        "driver_id": row.driver_id,
+        "vehicle_id": row.vehicle_id,
+        "started_at": iso(row.started_at),
+        "ended_at": iso(row.ended_at),
+        "origin_lat": row.origin_lat,
+        "origin_lng": row.origin_lng,
+        "destination_text": row.destination_text,
+        "destination_place_id": row.destination_place_id,
+        "destination_lat": row.destination_lat,
+        "destination_lng": row.destination_lng,
+        "status": row.status,
+        "confidence": row.confidence,
+        "source": row.source,
+        "context": row.context,
+        "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
+    }
+
+
+def mobile_wait_event_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "trip_session_id": row.trip_session_id,
+        "user_id": row.user_id,
+        "driver_id": row.driver_id,
+        "vehicle_id": row.vehicle_id,
+        "started_at": iso(row.started_at),
+        "ended_at": iso(row.ended_at),
+        "lat": row.lat,
+        "lng": row.lng,
+        "wait_type": row.wait_type,
+        "confidence": row.confidence,
+        "duration_seconds": row.duration_seconds,
+        "duration_min": round(row.duration_seconds / 60.0, 1),
+        "context": row.context,
+        "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
+    }
+
+
+def mobile_charging_session_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "trip_session_id": row.trip_session_id,
+        "user_id": row.user_id,
+        "driver_id": row.driver_id,
+        "vehicle_id": row.vehicle_id,
+        "started_at": iso(row.started_at),
+        "ended_at": iso(row.ended_at),
+        "lat": row.lat,
+        "lng": row.lng,
+        "charger_name": row.charger_name,
+        "charger_place_id": row.charger_place_id,
+        "soc_start": row.soc_start,
+        "soc_end": row.soc_end,
+        "confidence": row.confidence,
+        "duration_seconds": row.duration_seconds,
+        "duration_min": round(row.duration_seconds / 60.0, 1),
+        "context": row.context,
+        "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
+    }
+
+
+def mobile_issue_event_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "trip_session_id": row.trip_session_id,
+        "user_id": row.user_id,
+        "driver_id": row.driver_id,
+        "vehicle_id": row.vehicle_id,
+        "issue_type": row.issue_type,
+        "message": row.message,
+        "lat": row.lat,
+        "lng": row.lng,
+        "status": row.status,
+        "context": row.context,
+        "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
+    }

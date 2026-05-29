@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, alerts, assistant, auth, battery, chargers, drivers, fleet, intelligence, notifications, predictions, routes, telemetry, vehicles, ws
+from app.routers import admin, alerts, assistant, auth, battery, chargers, drivers, fleet, intelligence, mobile, notifications, predictions, routes, telemetry, vehicles, ws
 from app.services.ai_engine import FEATURE_COLS, SEQ_LEN, ai_engine
 from app.services.security import SecurityMiddleware, http_exception_handler, unhandled_exception_handler
 from app.services.ws_manager import manager
@@ -42,6 +42,7 @@ app.include_router(assistant.router, prefix=settings.api_prefix)
 app.include_router(battery.router, prefix=settings.api_prefix)
 app.include_router(chargers.router, prefix=settings.api_prefix)
 app.include_router(fleet.router, prefix=settings.api_prefix)
+app.include_router(mobile.router, prefix=settings.api_prefix)
 # WebSocket router is registered without the /api/v1 prefix so the
 # endpoint lives at  wss://<host>/ws/live-map  (no version segment).
 app.include_router(ws.router)

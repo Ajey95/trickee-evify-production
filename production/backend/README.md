@@ -60,6 +60,14 @@ Demo users are seeded for local development. The production auth path is Supabas
 - `POST /api/v1/drivers/{driver_id}/profile/update`
 - `POST /api/v1/drivers/{driver_id}/coaching`
 - `POST /api/v1/fleet/summary`
+- `GET /api/v1/mobile/me`
+- `POST /api/v1/mobile/location`
+- `POST /api/v1/mobile/voice/resolve-destination`
+- `POST /api/v1/mobile/trips/start`
+- `POST /api/v1/mobile/trips/end`
+- `POST /api/v1/mobile/charging/start`
+- `POST /api/v1/mobile/waiting/start`
+- `POST /api/v1/mobile/issues`
 - `GET /api/v1/admin/metrics`
 
 ## Future Roadmap APIs

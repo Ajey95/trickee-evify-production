@@ -22,6 +22,9 @@ def _safe_point(point: dict[str, Any]) -> dict[str, Any]:
         "lng",
         "soc",
         "speed",
+        "source",
+        "tracking_state",
+        "accuracy_m",
         "recorded_at",
     }
     return {key: point.get(key) for key in allowed if point.get(key) is not None}

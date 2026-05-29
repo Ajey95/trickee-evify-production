@@ -1,4 +1,4 @@
-from app.routers import admin, alerts, assistant, auth, battery, chargers, drivers, fleet, intelligence, notifications, predictions, routes, telemetry, vehicles
+from app.routers import admin, alerts, assistant, auth, battery, chargers, drivers, fleet, intelligence, mobile, notifications, predictions, routes, telemetry, vehicles
 
 __all__ = [
     "admin",
@@ -10,6 +10,7 @@ __all__ = [
     "drivers",
     "fleet",
     "intelligence",
+    "mobile",
     "notifications",
     "predictions",
     "routes",
