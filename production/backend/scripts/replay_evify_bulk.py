@@ -16,6 +16,7 @@ import httpx
 
 DEFAULT_PATH = "/api/v1/telemetry/evify/bulk"
 MAX_BATCH_SIZE = 500
+DEFAULT_MAX_REQUEST_BYTES = 1_800_000
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--path", default=DEFAULT_PATH, help="Bulk ingest API path")
     parser.add_argument("--token", default=os.getenv("TRICKEE_API_TOKEN"), help="Bearer token; or set TRICKEE_API_TOKEN")
     parser.add_argument("--batch-size", type=int, default=MAX_BATCH_SIZE, help="Rows per request, max 500")
+    parser.add_argument(
+        "--max-request-bytes",
+        type=int,
+        default=DEFAULT_MAX_REQUEST_BYTES,
+        help="Approximate JSON body byte cap per request. Keep below backend MAX_REQUEST_BODY_BYTES.",
+    )
     parser.add_argument("--concurrency", type=int, default=10, help="Concurrent HTTP requests")
     parser.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout seconds")
     parser.add_argument("--limit-files", type=int, default=None, help="Only read first N JSON files")
@@ -77,7 +84,16 @@ def load_records(path: Path) -> list[dict[str, Any]]:
     return data
 
 
-def iter_batches(files: Iterable[Path], batch_size: int, limit_rows: int | None) -> Iterable[Batch]:
+def _json_size(row: dict[str, Any]) -> int:
+    return len(json.dumps(row, separators=(",", ":"), default=str).encode("utf-8"))
+
+
+def iter_batches(
+    files: Iterable[Path],
+    batch_size: int,
+    limit_rows: int | None,
+    max_request_bytes: int,
+) -> Iterable[Batch]:
     seen = 0
     for file_path in files:
         records = load_records(file_path)
@@ -86,12 +102,25 @@ def iter_batches(files: Iterable[Path], batch_size: int, limit_rows: int | None)
             if remaining <= 0:
                 return
             records = records[:remaining]
-        for index, start in enumerate(range(0, len(records), batch_size), start=1):
-            rows = records[start : start + batch_size]
-            if not rows:
-                continue
-            seen += len(rows)
-            yield Batch(source=file_path.name, index=index, rows=rows)
+        batch_rows: list[dict[str, Any]] = []
+        batch_bytes = 2
+        batch_index = 1
+        for row in records:
+            row_bytes = _json_size(row) + (1 if batch_rows else 0)
+            if batch_rows and (len(batch_rows) >= batch_size or batch_bytes + row_bytes > max_request_bytes):
+                seen += len(batch_rows)
+                yield Batch(source=file_path.name, index=batch_index, rows=batch_rows)
+                batch_index += 1
+                if limit_rows is not None and seen >= limit_rows:
+                    return
+                batch_rows = []
+                batch_bytes = 2
+            batch_rows.append(row)
+            batch_bytes += row_bytes
+
+        if batch_rows:
+            seen += len(batch_rows)
+            yield Batch(source=file_path.name, index=batch_index, rows=batch_rows)
             if limit_rows is not None and seen >= limit_rows:
                 return
 
@@ -150,6 +179,8 @@ def main() -> int:
         raise SystemExit(f"Data directory does not exist: {data_dir}")
     if args.batch_size < 1 or args.batch_size > MAX_BATCH_SIZE:
         raise SystemExit(f"--batch-size must be between 1 and {MAX_BATCH_SIZE}")
+    if args.max_request_bytes < 1024:
+        raise SystemExit("--max-request-bytes must be at least 1024")
     if args.concurrency < 1:
         raise SystemExit("--concurrency must be at least 1")
 
@@ -157,7 +188,7 @@ def main() -> int:
     if not files:
         raise SystemExit(f"No .json files found in {data_dir}")
 
-    batches = iter_batches(files, args.batch_size, args.limit_rows)
+    batches = iter_batches(files, args.batch_size, args.limit_rows, args.max_request_bytes)
     if args.dry_run:
         file_count = 0
         batch_count = 0
@@ -171,6 +202,7 @@ def main() -> int:
         print(f"  batches={batch_count}")
         print(f"  rows={row_count}")
         print(f"  batch_size={args.batch_size}")
+        print(f"  max_request_bytes={args.max_request_bytes}")
         return 0
 
     if not args.token:

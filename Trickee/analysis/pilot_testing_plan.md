@@ -746,6 +746,23 @@ Current dry-run evidence from Evify 7.0:
 | Rows | 90,833 |
 | 500-row batches | 205 |
 
+Byte-aware dry-run evidence from 2026-06-02:
+
+| Metric | Value |
+|---|---:|
+| Files read | 48 |
+| Rows | 90,833 |
+| Max row cap | 500 |
+| Max request body cap used by replay script | 1,800,000 bytes |
+| Deploy-safe batches | 360 |
+
+Why this matters:
+
+- The API row cap is 500 rows per request.
+- The deployed backend also has `MAX_REQUEST_BODY_BYTES = 2,000,000`.
+- Raw Evify 7.0 records are large enough that some 500-row batches exceed the body-size limit.
+- Replay tooling now chunks by both row count and approximate JSON body size.
+
 Bounded ingest replay evidence from 2026-05-27:
 
 | Check | Result |
@@ -785,10 +802,47 @@ Redis deployed config evidence from 2026-05-27:
 | `redis_configured` | `true` |
 | `live_state_redis_enabled` | `true` |
 
-This confirms deployed Redis environment wiring. Actual Redis read/write proof still needs either:
+This confirms deployed Redis environment wiring.
 
-1. authenticated telemetry ingest, followed by `/api/v1/intelligence/live-map` showing `source=redis_live_state`, or
-2. local Redis roundtrip test with `REDIS_URL` set in the shell without printing the secret.
+Deployed Redis read/write proof from 2026-06-02:
+
+| Check | Result |
+|---|---|
+| Authenticated deployed 500-row ingest | 200 OK |
+| Rows reported by API | 500 |
+| `/api/v1/intelligence/live-map` after ingest | 200 OK |
+| Matching test vehicle point source | `redis_live_state` |
+| Redis live-state proof | Passed |
+
+Deployed API ingest evidence from 2026-06-02:
+
+| Check | Result |
+|---|---:|
+| `/health` | 200 OK |
+| `/api/v1/auth/me` | 200 OK as `trickee_admin` |
+| 501-row request | HTTP 413 |
+| 501-row rejection reason | `Bulk telemetry ingest is limited to 500 rows per request` |
+| Generated 500-row request | 200 OK |
+| Generated 500-row latency | 4.57s |
+| Generated 20 concurrent x 500-row batches | 20/20 succeeded |
+| Rows accepted in 20-batch generated test | 10,000 |
+| Generated 20-batch p50 latency | 70.38s |
+| Generated 20-batch p95 latency | 86.82s |
+| Generated 20-batch max latency | 86.83s |
+| Raw Evify 7.0 50-concurrency row-only replay | Failed due request body size |
+| Raw Evify 7.0 row-only failure | HTTP 413 `Request payload is too large` |
+| Raw Evify 7.0 byte-aware 20-concurrency replay | 20/20 succeeded |
+| Raw Evify 7.0 byte-aware rows accepted | 5,000 |
+| Raw Evify 7.0 byte-aware p50 latency | 48.86s |
+| Raw Evify 7.0 byte-aware p95 latency | 53.30s |
+| Raw Evify 7.0 byte-aware max latency | 53.68s |
+
+Interpretation:
+
+- Correctness checks passed: auth, 501 rejection, 500-row acceptance, duplicate-safe local regression, Redis live-state source.
+- Deployed latency is high under concurrent bulk load. This is acceptable for historical replay/backfill, but not for synchronous realtime user flows.
+- For pilot live telemetry, prefer smaller frequent batches and keep Redis/WebSocket live state decoupled from dashboard reads.
+- For full 50-concurrency raw replay, use byte-aware batching and temporarily raise staging `TELEMETRY_RATE_LIMIT_PER_MINUTE`; otherwise tests will mix capacity findings with rate/body-limit findings.
 
 Implementation detail:
 
@@ -829,7 +883,8 @@ Increase concurrency gradually:
 Important:
 - Use a real `trickee_admin` or `fleet_operator` bearer token.
 - Do not run production replay until the target database is intentional.
-- Keep `--batch-size` at 500; the API must reject 501 rows with HTTP 413.
+- Keep `--batch-size` at or below 500; the API must reject 501 rows with HTTP 413.
+- Keep `--max-request-bytes` below deployed `MAX_REQUEST_BODY_BYTES`; current replay default is 1,800,000 bytes.
 - For capacity testing, temporarily raise `TELEMETRY_RATE_LIMIT_PER_MINUTE` in staging or expect HTTP 429. The current bulk route applies roughly one quarter of that limit per user.
 - Watch Render logs for `telemetry_bulk_ingest`, `telemetry_bulk_rejected`, latency, rate limits, and DB connection errors.
 - Watch Cloud SQL for CPU, active connections, slow queries, and write latency.
@@ -879,6 +934,26 @@ background task
 
 Remaining hardening after load test:
 - set send timeout per client if slow-client tests show backpressure
+
+Deployed WebSocket fanout evidence from 2026-06-02:
+
+| Check | Result |
+|---|---:|
+| 50 simultaneous connection attempt | 14/50 opened; many timed out |
+| Bulk 500 ingest with 14 sockets open | 200 OK |
+| Ingest latency with 14 sockets | 54.90s |
+| 50 connections in waves using one short-lived ticket | 37/50 opened; later failures likely ticket expiry |
+| Bulk 500 ingest with 37 sockets open | 200 OK |
+| Ingest latency with 37 sockets | 16.10s |
+| 50 connections in waves using fresh ticket per wave | 50/50 opened |
+| Bulk 500 ingest with 50 sockets open | 200 OK |
+| Ingest latency with 50 sockets | 10.38s |
+
+Interpretation:
+
+- Fanout did not break ingest response correctness.
+- WebSocket connection setup should use fresh short-lived tickets because tickets expire after 2 minutes.
+- Ingest latency under dashboard load is still higher than the ideal single-row target. Continue measuring single-row live telemetry separately from historical bulk replay.
 - drop slow/stale clients aggressively
 - use Redis pub/sub with `REDIS_URL` in multi-worker deployments
 
@@ -1165,8 +1240,8 @@ Backend:
 
 ### Still Required Before Pilot
 
-1. Run actual bulk load test: 50 concurrent requests x 500 rows.
-2. Run WebSocket fanout load test with 50+ connected dashboard clients.
+1. Run full 50-concurrency byte-aware raw Evify replay after temporarily raising staging `TELEMETRY_RATE_LIMIT_PER_MINUTE`.
+2. Run single-row ingest latency test with 0, 10, 50, and 100 WebSocket clients.
 3. Verify FCM push delivery on deployed Vercel URL.
 4. Run authenticated production Postman/API smoke with real admin/fleet/driver tokens.
 5. Decide whether to branch a dependency-hardening sprint for Next/FastAPI/Torch upgrades before external pilot.
