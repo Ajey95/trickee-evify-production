@@ -1,5 +1,5 @@
 # Trickee Implementation Status And Remaining Work
-**Last reconciled:** 2026-05-29
+**Last reconciled:** 2026-06-02
 **Codebase checked:** `production/backend`, `production/trickee-frontend`, Alembic migrations, Evify Data 7.0 shape
 **Purpose:** Current source-of-truth for what is actually built, what is partially built, and what remains before pilot.
 
@@ -1082,3 +1082,67 @@ Remaining verification:
 - Verify `google-services.json` and FCM delivery through Firebase App Distribution setup.
 - Verify background geolocation behavior on target Android versions and battery-optimization settings.
 - Add production Google Places/Routes-backed destination resolver on the backend when map API keys and quota policy are finalized.
+
+---
+
+## 15. Latest Pilot Verification - Deployed Bulk Ingest, Redis Live State, And WebSocket Load
+
+Status: verified and documented on 2026-06-02.
+
+Code/doc changes:
+
+- Added `production/backend/tests/test_bulk_ingest_api.py`.
+- Updated `production/backend/scripts/replay_evify_bulk.py` so replay batching respects both:
+  - max 500 rows per request
+  - approximate request body byte cap, default `1,800,000` bytes
+- Updated `Trickee/analysis/pilot_testing_plan.md` with deployed verification evidence.
+- Pushed commit `f8f4d38` (`Verify deployed ingest and harden replay batching`).
+
+Local regression coverage added:
+
+- 500-row bulk ingest is accepted through the actual FastAPI route.
+- 501-row bulk ingest is rejected with HTTP `413`.
+- Duplicate `(vehicle_id, recorded_at)` payloads do not create duplicate telemetry rows.
+
+Focused local verification:
+
+- Bulk ingest API regression tests: passed.
+- Evify 7.0 adapter/bulk ingest regression tests: passed.
+- Redis/live-map fallback preference tests: passed.
+- WebSocket manager tests: passed.
+- Byte-aware Evify 7.0 replay dry run: 48 files, 90,833 rows, 360 deploy-safe batches.
+
+Deployed Render verification:
+
+| Check | Result |
+|---|---|
+| `GET /health` | 200 OK |
+| `model_ready` | `true` |
+| `redis_configured` | `true` |
+| `live_state_redis_enabled` | `true` |
+| `GET /api/v1/auth/me` | 200 OK as `trickee_admin` |
+| 501-row bulk request | HTTP `413`, rejected correctly |
+| Generated 500-row bulk request | 200 OK, 500 rows accepted |
+| Live map after deployed ingest | Matching point returned `source = redis_live_state` |
+| 20 concurrent generated 500-row batches | 20/20 succeeded, 10,000 rows accepted |
+| Byte-aware Evify 7.0 deployed replay slice | 20/20 succeeded, 5,000 rows accepted |
+| WebSocket fanout with 50 active sockets | Bulk 500-row ingest still returned 200 OK |
+
+Important finding:
+
+- The original 500-row replay assumption was incomplete because deployed middleware also enforces `MAX_REQUEST_BODY_BYTES = 2,000,000`.
+- Raw Evify 7.0 records can exceed that byte cap even when row count is 500.
+- The replay script now chunks by byte size as well as row count.
+
+Performance interpretation:
+
+- Correctness is verified for deployed auth, row cap, byte-aware replay, Redis live-state, and WebSocket fanout.
+- Concurrent bulk replay latency is high and should be treated as backfill/replay behavior, not realtime UX behavior.
+- Pilot live telemetry should use smaller frequent batches; 500-row batches are suitable for historical replay/backfill.
+
+Still required before full pilot sign-off:
+
+- FCM deployed verification on the Vercel URL.
+- Full 50-concurrency byte-aware raw Evify replay after temporarily raising staging `TELEMETRY_RATE_LIMIT_PER_MINUTE`.
+- Single-row ingest latency test with 0, 10, 50, and 100 WebSocket clients.
+- Real Android device verification for the React Native driver app.
