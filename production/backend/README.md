@@ -63,6 +63,7 @@ Demo users are seeded for local development. The production auth path is Supabas
 - `GET /api/v1/mobile/me`
 - `POST /api/v1/mobile/location`
 - `POST /api/v1/mobile/voice/resolve-destination`
+- `POST /api/v1/mobile/voice/copilot`
 - `POST /api/v1/mobile/trips/start`
 - `POST /api/v1/mobile/trips/end`
 - `POST /api/v1/mobile/charging/start`
@@ -106,10 +107,14 @@ Features 1-8 are implemented through grounded backend tools plus a shared AI cli
 - Tool calls and AI calls are logged in `tool_call_logs` and `ai_interaction_logs`.
 - Feature records are stored in `notification_personalization_logs`, `assistant_messages`, `driver_profile_snapshots`, `driver_coaching_events`, and `fleet_summary_logs`.
 - Prompt-injection text is treated as untrusted input and cannot bypass tool grounding.
+- Assistant responses now include orchestrator/specialist agent metadata and grounded evidence summaries.
 
 Production AI/rate-limit envs:
 
 ```text
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
 GROQ_API_KEY=
 GROQ_MODEL=llama-3.1-8b-instant
 AI_REQUEST_TIMEOUT_SECONDS=4
@@ -123,6 +128,8 @@ ROUTE_EXPLANATION_RATE_LIMIT_PER_HOUR=30
 FLEET_SUMMARY_RATE_LIMIT_PER_HOUR=20
 COACHING_RATE_LIMIT_PER_DAY=10
 ```
+
+For Google-tech-first submission, keep Gemini as the primary provider and Groq as optional fallback.
 
 ## Supabase Auth, Legacy Rollback, And FCM
 

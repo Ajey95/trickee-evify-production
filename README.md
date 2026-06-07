@@ -86,6 +86,12 @@ Important docs:
 - `analysis/future_roadmapv2.md`  
   Future roadmap and V6-ready foundation explanation.
 
+- `Trickee/analysis/google_startups_submission_scope.md`  
+  Google-tech-first submission scope and flagship workflow definition.
+
+- `Trickee/analysis/google_submission_compliance_checklist.md`  
+  Reviewer confirmation checklist, compliance gates, and artifact status.
+
 - `production/backend/README.md`  
   Backend setup, endpoints, deployment, and smoke testing.
 
@@ -528,4 +534,3 @@ Backend Render health is not active yet:
 - `https://trickee-backend.onrender.com/health` currently returns `404`
 
 This confirms the frontend is deployed, but production API calls need backend deployment completion.
-
