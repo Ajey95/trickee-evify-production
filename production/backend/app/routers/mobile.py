@@ -81,7 +81,7 @@ class VoiceResolveRequest(BaseModel):
 class VoiceCopilotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    transcript: str = Field(min_length=1, max_length=1200)
+    transcript: str = Field(min_length=1, max_length=255)
     vehicle_id: str | None = Field(default=None, max_length=36)
     current_location: MobileLocation | None = None
 

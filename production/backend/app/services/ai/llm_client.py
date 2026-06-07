@@ -170,15 +170,13 @@ class LLMClient:
                 try:
                     with httpx.Client(timeout=settings.ai_request_timeout_seconds) as client:
                         response = client.post(
-                            f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
+                            f"https://generativelanguage.googleapis.com/v1/models/{settings.gemini_model}:generateContent",
                             params={"key": settings.gemini_api_key},
                             json=payload,
                         )
                     response.raise_for_status()
                     data = response.json()
-                    candidates = data.get("candidates") or []
-                    parts = (((candidates[0] if candidates else {}).get("content") or {}).get("parts")) or []
-                    text = " ".join(str(part.get("text", "")).strip() for part in parts if part.get("text")) or fallback_text
+                    text = self._extract_gemini_text(data) or fallback_text
                     usage = data.get("usageMetadata") if isinstance(data.get("usageMetadata"), dict) else None
                     return LLMResult(
                         text=clamp_sentences(text, max_sentences=max_sentences),
@@ -199,6 +197,16 @@ class LLMClient:
                 latency_ms=int((time.monotonic() - started) * 1000),
                 error_message=safe_error(exc),
             )
+
+    @staticmethod
+    def _extract_gemini_text(data: dict[str, Any]) -> str:
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+        content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
+        parts = content.get("parts") if isinstance(content, dict) else []
+        texts = [str(part.get("text", "")).strip() for part in parts if isinstance(part, dict) and part.get("text")]
+        return " ".join(texts).strip()
 
     def record(
         self,
