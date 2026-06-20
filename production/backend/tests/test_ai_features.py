@@ -58,6 +58,10 @@ def test_assistant_battery_question_calls_battery_tool(db_session):
     result = assistant_answer(db_session, user, driver, vehicle, "app", "What is my battery status?", {"lat": 21.17, "lng": 72.83})
     assert result["intent"] == "CURRENT_BATTERY_STATUS"
     assert "get_battery_prediction" in result["tools_called"]
+    assert result["orchestrator_agent"] == "driver_copilot_orchestrator"
+    assert result["specialist_agent"] == "battery_guard_agent"
+    assert result["grounded"] is True
+    assert result["grounded_evidence"]
 
 
 def test_assistant_safety_critical_escalates_without_llm(db_session):
@@ -65,6 +69,7 @@ def test_assistant_safety_critical_escalates_without_llm(db_session):
     result = assistant_answer(db_session, user, driver, vehicle, "app", "Smoke is coming from the battery", None)
     assert result["escalated"] is True
     assert result["tools_called"] == []
+    assert result["orchestrator_agent"] == "driver_copilot_orchestrator"
 
 
 def test_battery_insight_data_is_grounded(db_session):

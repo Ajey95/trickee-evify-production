@@ -40,9 +40,60 @@ class LLMClient:
     ) -> LLMResult:
         settings = get_settings()
         fallback_text = clamp_sentences(fallback, max_sentences=max_sentences)
-        if not settings.groq_api_key:
-            return LLMResult(text=fallback_text, fallback_used=True, error_message="llm_not_configured")
+        provider = (settings.llm_provider or "gemini").lower()
+        if provider == "gemini" and settings.gemini_api_key:
+            return self._compose_gemini(
+                settings=settings,
+                feature=feature,
+                system=system,
+                facts=facts,
+                fallback_text=fallback_text,
+                max_sentences=max_sentences,
+                max_tokens=max_tokens,
+            )
+        if provider == "groq" and settings.groq_api_key:
+            return self._compose_groq(
+                settings=settings,
+                feature=feature,
+                system=system,
+                facts=facts,
+                fallback_text=fallback_text,
+                max_sentences=max_sentences,
+                max_tokens=max_tokens,
+            )
+        if settings.gemini_api_key:
+            return self._compose_gemini(
+                settings=settings,
+                feature=feature,
+                system=system,
+                facts=facts,
+                fallback_text=fallback_text,
+                max_sentences=max_sentences,
+                max_tokens=max_tokens,
+            )
+        if settings.groq_api_key:
+            return self._compose_groq(
+                settings=settings,
+                feature=feature,
+                system=system,
+                facts=facts,
+                fallback_text=fallback_text,
+                max_sentences=max_sentences,
+                max_tokens=max_tokens,
+            )
+        return LLMResult(text=fallback_text, fallback_used=True, error_message="llm_not_configured")
 
+    def _compose_groq(
+        self,
+        *,
+        settings: Any,
+        feature: str,
+        system: str,
+        facts: dict[str, Any],
+        fallback_text: str,
+        max_sentences: int,
+        max_tokens: int | None,
+    ) -> LLMResult:
         sanitized_facts = sanitize_payload(facts)
         prompt = (
             "Use only the facts below. Do not invent numbers, places, availability, traffic, SOC, range, or safety claims. "
@@ -58,7 +109,7 @@ class LLMClient:
             "temperature": 0.2,
             "max_tokens": max_tokens or settings.ai_max_output_tokens,
         }
-        headers = {"Authorization": f"Bearer {settings.groq_api_key}", "Content-Type": "application/json"}
+        headers = {"Authorization": "Bearer " + str(settings.groq_api_key), "Content-Type": "application/json"}
         started = time.monotonic()
         try:
             last_exc: Exception | None = None
@@ -89,6 +140,73 @@ class LLMClient:
                 latency_ms=int((time.monotonic() - started) * 1000),
                 error_message=safe_error(exc),
             )
+
+    def _compose_gemini(
+        self,
+        *,
+        settings: Any,
+        feature: str,
+        system: str,
+        facts: dict[str, Any],
+        fallback_text: str,
+        max_sentences: int,
+        max_tokens: int | None,
+    ) -> LLMResult:
+        sanitized_facts = sanitize_payload(facts)
+        prompt = (
+            "Use only the facts below. Do not invent numbers, places, availability, traffic, SOC, range, or safety claims. "
+            "If a fact is missing, say it is unavailable. Keep the answer concise.\n"
+            f"Facts: {str(sanitized_facts)[:settings.ai_max_input_chars]}"
+        )
+        payload = {
+            "system_instruction": {"parts": [{"text": sanitize_text(system, max_chars=1200)}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": max_tokens or settings.ai_max_output_tokens},
+        }
+        started = time.monotonic()
+        try:
+            last_exc: Exception | None = None
+            for _ in range(max(1, settings.ai_max_retries + 1)):
+                try:
+                    with httpx.Client(timeout=settings.ai_request_timeout_seconds) as client:
+                        response = client.post(
+                            f"https://generativelanguage.googleapis.com/v1/models/{settings.gemini_model}:generateContent",
+                            params={"key": settings.gemini_api_key},
+                            json=payload,
+                        )
+                    response.raise_for_status()
+                    data = response.json()
+                    text = self._extract_gemini_text(data) or fallback_text
+                    usage = data.get("usageMetadata") if isinstance(data.get("usageMetadata"), dict) else None
+                    return LLMResult(
+                        text=clamp_sentences(text, max_sentences=max_sentences),
+                        fallback_used=False,
+                        model_name=settings.gemini_model,
+                        latency_ms=int((time.monotonic() - started) * 1000),
+                        token_usage=usage,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+            raise last_exc or RuntimeError("llm_error")
+        except Exception as exc:  # noqa: BLE001
+            logger.info("AI fallback for %s: %s", feature, safe_error(exc))
+            return LLMResult(
+                text=fallback_text,
+                fallback_used=True,
+                model_name=settings.gemini_model,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                error_message=safe_error(exc),
+            )
+
+    @staticmethod
+    def _extract_gemini_text(data: dict[str, Any]) -> str:
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+        content = candidates[0].get("content") if isinstance(candidates[0], dict) else {}
+        parts = content.get("parts") if isinstance(content, dict) else []
+        texts = [str(part.get("text", "")).strip() for part in parts if isinstance(part, dict) and part.get("text")]
+        return " ".join(texts).strip()
 
     def record(
         self,

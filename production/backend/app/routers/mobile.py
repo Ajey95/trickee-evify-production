@@ -35,6 +35,7 @@ from app.services.mobile import (
     resolve_destination_text,
     resolve_mobile_vehicle,
 )
+from app.services.ai_features import assistant_answer
 from app.services.rate_limit import check_rate_limit
 from app.services.serializers import (
     alert_dict,
@@ -74,6 +75,14 @@ class VoiceResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     transcript: str = Field(min_length=1, max_length=255)
+    current_location: MobileLocation | None = None
+
+
+class VoiceCopilotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    transcript: str = Field(min_length=1, max_length=255)
+    vehicle_id: str | None = Field(default=None, max_length=36)
     current_location: MobileLocation | None = None
 
 
@@ -262,6 +271,30 @@ async def resolve_voice_destination(
     if payload.current_location:
         result["current_location"] = payload.current_location.model_dump()
     return ok(result)
+
+
+@router.post("/voice/copilot")
+async def voice_copilot(
+    payload: VoiceCopilotRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    driver = require_mobile_driver(db, current_user)
+    await _limit_mobile(request, current_user, "mobile-voice-copilot")
+    vehicle = resolve_mobile_vehicle(db, driver.id, payload.vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active vehicle mapped for this driver")
+    location = payload.current_location.model_dump() if payload.current_location else None
+    response = assistant_answer(db, current_user, driver, vehicle, "voice", payload.transcript, location)
+    destination = resolve_destination_text(payload.transcript)
+    return ok(
+        {
+            **response,
+            "voice_response": response["answer"],
+            "destination_resolution": destination,
+        }
+    )
 
 
 @router.post("/trips/start")

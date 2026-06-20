@@ -21,12 +21,14 @@ from app.routers.mobile import (
     IssueRequest,
     LocationPingRequest,
     TripStartRequest,
+    VoiceCopilotRequest,
     WaitingEndRequest,
     WaitingStartRequest,
     record_location,
     start_charging,
     start_trip,
     start_waiting,
+    voice_copilot,
     end_waiting,
     create_issue,
 )
@@ -218,3 +220,22 @@ def test_voice_destination_resolution_keeps_uncertain_results_explicit():
 
     unclear = resolve_destination_text("go")
     assert unclear["needs_confirmation"] is True
+
+
+def test_voice_copilot_routes_to_grounded_assistant(db_session):
+    user, _, _ = _seed_driver(db_session)
+    response = asyncio.run(
+        voice_copilot(
+            VoiceCopilotRequest(
+                transcript="What is my battery status?",
+                current_location={"lat": 21.1702, "lng": 72.8311},
+            ),
+            _request("/api/v1/mobile/voice/copilot"),
+            db_session,
+            user,
+        )
+    )["data"]
+    assert response["orchestrator_agent"] == "driver_copilot_orchestrator"
+    assert response["specialist_agent"] == "battery_guard_agent"
+    assert response["voice_response"]
+    assert response["destination_resolution"]["intent"] == "start_trip"

@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     supabase_jwks_url: str | None = None
     supabase_jwt_audience: str = "authenticated"
     legacy_auth_enabled: bool = False
+    llm_provider: str = "gemini"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
     groq_api_key: str | None = None
     groq_model: str = "llama-3.1-8b-instant"
     ai_request_timeout_seconds: float = 4.0

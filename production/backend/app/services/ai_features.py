@@ -320,13 +320,44 @@ def assistant_intent(message: str) -> tuple[str, float, bool]:
     return "UNKNOWN", 0.35, False
 
 
+def assistant_specialist_agent(intent: str) -> str:
+    if intent == "BEST_ROUTE_FOR_BATTERY":
+        return "route_optimization_agent"
+    if intent == "CHARGER_RECOMMENDATION":
+        return "charging_decision_agent"
+    if intent in {"CURRENT_BATTERY_STATUS", "CAN_REACH_DESTINATION", "WHY_BATTERY_DRAINING"}:
+        return "battery_guard_agent"
+    return "driver_coaching_agent"
+
+
+def grounded_evidence(calls: list[ToolResult]) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for call in calls:
+        if not call.success:
+            continue
+        keys = list(call.data.keys())[:6] if isinstance(call.data, dict) else []
+        evidence.append(
+            {
+                "tool": call.name,
+                "grounded": True,
+                "fallback_used": call.fallback_used,
+                "data_keys": keys,
+            }
+        )
+    return evidence
+
+
 def assistant_answer(db: Session, user: User, driver: Driver, vehicle: Vehicle, channel: str, message: str, location: dict[str, float] | None) -> dict[str, Any]:
     intent, confidence, escalated = assistant_intent(message)
+    specialist_agent = assistant_specialist_agent(intent)
     if escalated:
         return {
             "intent": intent,
             "answer": "This may be a safety issue. Stop in a safe place and contact fleet support immediately.",
             "tools_called": [],
+            "orchestrator_agent": "driver_copilot_orchestrator",
+            "specialist_agent": specialist_agent,
+            "grounded_evidence": [],
             "confidence": confidence,
             "escalated": True,
         }
@@ -370,4 +401,14 @@ def assistant_answer(db: Session, user: User, driver: Driver, vehicle: Vehicle, 
         )
         llm_client.record(db, user=user, feature="assistant", result=llm, driver_id=driver.id, vehicle_id=vehicle.id, tool_calls=[call.name for call in successful])
         answer = llm.text
-    return {"intent": intent, "answer": answer, "tools_called": [call.name for call in calls], "confidence": confidence, "escalated": False}
+    return {
+        "intent": intent,
+        "answer": answer,
+        "tools_called": [call.name for call in calls],
+        "orchestrator_agent": "driver_copilot_orchestrator",
+        "specialist_agent": specialist_agent,
+        "grounded_evidence": grounded_evidence(successful),
+        "grounded": bool(successful),
+        "confidence": confidence,
+        "escalated": False,
+    }
