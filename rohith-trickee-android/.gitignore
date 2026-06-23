@@ -1,0 +1,44 @@
+# ---- Node / React Native ----
+node_modules/
+npm-debug.log
+yarn-error.log
+.metro-health-check*
+*.tsbuildinfo
+
+# ---- Android ----
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.keystore
+!debug.keystore
+*.apk
+*.aab
+
+# ---- iOS ----
+ios/Pods/
+ios/build/
+
+# ---- Editor / OS ----
+.idea/
+.vscode/
+.DS_Store
+*.iml
+
+# ---- Secrets / env (NEVER commit) ----
+.env
+.env.*
+!.env.example
+google-services.json
+GoogleService-Info.plist
+*-firebase-adminsdk-*.json
+
+# ---- Python backend ----
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/*.db
+backend/trickee*.db
+backend/.pytest_cache/
+backend/server.*.log
