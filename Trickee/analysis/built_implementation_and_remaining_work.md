@@ -1146,3 +1146,278 @@ Still required before full pilot sign-off:
 - Full 50-concurrency byte-aware raw Evify replay after temporarily raising staging `TELEMETRY_RATE_LIMIT_PER_MINUTE`.
 - Single-row ingest latency test with 0, 10, 50, and 100 WebSocket clients.
 - Real Android device verification for the React Native driver app.
+
+---
+
+## 16. Rohith Android Mobile Frontend Adoption
+
+Status: adopted as the mobile UI baseline.
+
+What changed:
+
+- Compared the original `origin/main` mobile app with the Rohith Android branch.
+- Chose the Rohith mobile frontend as the go-forward driver app UI.
+- Restored/kept the Rohith screen structure under:
+  - `production/trickee-driver-mobile/src/screens`
+  - `production/trickee-driver-mobile/src/components`
+  - `production/trickee-driver-mobile/src/navigation`
+  - `production/trickee-driver-mobile/src/constants`
+  - `production/trickee-driver-mobile/src/theme`
+
+Current interpretation:
+
+- Future mobility features must be integrated into the Rohith UI rather than replacing it.
+- UI changes should stay minimal unless the feature genuinely needs a new driver control surface.
+
+---
+
+## 17. Mobile Backend Endpoint Integration
+
+Status: implemented in the recovered mobile source; runtime backend verification still depends on local backend/auth.
+
+Mobile services added/restored:
+
+- `src/services/api.ts`
+- `src/services/types.ts`
+- `src/services/mobileLocation.ts`
+- `src/services/backgroundLocation.ts`
+- `src/services/liveMapSocket.ts`
+- `src/services/offlineQueue.ts`
+- `src/services/nativeQuickActions.ts`
+
+Backend endpoints covered by the mobile service layer:
+
+- `GET /api/v1/mobile/me`
+- `GET /api/v1/mobile/alerts`
+- `POST /api/v1/mobile/alerts/{alert_id}/ack`
+- `POST /api/v1/mobile/location`
+- `POST /api/v1/mobile/trips/start`
+- `POST /api/v1/mobile/trips/end`
+- `POST /api/v1/mobile/charging/start`
+- `POST /api/v1/mobile/charging/end`
+- `POST /api/v1/mobile/waiting/start`
+- `POST /api/v1/mobile/waiting/end`
+- `POST /api/v1/mobile/issues`
+- `POST /api/v1/assistant/message`
+
+Remaining work:
+
+- Add mobile API methods for:
+  - `POST /api/v1/mobile/voice/resolve-destination`
+  - `POST /api/v1/mobile/voice/copilot`
+- Use those methods from the Trip voice destination flow and Copilot voice flow.
+
+---
+
+## 18. Background GPS, Offline Queue, And Live State
+
+Status: implemented as app services; production reliability requires device validation.
+
+Implemented:
+
+- Foreground mobile location posting.
+- Background location service wrapper.
+- Offline queue for retryable mobile events.
+- Live-map WebSocket connection and snapshot merge into mobile state.
+- Tracking-state derivation for ready/trip/waiting/charging/emergency context.
+
+Remaining work:
+
+- Validate on physical Android hardware with battery optimization enabled/disabled.
+- Resolve `react-native-background-geolocation` license status before production field testing.
+- Confirm backend deduplication and offline replay behavior with real network interruptions.
+
+---
+
+## 19. Android OS Quick Access
+
+Status: implemented and emulator-verified for tile visibility.
+
+Implemented native Android bridge:
+
+- `TrickeeActionModule.kt`
+- `TrickeeActionPackage.kt`
+- `TrickeeActionReceiver.kt`
+- `TrickeeQuickActions.kt`
+- `TrickeeQuickTileService.kt`
+
+System surfaces:
+
+- Persistent notification actions:
+  - SOS
+  - Copilot
+  - Trip
+  - Charging
+- Quick Settings tiles:
+  - `Trickee SOS`
+  - `Trickee Copilot`
+  - `Trickee Trip`
+  - `Trickee Charge`
+
+Current dispatch behavior:
+
+- SOS -> `POST /api/v1/mobile/issues`
+- Trip -> `POST /api/v1/mobile/trips/start` or `/end`
+- Charging -> `POST /api/v1/mobile/charging/start` or `/end`
+- Copilot -> `POST /api/v1/assistant/message`
+
+Android behavior note:
+
+- Quick Settings tiles are not auto-added by Android. Drivers must add them from the Quick Settings edit panel unless the app later uses Android 13+ `StatusBarManager.requestAddTileService`.
+
+Remaining work:
+
+- Add a `Trickee Wait` tile if waiting must be available from the top panel.
+- Add distinct tile icons instead of the generic launcher icon.
+- Validate tile taps end-to-end with a real authenticated backend session.
+
+---
+
+## 20. Android Build And Emulator Demo
+
+Status: local command-line emulator demo was working before the reset; source has been restored.
+
+Build/tooling changes:
+
+- JDK 17 installed/configured.
+- Android SDK command-line tooling installed.
+- API 34 emulator image installed.
+- API 35 platform installed for AndroidX Work compatibility.
+- NDK `27.1.12297006` installed.
+- AVD created:
+  - `Trickee_API_34`
+- Build compatibility updates:
+  - `compileSdkVersion = 35`
+  - `minSdkVersion = 24`
+  - `android.suppressUnsupportedCompileSdk=35`
+  - `reactNativeArchitectures=x86_64` for emulator demo builds
+  - Android manifest label override with `tools:replace`
+
+Important workaround:
+
+- Reanimated/Ninja fails when building from the long OneDrive path.
+- Building from a short `T:\` subst path allowed `:app:installDebug` to pass.
+
+Verified before reset:
+
+- Debug APK installed on emulator.
+- App launched as `com.trickeeandroid/.MainActivity`.
+- Metro served the bundle after `adb reverse tcp:8081 tcp:8081`.
+- Rohith onboarding UI rendered.
+- Quick Settings tiles were visible after adding them to the emulator.
+
+Remaining work:
+
+- Re-run `:app:installDebug` after the current recovery to confirm the restored tree still builds.
+- Parameterize emulator-only ABI settings before physical-device/release builds.
+
+---
+
+## 21. Reset Recovery State
+
+Status: repaired on 2026-06-25.
+
+Problem:
+
+- A local `git reset --hard HEAD~1` and branch switching reverted tracked files to `origin/main`.
+- Recent analysis entries were uncommitted and disappeared from `daily_logger.md`.
+- The current branch no longer contained the recovered mobile source until it was restored.
+
+Recovery:
+
+- Located reflog commit:
+  - `8f697f7 mobile-voice features done`
+- Restored:
+  - `production/trickee-driver-mobile`
+- Reconstructed missing analysis history in:
+  - `Trickee/analysis/daily_logger.md`
+  - `Trickee/analysis/built_implementation_and_remaining_work.md`
+
+Current truth after recovery:
+
+- Rohith mobile UI source is back in the working tree.
+- Backend service layer and quick action native bridge are back.
+- Four Quick Settings tiles are back in source.
+- The current Rohith UI still does not contain the final gesture Action Button implementation.
+- The current Rohith UI still does not contain the full `Trickee Trip` voice destination flow.
+
+Next implementation target:
+
+- Add the in-app driver Action Button gesture layer:
+  - single tap -> start trip with voice destination
+  - double tap -> start charging
+  - swipe right -> start waiting
+  - long press -> emergency/issue
+  - swipe left -> end trip
+- Add the voice layer for `Trickee Trip`:
+  - request microphone permission
+  - capture regional-language speech with `@react-native-voice/voice`
+  - send transcript to backend `/mobile/voice/resolve-destination`
+  - start trip with resolved destination text/confidence
+  - keep raw audio off the mobile/backend MVP unless explicitly required
+
+---
+
+## 22. Post-Reset Empty Folder Cleanup
+
+Status: completed on 2026-06-25.
+
+Cleanup performed:
+
+- Removed empty reset leftovers under `production/trickee-driver-mobile`.
+- Removed only directories that were confirmed empty.
+- Removed old scaffold shells including:
+  - empty `src/features`
+  - empty old `src/services/trickee*` folders
+  - empty old Android package folder `android/app/src/main/java/com/trickeedrivermobile`
+  - empty iOS shell folders
+  - empty `__tests__`
+
+Verification:
+
+- Full repository empty-directory scan now returns:
+  - `EMPTY_COUNT=0`
+
+Current caution:
+
+- The working tree still has a large diff against `origin/main` because the restored Rohith mobile state is intentionally different from main.
+- This cleanup did not stage or commit the recovered mobile work.
+
+---
+
+## 23. Mobile Validation And Push Gate
+
+Status: partially validated on 2026-06-25; not pushed.
+
+Checks run:
+
+- `npm.cmd run lint`
+- `npx.cmd tsc --noEmit`
+- Android `:app:assembleDebug` attempted with cached Gradle 8.3 and the short `T:\` path workaround.
+
+Results:
+
+- Lint passed with warnings only.
+- TypeScript passed.
+- Android build did not complete because Gradle dependency resolution needs artifacts that are not available offline in this sandbox.
+
+Observed Android build blocker:
+
+- Gradle wrapper download is blocked by sandbox network restrictions.
+- Cached Gradle can run, but offline resolution fails for Android/Gradle/Kotlin artifacts such as:
+  - `com.android.tools.build:gradle:8.2.1`
+  - `org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22`
+  - related transitive dependencies
+
+Decision:
+
+- No branch was pushed because the requested condition was to push only after a good build check.
+- Next push attempt should happen after running `:app:assembleDebug` in an environment with normal Gradle network access or a complete Gradle cache.
+
+Follow-up:
+
+- User ran the Android build locally from the short `T:\android` path after cleanup.
+- Result:
+  - `BUILD SUCCESSFUL in 3m 7s`
+  - `263 actionable tasks: 259 executed, 4 up-to-date`
+- This clears the Android build gate for pushing the recovered mobile branch.
