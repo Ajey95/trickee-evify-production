@@ -1421,3 +1421,43 @@ Follow-up:
   - `BUILD SUCCESSFUL in 3m 7s`
   - `263 actionable tasks: 259 executed, 4 up-to-date`
 - This clears the Android build gate for pushing the recovered mobile branch.
+
+---
+
+## 24. Latest Mobile Branch Pull And App Launch
+
+Status: completed on 2026-06-30.
+
+Branch state:
+
+- Current branch:
+  - `codex/recover-rohith-mobile-build`
+- Pulled latest remote commit:
+  - `197280e Update package-lock peer deps, env example, add rohith-trickee-android scaffold`
+- Local branch is aligned with:
+  - `origin/codex/recover-rohith-mobile-build`
+
+Runtime start:
+
+- Started Metro from:
+  - `production/trickee-driver-mobile`
+- Booted emulator:
+  - `Trickee_API_34`
+- Installed existing debug APK directly with:
+  - `adb install -r`
+- Launched:
+  - `com.trickeeandroid/.MainActivity`
+
+Verification:
+
+- Metro dev server ready.
+- Emulator online as `emulator-5554`.
+- APK install returned `Success`.
+- App process was running.
+- Android foreground focus confirmed `com.trickeeandroid.MainActivity`.
+
+Current caution:
+
+- `:app:installDebug` still intermittently fails on Gradle/CMake output snapshotting.
+- Direct APK install works after the successful `assembleDebug` artifact exists.
+- The latest pulled commit did not change mobile source behavior; it updated lock/env/scaffold metadata.
