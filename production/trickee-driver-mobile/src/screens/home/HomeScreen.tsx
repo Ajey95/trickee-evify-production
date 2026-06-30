@@ -199,7 +199,7 @@ const HomeScreen: React.FC = () => {
               onPress={() => openQuickAccess('battery')}
             />
             <QuickAccessButton
-              icon="microphone-message"
+              icon="account-voice"
               label="Copilot"
               tone={Colors.neonBlue}
               onPress={() => openQuickAccess('copilot')}

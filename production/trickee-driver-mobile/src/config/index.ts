@@ -26,6 +26,14 @@ const HOSTED_API_ORIGIN = 'https://trickee-backend.onrender.com';
  */
 const USE_HOSTED_BACKEND = false;
 
+/**
+ * Native background GPS needs a Google Play Services emulator/device and a valid
+ * react-native-background-geolocation license for this Android package. Keep it
+ * off for the local AOSP demo so login/dashboard remain usable while the
+ * foreground GPS ping + offline queue paths continue to run.
+ */
+const ENABLE_NATIVE_BACKGROUND_GPS = false;
+
 /** Local backend origin, resolved per-platform for emulators/simulators. */
 const LOCAL_API_ORIGIN =
   Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000';
@@ -88,7 +96,7 @@ export const Features = {
   /** Send foreground Android GPS pings to POST /mobile/location. */
   foregroundLocationPings: true,
   /** Enable native background GPS tracking and offline location retry queue. */
-  backgroundLocationTracking: true,
+  backgroundLocationTracking: ENABLE_NATIVE_BACKGROUND_GPS,
   /**
    * Allows the old demo-only in-memory session when the backend is unreachable.
    * Keep false for real backend integration so connection/auth failures surface

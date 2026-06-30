@@ -340,3 +340,38 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 
 - `:app:installDebug` still hit the intermittent Gradle/CMake snapshot issue, so the already-built debug APK was installed directly.
 - The pulled commit did not change mobile app source code; it changed package-lock peer dependency metadata and env/scaffold files.
+
+---
+
+## 2026-06-30 - Mobile Backend Login Demo Fix
+
+### Work Completed
+
+- Created a local backend runtime configuration for the pilot demo:
+  - SQLite database
+  - legacy auth enabled
+  - demo seed enabled
+  - Redis/live external services disabled for local startup
+- Seeded the backend demo users with Python 3.11.
+- Started the backend on:
+  - `0.0.0.0:8000`
+- Verified driver login against:
+  - `POST /api/v1/auth/login`
+  - `driver1@evify.in`
+- Confirmed the Android emulator can reach the backend through:
+  - `http://10.0.2.2:8000/api/v1`
+- Fixed the invalid Copilot quick-access icon name in the Rohith UI.
+- Added a local demo gate for native background GPS so the app does not start `react-native-background-geolocation` on the current AOSP emulator.
+
+### Verification
+
+- Backend port 8000 is listening on the host.
+- Login API returns a valid driver token and user payload.
+- Mobile app moved past the sign-in screen and reached the Rohith dashboard after backend startup.
+
+### Notes
+
+- The original screenshot error, `Network error. Is the backend reachable?`, was caused by the backend not being reachable/running for the emulator.
+- The next blocker after login was separate: native background GPS requires Google Play Services plus a valid background-geolocation package/license for `com.trickeeandroid`.
+- For this local emulator demo, native background GPS is disabled while foreground GPS pings and the offline queue code remain in place.
+- Re-enable native background GPS only on a Google Play Services emulator or physical Android device with the package/license configured.

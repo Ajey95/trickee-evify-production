@@ -1461,3 +1461,37 @@ Current caution:
 - `:app:installDebug` still intermittently fails on Gradle/CMake output snapshotting.
 - Direct APK install works after the successful `assembleDebug` artifact exists.
 - The latest pulled commit did not change mobile source behavior; it updated lock/env/scaffold metadata.
+
+---
+
+## 25. Local Backend Login And Emulator Demo Stabilization
+
+Status: implemented on 2026-06-30.
+
+Built/changed:
+
+- Local backend demo startup path:
+  - `.env` configured locally for SQLite, legacy auth, and demo seed.
+  - Demo seed run with Python 3.11.
+  - Uvicorn backend started on `0.0.0.0:8000`.
+- Mobile API path:
+  - Android continues to use `http://10.0.2.2:8000/api/v1`.
+  - Driver login verified with the seeded demo account.
+- Rohith UI preservation:
+  - No layout or visual redesign was made.
+  - Invalid Copilot icon prop was changed from `microphone-message` to a supported MaterialCommunityIcons name, `account-voice`.
+- Local emulator stability:
+  - Native background GPS is gated off for the current local AOSP emulator.
+  - The background GPS service code remains in the app for a Google Play Services emulator or physical device.
+
+Verification:
+
+- Backend is reachable on port 8000.
+- `/api/v1/auth/login` returns a valid driver token for `driver1@evify.in`.
+- App successfully moved past the sign-in screen and loaded the Rohith dashboard.
+
+Remaining production requirement:
+
+- Re-enable and validate `react-native-background-geolocation` on a real Google Play Services Android target.
+- Configure the valid package/license path for `com.trickeeandroid`.
+- Re-run Android build and device test after that native GPS configuration is ready.
