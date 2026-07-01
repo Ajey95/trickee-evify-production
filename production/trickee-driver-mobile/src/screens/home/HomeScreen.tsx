@@ -12,6 +12,7 @@ import {useNavigation} from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {Colors} from '../../constants/Colors';
 import GlassCard from '../../components/GlassCard';
+import BackgroundLogo from '../../components/BackgroundLogo';
 import BatteryVisualizer from '../../components/BatteryVisualizer';
 import DriverActionSheet from '../../components/DriverActionSheet';
 import {LoadingState, ErrorState} from '../../components/StateViews';
@@ -81,6 +82,7 @@ const HomeScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
+      <BackgroundLogo opacity={0.045} offsetY={-10} />
       <StatusBar
         translucent
         backgroundColor="transparent"
@@ -533,14 +535,7 @@ const legendStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: Colors.appBackground},
-  watermark: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 0,
-  },
-  watermarkImage: {width: '100%', height: '100%', opacity: 0.15},
-  scroll: {flex: 1},
+  scroll: {flex: 1, zIndex: 1},
   scrollContent: {
     paddingTop: 10,
     paddingBottom: 160,

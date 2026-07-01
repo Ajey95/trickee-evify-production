@@ -1495,3 +1495,46 @@ Remaining production requirement:
 - Re-enable and validate `react-native-background-geolocation` on a real Google Play Services Android target.
 - Configure the valid package/license path for `com.trickeeandroid`.
 - Re-run Android build and device test after that native GPS configuration is ready.
+
+---
+
+## 26. Selective Rohith UI Carry-Over
+
+Status: implemented on 2026-07-01.
+
+Decision:
+
+- Keep `production/trickee-driver-mobile` as the canonical mobile app.
+- Do not replace it with the standalone `rohith-trickee-android` folder because that copy is missing the newer production integrations.
+
+Built/changed:
+
+- Added:
+  - `production/trickee-driver-mobile/src/components/BackgroundLogo.tsx`
+- Wired the background logo into:
+  - `production/trickee-driver-mobile/src/screens/home/HomeScreen.tsx`
+- Removed the old unused local watermark styles from `HomeScreen`.
+
+Preserved:
+
+- Rohith dashboard UI structure.
+- Mobile quick access buttons.
+- Native quick settings/action bridge.
+- Foreground GPS ping path.
+- Background GPS service and local emulator gate.
+- Offline queue.
+- Live-map WebSocket support.
+- Backend API integration and demo login behavior.
+
+Verification:
+
+- `npm.cmd run lint` passed with existing warnings only.
+- `npx.cmd tsc --noEmit` passed.
+- Emulator launch verified on `Trickee_API_34`.
+- Signed in with `driver1@evify.in`.
+- Home dashboard rendered successfully with the watermark behind the glass cards.
+
+Remaining:
+
+- No further code from `rohith-trickee-android` should be copied wholesale.
+- Future UI imports from that branch should be reviewed file-by-file and must not remove production services/native integrations.

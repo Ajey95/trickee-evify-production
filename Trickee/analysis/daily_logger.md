@@ -375,3 +375,38 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 - The next blocker after login was separate: native background GPS requires Google Play Services plus a valid background-geolocation package/license for `com.trickeeandroid`.
 - For this local emulator demo, native background GPS is disabled while foreground GPS pings and the offline queue code remain in place.
 - Re-enable native background GPS only on a Google Play Services emulator or physical Android device with the package/license configured.
+
+---
+
+## 2026-07-01 - Selective Rohith UI Carry-Over
+
+### Work Completed
+
+- Compared the standalone `rohith-trickee-android` app with the canonical mobile app at:
+  - `production/trickee-driver-mobile`
+- Brought over only the safe reusable visual piece:
+  - `src/components/BackgroundLogo.tsx`
+- Wired the background logo into the Home dashboard behind existing content.
+- Kept all current mobile integrations intact:
+  - quick access buttons
+  - native quick settings/action bridge
+  - foreground GPS pings
+  - background GPS service code
+  - offline queue
+  - live-map WebSocket support
+  - backend login/demo stabilization
+
+### Verification
+
+- `npm.cmd run lint` passed with existing warnings only.
+- `npx.cmd tsc --noEmit` passed.
+- Local backend was running on port 8000.
+- Metro was available on port 8081.
+- Emulator `Trickee_API_34` launched the app successfully.
+- Signed in with the seeded driver account and verified the Home dashboard renders with the watermark behind the glass cards.
+
+### Notes
+
+- Did not copy the standalone backend from `rohith-trickee-android`.
+- Did not replace `production/trickee-driver-mobile`.
+- Did not remove or weaken any of the mobile backend/native integration work already added.
