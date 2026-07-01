@@ -1565,3 +1565,45 @@ Verification:
 Remaining:
 
 - If future LogBox icon warnings appear, validate the exact glyph name against `node_modules/react-native-vector-icons/glyphmaps/MaterialCommunityIcons.json` before adding it.
+
+---
+
+## 28. Mobile Voice Trip Start and Copilot Layer
+
+Status: implemented on 2026-07-01.
+
+Built/changed:
+
+- Added Android `RECORD_AUDIO` permission.
+- Added `production/trickee-driver-mobile/src/services/voiceInput.ts` for one-shot native speech capture.
+- Added mobile service methods for:
+  - `POST /api/v1/mobile/voice/resolve-destination`
+  - `POST /api/v1/mobile/voice/copilot`
+- Added response typing for voice destination resolution and voice Copilot replies.
+- Added a mic button to the existing Copilot chat screen without changing the Rohith layout structure.
+- Voice Copilot flow now sends captured speech to the backend voice endpoint and displays `voice_response`.
+- Changed the Driver Actions trip button to `Start trip with voice` when no trip is active.
+- Voice trip start flow now resolves the spoken destination and starts a trip with the resolved destination text.
+- Added `patches/@react-native-voice+voice+3.2.4.patch` to keep the native voice module compatible with React Native `NativeEventEmitter`.
+- Fixed the Copilot voice error path that previously referenced a stale `err` variable at runtime.
+- Improved Driver Actions voice errors so drivers see the actual permission/device speech-service reason.
+
+Verification:
+
+- Backend voice endpoint smoke tests passed with seeded driver auth.
+- `npx.cmd tsc --noEmit` passed.
+- `npm.cmd run lint -- --quiet` passed.
+- Android debug build passed from the short path:
+  - `cmd.exe /c "cd /d T:\android && gradlew.bat :app:assembleDebug --no-daemon"`
+- Debug APK installed on `emulator-5554`.
+- Copilot screen opened and the mic button rendered.
+- Tapping Copilot mic no longer produces a red LogBox render error.
+- Driver Actions sheet renders the `Start trip with voice` primary action.
+- On the current AOSP emulator, voice capture fails gracefully with:
+  - `Speech recognition is not available on this device.`
+
+Remaining:
+
+- Validate real spoken regional-language capture on a Google Play Services emulator or physical Android phone.
+- Decide whether production voice should rely on device speech recognition or move to backend/server-side ASR for more consistent multilingual support.
+- If server-side ASR is chosen, add audio upload/streaming and transcript handoff before calling the current voice intent endpoints.

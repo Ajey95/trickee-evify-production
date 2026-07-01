@@ -17,6 +17,7 @@ import {EmptyState} from '../../components/StateViews';
 import {useAuth} from '../../context/AuthContext';
 import {useLiveData} from '../../context/LiveDataContext';
 import {api, ApiError} from '../../services/api';
+import {captureVoiceOnce} from '../../services/voiceInput';
 
 type ChatMessage = {id: string; role: 'user' | 'assistant'; text: string};
 
@@ -28,6 +29,18 @@ const SUGGESTIONS = [
 
 let counter = 0;
 const nextId = () => `m${++counter}`;
+
+function assistantErrorText(error: unknown) {
+  return error instanceof ApiError
+    ? `Sorry - ${error.message}`
+    : 'Sorry, I could not reach the assistant.';
+}
+
+function voiceCaptureErrorText(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : 'Could not capture voice input.';
+}
 
 const AIAssistantScreen: React.FC = () => {
   const {token} = useAuth();
@@ -41,11 +54,16 @@ const AIAssistantScreen: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [listening, setListening] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const canChat = !!token && !!driver && !!vehicle;
+  const currentLocation =
+    telemetry?.lat != null && telemetry?.lng != null
+      ? {lat: telemetry.lat, lng: telemetry.lng}
+      : undefined;
 
-  const send = async (text: string) => {
+  const send = async (text: string, channel: 'app' | 'voice' = 'app') => {
     const trimmed = text.trim();
     if (!trimmed || sending || !canChat) {
       return;
@@ -55,34 +73,67 @@ const AIAssistantScreen: React.FC = () => {
     setSending(true);
     setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 50);
     try {
-      const reply = await api.assistantMessage(token!, {
-        driver_id: driver!.id,
-        vehicle_id: vehicle!.id,
-        message: trimmed,
-        location:
-          telemetry?.lat != null && telemetry?.lng != null
-            ? {lat: telemetry.lat, lng: telemetry.lng}
-            : undefined,
-      });
-      setMessages(prev => [
-        ...prev,
-        {id: nextId(), role: 'assistant', text: reply.answer},
-      ]);
-    } catch (err) {
+      const replyText =
+        channel === 'voice'
+          ? (
+              await api.voiceCopilot(token!, {
+                transcript: trimmed,
+                vehicle_id: vehicle!.id,
+                current_location: currentLocation,
+              })
+            ).voice_response
+          : (
+              await api.assistantMessage(token!, {
+                driver_id: driver!.id,
+                vehicle_id: vehicle!.id,
+                message: trimmed,
+                location: currentLocation,
+              })
+            ).answer;
       setMessages(prev => [
         ...prev,
         {
           id: nextId(),
           role: 'assistant',
-          text:
-            err instanceof ApiError
-              ? `Sorry — ${err.message}`
-              : 'Sorry, I could not reach the assistant.',
+          text: replyText,
+        },
+      ]);
+    } catch (error) {
+      const errorText = assistantErrorText(error);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'assistant',
+          text: errorText,
         },
       ]);
     } finally {
       setSending(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 50);
+    }
+  };
+
+  const listenAndSend = async () => {
+    if (listening || sending || !canChat) {
+      return;
+    }
+    setListening(true);
+    try {
+      const transcript = await captureVoiceOnce();
+      await send(transcript, 'voice');
+    } catch (error) {
+      const errorText = voiceCaptureErrorText(error);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'assistant',
+          text: errorText,
+        },
+      ]);
+    } finally {
+      setListening(false);
     }
   };
 
@@ -156,6 +207,20 @@ const AIAssistantScreen: React.FC = () => {
               returnKeyType="send"
               editable={!sending}
             />
+            <TouchableOpacity
+              style={[
+                styles.micButton,
+                listening && styles.micButtonActive,
+                (sending || !canChat) && styles.sendDisabled,
+              ]}
+              onPress={listenAndSend}
+              disabled={sending || listening || !canChat}>
+              {listening ? (
+                <ActivityIndicator size="small" color={Colors.buttonText} />
+              ) : (
+                <Icon name="microphone" size={20} color={Colors.buttonText} />
+              )}
+            </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.sendButton,
@@ -246,6 +311,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  micButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: Colors.neonBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micButtonActive: {backgroundColor: Colors.trickeeYellow},
   sendDisabled: {opacity: 0.5},
 });
 

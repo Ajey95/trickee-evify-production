@@ -25,6 +25,8 @@ import type {
   TrackingState,
   Trip,
   User,
+  VoiceCopilotReply,
+  VoiceDestinationResolution,
 } from './types';
 
 /** Error thrown by every client method. `status` is 0 for network/timeout. */
@@ -248,6 +250,38 @@ export const api = {
     });
   },
 
+  resolveVoiceDestination(
+    token: string,
+    payload: {
+      transcript: string;
+      current_location?: {lat: number; lng: number};
+    },
+  ) {
+    return request<VoiceDestinationResolution>(
+      '/mobile/voice/resolve-destination',
+      {
+        method: 'POST',
+        token,
+        body: payload,
+      },
+    );
+  },
+
+  voiceCopilot(
+    token: string,
+    payload: {
+      transcript: string;
+      vehicle_id?: string;
+      current_location?: {lat: number; lng: number};
+    },
+  ) {
+    return request<VoiceCopilotReply>('/mobile/voice/copilot', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+
   startTrip(
     token: string,
     payload: {
@@ -256,6 +290,7 @@ export const api = {
       destination_lng?: number;
       origin?: {lat: number; lng: number};
       vehicle_id?: string;
+      confidence?: number;
       idempotency_key?: string;
     } = {},
   ) {

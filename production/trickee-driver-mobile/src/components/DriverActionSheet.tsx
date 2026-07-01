@@ -14,6 +14,7 @@ import {Colors} from '../constants/Colors';
 import {api, ApiError} from '../services/api';
 import {useAuth} from '../context/AuthContext';
 import {useLiveData} from '../context/LiveDataContext';
+import {captureVoiceOnce} from '../services/voiceInput';
 import type {IssueType} from '../services/types';
 
 type Props = {visible: boolean; onClose: () => void};
@@ -29,6 +30,13 @@ const ISSUE_OPTIONS: {type: IssueType; label: string; icon: string}[] = [
 ];
 
 const key = (action: string) => `${action}-${Date.now()}`;
+
+function actionErrorText(error: unknown) {
+  if (error instanceof ApiError || error instanceof Error) {
+    return error.message;
+  }
+  return 'Please try again.';
+}
 
 const DriverActionSheet: React.FC<Props> = ({visible, onClose}) => {
   const {token} = useAuth();
@@ -53,11 +61,8 @@ const DriverActionSheet: React.FC<Props> = ({visible, onClose}) => {
     try {
       await fn();
       await refresh();
-    } catch (err) {
-      Alert.alert(
-        'Action failed',
-        err instanceof ApiError ? err.message : 'Please try again.',
-      );
+    } catch (error) {
+      Alert.alert('Action failed', actionErrorText(error));
     } finally {
       setBusy(null);
     }
@@ -74,6 +79,26 @@ const DriverActionSheet: React.FC<Props> = ({visible, onClose}) => {
       });
       setShowIssues(false);
       Alert.alert('Reported', 'Your issue was sent to the fleet operator.');
+    });
+
+  const startTripWithVoice = () =>
+    run('trip', async () => {
+      const transcript = await captureVoiceOnce();
+      const resolution = await api.resolveVoiceDestination(token!, {
+        transcript,
+        current_location: currentLocation,
+      });
+      await api.startTrip(token!, {
+        destination_text: resolution.destination_text,
+        origin: currentLocation,
+        vehicle_id: vehicleId,
+        confidence: resolution.confidence,
+        idempotency_key: key('trip-voice-start'),
+      });
+      Alert.alert(
+        'Trip started',
+        `Destination captured: ${resolution.destination_text}`,
+      );
     });
 
   return (
@@ -115,24 +140,20 @@ const DriverActionSheet: React.FC<Props> = ({visible, onClose}) => {
             {!showIssues ? (
               <>
                 <ActionButton
-                  label={activeTrip ? 'End trip' : 'Start trip'}
-                  icon={activeTrip ? 'flag-checkered' : 'play'}
+                  label={activeTrip ? 'End trip' : 'Start trip with voice'}
+                  icon={activeTrip ? 'flag-checkered' : 'microphone'}
                   tone={activeTrip ? 'neutral' : 'primary'}
                   loading={busy === 'trip'}
                   onPress={() =>
-                    run('trip', () =>
-                      activeTrip
-                        ? api.endTrip(token!, {
+                    activeTrip
+                      ? run('trip', () =>
+                          api.endTrip(token!, {
                             trip_session_id: activeTrip.id,
                             location: currentLocation,
                             idempotency_key: key('trip-end'),
-                          })
-                        : api.startTrip(token!, {
-                            origin: currentLocation,
-                            vehicle_id: vehicleId,
-                            idempotency_key: key('trip-start'),
                           }),
-                    )
+                        )
+                      : startTripWithVoice()
                   }
                 />
                 <ActionButton

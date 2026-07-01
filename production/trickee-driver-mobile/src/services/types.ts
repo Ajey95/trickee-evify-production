@@ -194,6 +194,18 @@ export type MobileLocationPoint = {
   received_at?: string | null;
 };
 
+export type VoiceDestinationResolution = {
+  raw_text: string;
+  destination_text: string;
+  intent?: string | null;
+  confidence: number;
+  needs_confirmation: boolean;
+  candidates?: unknown[];
+  resolution_source?: string | null;
+  map_resolution_status?: string | null;
+  current_location?: {lat: number; lng: number} | null;
+};
+
 export type LiveMapVehiclePoint = {
   driver_id: string;
   driver_code?: string | null;
@@ -301,4 +313,9 @@ export type AssistantReply = {
   confidence: number;
   escalated: boolean;
   fallback_used?: boolean;
+};
+
+export type VoiceCopilotReply = AssistantReply & {
+  voice_response: string;
+  destination_resolution?: VoiceDestinationResolution;
 };

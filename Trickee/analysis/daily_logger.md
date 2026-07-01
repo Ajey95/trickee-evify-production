@@ -431,3 +431,43 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 ### Notes
 
 - The fix preserves the same "charger unavailable" UI meaning without relying on a glyph missing from the installed icon font.
+
+---
+
+## 2026-07-01 - Mobile Voice Trip Start and Copilot Layer
+
+### Work Completed
+
+- Added Android microphone permission for the driver mobile app.
+- Added a reusable native voice capture service around `@react-native-voice/voice`.
+- Wired the Copilot screen mic button to:
+  - capture driver speech
+  - send the transcript to `/api/v1/mobile/voice/copilot`
+  - render the backend `voice_response` in the existing assistant chat UI
+- Wired the Driver Actions sheet primary trip button to:
+  - capture speech
+  - resolve destination through `/api/v1/mobile/voice/resolve-destination`
+  - start a trip with the resolved destination through the existing start-trip API
+- Added typed mobile service support for voice destination resolution and voice Copilot replies.
+- Added a `patch-package` patch for `@react-native-voice/voice` so React Native's `NativeEventEmitter` warning is removed by providing listener stubs.
+- Fixed the Copilot mic runtime crash caused by a stale `err` reference after the catch parameter was renamed.
+- Improved Driver Actions voice failure alerts so native speech-service errors are shown instead of a generic retry message.
+
+### Verification
+
+- Backend voice endpoints were tested with seeded driver auth:
+  - `/api/v1/mobile/voice/resolve-destination`
+  - `/api/v1/mobile/voice/copilot`
+- `npx.cmd tsc --noEmit` passed.
+- `npm.cmd run lint -- --quiet` passed.
+- `cmd.exe /c "cd /d T:\android && gradlew.bat :app:assembleDebug --no-daemon"` passed.
+- Reinstalled the debug APK on `emulator-5554`.
+- Verified Copilot mic no longer shows a red render error.
+- Verified Driver Actions shows `Start trip with voice`.
+- Verified Driver Actions voice unavailable path now displays the real native reason: `Speech recognition is not available on this device.`
+
+### Notes
+
+- The current AOSP emulator does not provide Android speech recognition services, so real voice capture cannot complete there.
+- Real speech transcription should be validated on a Google Play Services emulator or physical Android device.
+- Backend voice integration is wired; production-quality regional language accuracy depends on the device speech recognizer or a future server-side ASR provider.
