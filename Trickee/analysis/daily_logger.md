@@ -410,3 +410,24 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 - Did not copy the standalone backend from `rohith-trickee-android`.
 - Did not replace `production/trickee-driver-mobile`.
 - Did not remove or weaken any of the mobile backend/native integration work already added.
+
+---
+
+## 2026-07-01 - Mobile Invalid Icon Warning Fix
+
+### Work Completed
+
+- Fixed the LogBox warning caused by unsupported MaterialCommunityIcons names.
+- Replaced invalid `ev-station-off` usage with supported `power-plug-off` in:
+  - `src/screens/home/LiveMapScreen.tsx`
+  - `src/screens/detail/RouteIntelScreen.tsx`
+
+### Verification
+
+- Static icon validation passed for literal `Icon` and `EmptyState` icon names.
+- `npm.cmd run lint -- --quiet` passed.
+- `npx.cmd tsc --noEmit` passed.
+
+### Notes
+
+- The fix preserves the same "charger unavailable" UI meaning without relying on a glyph missing from the installed icon font.

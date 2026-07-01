@@ -1538,3 +1538,30 @@ Remaining:
 
 - No further code from `rohith-trickee-android` should be copied wholesale.
 - Future UI imports from that branch should be reviewed file-by-file and must not remove production services/native integrations.
+
+---
+
+## 27. Mobile Invalid Icon Warning Fix
+
+Status: implemented on 2026-07-01.
+
+Issue:
+
+- Android LogBox showed a prop warning for an unsupported MaterialCommunityIcons glyph.
+- The invalid icon was used for "no charger recommendation / no chargers match" empty states.
+
+Built/changed:
+
+- Replaced `ev-station-off` with supported `power-plug-off` in:
+  - `production/trickee-driver-mobile/src/screens/home/LiveMapScreen.tsx`
+  - `production/trickee-driver-mobile/src/screens/detail/RouteIntelScreen.tsx`
+
+Verification:
+
+- Static scan confirmed literal `Icon` and `EmptyState` icon names are valid against the installed MaterialCommunityIcons glyph map.
+- `npm.cmd run lint -- --quiet` passed.
+- `npx.cmd tsc --noEmit` passed.
+
+Remaining:
+
+- If future LogBox icon warnings appear, validate the exact glyph name against `node_modules/react-native-vector-icons/glyphmaps/MaterialCommunityIcons.json` before adding it.

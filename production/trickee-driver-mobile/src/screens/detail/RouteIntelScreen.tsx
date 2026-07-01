@@ -177,7 +177,7 @@ const RouteIntelScreen: React.FC = () => {
           ) : (
             <GlassCard cornerRadius={16}>
               <EmptyState
-                icon="ev-station-off"
+                icon="power-plug-off"
                 title="No charger recommendation"
                 subtitle="No charger context is available for your current location."
               />

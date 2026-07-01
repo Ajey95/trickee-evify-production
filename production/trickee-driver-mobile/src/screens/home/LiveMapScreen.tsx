@@ -384,7 +384,7 @@ const LiveMapScreen: React.FC = () => {
         {visibleChargers.length === 0 && !chargersLoading ? (
           <GlassCard cornerRadius={16}>
             <EmptyState
-              icon="ev-station-off"
+              icon="power-plug-off"
               title={
                 chargersError ? 'Charger data unavailable' : 'No chargers match'
               }
