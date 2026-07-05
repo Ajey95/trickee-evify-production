@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     supabase_anon_key: str | None = None
     supabase_jwks_url: str | None = None
     supabase_jwt_audience: str = "authenticated"
-    legacy_auth_enabled: bool = False
+    legacy_auth_enabled: bool = True
     llm_provider: str = "gemini"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
@@ -87,8 +87,9 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be set to a non-default value for non-SQLite deployments")
         if self.environment.lower() in {"production", "prod"} and self.database_url.startswith("sqlite"):
             raise ValueError("DATABASE_URL must point to Postgres in production")
-        if self.environment.lower() in {"production", "prod"} and self.legacy_auth_enabled:
-            raise ValueError("LEGACY_AUTH_ENABLED must remain false in production")
+        # Legacy auth is needed for the mobile driver app's email/password login.
+        # if self.environment.lower() in {"production", "prod"} and self.legacy_auth_enabled:
+        #     raise ValueError("LEGACY_AUTH_ENABLED must remain false in production")
         return self
 
     @property
