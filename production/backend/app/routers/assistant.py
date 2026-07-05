@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+import httpx
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,50 @@ class AssistantMessageRequest(BaseModel):
     channel: Literal["app", "whatsapp"] = "app"
     message: str = Field(min_length=1, max_length=1200)
     location: Location | None = None
+
+
+@router.post("/transcribe")
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    await check_rate_limit(
+        request=request,
+        namespace="assistant-transcribe",
+        limit=settings.assistant_rate_limit_per_hour,
+        window_seconds=3600,
+        subject=f"user:{current_user.id}",
+    )
+    if not settings.groq_api_key:
+        raise HTTPException(status_code=503, detail="Voice transcription is not configured.")
+    audio = await file.read()
+    if not audio:
+        raise HTTPException(status_code=400, detail="Empty audio upload.")
+    try:
+        async with httpx.AsyncClient(timeout=settings.ai_request_timeout_seconds * 4) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                data={
+                    "model": "whisper-large-v3",
+                    "response_format": "json",
+                    "language": "en",
+                    "temperature": "0",
+                },
+                files={"file": (file.filename or "speech.m4a", audio, file.content_type or "audio/m4a")},
+            )
+        resp.raise_for_status()
+        text = sanitize_text((resp.json().get("text") or "").strip(), max_chars=1200)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="Could not transcribe audio.")
+    # Whisper hallucinates stock phrases on silence — treat those as "no speech".
+    _HALLUCINATIONS = {"thank you.", "thank you", "you", "thanks for watching!", ".", "bye."}
+    if not text or text.lower() in _HALLUCINATIONS:
+        raise HTTPException(status_code=422, detail="I didn't catch that — please speak and try again.")
+    return ok({"text": text})
 
 
 @router.post("/message")
