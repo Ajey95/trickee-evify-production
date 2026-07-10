@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Battery, Bell, Bot, Car, MessageSquare, Navigation, Send, Sparkles, Users, Zap } from "lucide-react";
+import { Activity, Battery, Bell, Bot, Car, Headphones, MessageSquare, Mic, MicOff, Navigation, RadioTower, Send, Sparkles, Users, Waves, Zap } from "lucide-react";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -23,6 +23,121 @@ const panels: Array<{ key: PanelKey; label: string; icon: any; description: stri
   { key: "fleet", label: "Fleet Summary", icon: Users, description: "Generate an operator summary from current fleet facts.", cta: "Summarize fleet" },
   { key: "coaching", label: "Coaching", icon: Sparkles, description: "Create end-of-shift coaching based on observed metrics.", cta: "Create coaching" },
 ];
+
+const mockDrivers: Driver[] = [
+  {
+    id: "mock-driver-rohith",
+    driver_code: "DRV-018",
+    full_name: "Rohith Kumar",
+    style_label: "Smooth",
+    personal_factor: 0.94,
+    avg_regen_ratio: 0.31,
+    avg_throttle_variance: 0.18,
+    avg_current_30m: 31.4,
+    avg_speed_30m: 34.2,
+    trips_this_week: 22,
+    kwh_used_this_week: 47.6,
+    efficiency_rank: 3,
+    efficiency_vs_fleet_pct: 11,
+    trickee_points: 1280,
+  },
+];
+
+const mockVehicles: Vehicle[] = [
+  {
+    id: "mock-vehicle-trk-204",
+    vehicle_code: "TRK-204",
+    make: "Euler",
+    model: "HiLoad EV",
+    max_range_km: 140,
+    latest_dynamic_range_km: 37,
+    latest: {
+      id: "mock-tel-1",
+      vehicle_id: "mock-vehicle-trk-204",
+      driver_id: "mock-driver-rohith",
+      recorded_at: new Date().toISOString(),
+      soc: 22,
+      current: 38.8,
+      battery_voltage: 51.6,
+      speed: 32.4,
+      temp_max: 36.8,
+      soh: 94,
+      charge_plug: false,
+      ignition_on: true,
+      regen_status: true,
+      throttle_status: true,
+      status_tag: "route_risk_watch",
+      lat: 21.1702,
+      lng: 72.8311,
+    },
+  },
+];
+
+function mockResultFor(active: PanelKey, message: string, soc: number, vehicleCode?: string) {
+  const vehicle = vehicleCode || "TRK-204";
+  if (active === "assistant") {
+    return {
+      answer: `${vehicle} can finish the next 18 km stop, but the reserve will be tight. Keep speed below 38 km/h and take the Adajan top-up if a second delivery is added.`,
+      confidence: "mock-high",
+      transcript: message,
+      next_best_action: "Offer a 14 minute charge window before accepting a longer route.",
+      fallback_used: true,
+    };
+  }
+  if (active === "notification") {
+    return {
+      message: `Heads up: ${vehicle} is at ${soc.toFixed(0)}% SOC. Take the Adajan charger window now to avoid a late-route low battery alert.`,
+      severity: soc < 20 ? "high" : "medium",
+      channel: "driver_app_preview",
+      fallback_used: true,
+    };
+  }
+  if (active === "route") {
+    return {
+      explanation: "Route B is recommended because it avoids the high stop-and-go section and preserves roughly 8% more SOC, even though it adds 6 minutes.",
+      selected_route: "B",
+      soc_end_pct: Math.max(9, soc - 12),
+      fallback_used: true,
+    };
+  }
+  if (active === "battery") {
+    return {
+      range_translation: `${soc.toFixed(0)}% SOC maps to about 37 km practical range under the current speed, heat, and current-draw pattern.`,
+      risk_flag: soc < 25 ? "Watch reserve closely" : "Stable",
+      fallback_used: true,
+    };
+  }
+  if (active === "charger") {
+    return {
+      recommendation: "Adajan Fast Charge",
+      reason: "Closest reliable top-up with a short queue and enough gain for the next route block.",
+      distance_km: 2.7,
+      charge_minutes: 14,
+      fallback_used: true,
+    };
+  }
+  if (active === "profile") {
+    return {
+      summary: "Rohith is smoother than fleet baseline today with lower throttle variance and good regen recovery.",
+      driver_style: "Smooth",
+      coaching_tone: "Positive reinforcement",
+      fallback_used: true,
+    };
+  }
+  if (active === "fleet") {
+    return {
+      summary: "Fleet is healthy overall. One vehicle needs charging attention, two routes have avoidable energy penalties, and no severe driver risk is active.",
+      vehicles_at_risk: 1,
+      charging_windows: 3,
+      fallback_used: true,
+    };
+  }
+  return {
+    summary: "End-of-shift coaching should praise smooth acceleration, then remind the driver to accept charger windows before SOC drops below 20%.",
+    coaching_points: ["Strong regen use", "Avoid late charging", "Keep route speed below 38 km/h in heat"],
+    fallback_used: true,
+  };
+}
 
 function formatLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -102,26 +217,51 @@ export default function AiFeaturesPage() {
   const [message, setMessage] = useState("Can I reach my next stop with current battery?");
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("Mock Coice/voice mode is ready if live backend data is unavailable.");
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const [driverList, vehicleList] =
-        user?.role === "driver"
-          ? await Promise.all([
-              api.drivers.me().then((result) => ({ ...result, data: result.success ? [result.data] : [] })),
-              api.vehicles.mine(),
-            ])
-          : await Promise.all([api.drivers.list(), api.vehicles.list()]);
+      let driverList: { success: boolean; data: Driver[]; error?: string };
+      let vehicleList: { success: boolean; data: Vehicle[]; error?: string };
+
+      try {
+        if (user?.role === "driver") {
+          const [driverResponse, vehicleResponse] = await Promise.all([
+            api.drivers.me().then((result) => ({ ...result, data: result.success ? [result.data] : [] })),
+            api.vehicles.mine(),
+          ]);
+          driverList = driverResponse;
+          vehicleList = vehicleResponse;
+        } else {
+          const [driverResponse, vehicleResponse] = await Promise.all([api.drivers.list(), api.vehicles.list()]);
+          driverList = driverResponse;
+          vehicleList = vehicleResponse;
+        }
+      } catch {
+        driverList = { success: false, data: [], error: "Unable to reach backend." };
+        vehicleList = { success: false, data: [], error: "Unable to reach backend." };
+      }
+
       if (driverList.success) {
-        setDrivers(driverList.data);
-        setSelectedDriverId(driverList.data[0]?.id || "");
+        const nextDrivers = driverList.data.length ? driverList.data : mockDrivers;
+        setDrivers(nextDrivers);
+        setSelectedDriverId(nextDrivers[0]?.id || "");
       }
       if (vehicleList.success) {
-        setVehicles(vehicleList.data);
-        setSelectedVehicleId(vehicleList.data[0]?.id || "");
+        const nextVehicles = vehicleList.data.length ? vehicleList.data : mockVehicles;
+        setVehicles(nextVehicles);
+        setSelectedVehicleId(nextVehicles[0]?.id || "");
       }
-      if (!driverList.success || !vehicleList.success) setError(driverList.error || vehicleList.error || "Unable to load AI context.");
+      if (!driverList.success || !vehicleList.success) {
+        setDrivers(mockDrivers);
+        setVehicles(mockVehicles);
+        setSelectedDriverId(mockDrivers[0].id);
+        setSelectedVehicleId(mockVehicles[0].id);
+        setNotice("Live backend context was not available, so the AI workspace is showing polished mock fleet data.");
+      }
     }
     if (user) load();
   }, [user]);
@@ -223,13 +363,46 @@ export default function AiFeaturesPage() {
     ];
   })();
 
+  function startVoiceInput() {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceSupported(false);
+      setNotice("This browser does not expose speech recognition, but the chat and mock intelligence flow still work.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => {
+      setIsListening(true);
+      setNotice("Listening for your Coice/voice command...");
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => {
+      setIsListening(false);
+      setNotice("Voice capture stopped. You can type the same command in the assistant box.");
+    };
+    recognition.onresult = (event: any) => {
+      const transcript = event.results?.[0]?.[0]?.transcript || "";
+      setMessage(transcript);
+      setActive("assistant");
+      setNotice("Voice command captured and moved into the assistant prompt.");
+    };
+    recognition.start();
+  }
+
   async function runPanel() {
     if (!selectedDriverId || !selectedVehicle?.id) {
-      setError(
-        user?.role === "driver"
-          ? "Your driver account has no mapped vehicle telemetry yet. Ask an admin to map this account to the right driver/vehicle before using AI checks."
-          : "Select a driver and vehicle first."
-      );
+      setDrivers(mockDrivers);
+      setVehicles(mockVehicles);
+      setSelectedDriverId(mockDrivers[0].id);
+      setSelectedVehicleId(mockVehicles[0].id);
+      setResult(mockResultFor(active, message, soc, mockVehicles[0].vehicle_code));
+      setNotice("No live driver or vehicle was selected, so Trickee is showing the mock Coice intelligence result.");
       return;
     }
     if (active === "fleet" && user?.role === "driver") {
@@ -270,17 +443,88 @@ export default function AiFeaturesPage() {
     } else {
       response = await api.drivers.coaching(selectedDriverId, { ...common, mode: "shift" });
     }
-    if (response.success) setResult(response.data);
-    else setError(response.error || "Request failed.");
+    if (response.success) {
+      setResult(response.data);
+      setNotice("Live backend response received.");
+    } else {
+      setResult(mockResultFor(active, message, soc, selectedVehicle?.vehicle_code));
+      setNotice(response.error ? `Live request failed (${response.error}). Showing mock Coice intelligence output.` : "Showing mock Coice intelligence output.");
+    }
     setIsLoading(false);
   }
 
   return (
     <RoleGuard allowedRoles={["driver", "trickee_admin", "fleet_operator"]}>
       <div className="space-y-6 pb-12">
+        <div className="overflow-hidden rounded-xl border border-accent-teal/20 bg-[linear-gradient(135deg,rgba(0,180,216,0.16),rgba(15,19,26,0.94)_42%,rgba(63,185,80,0.10))] p-5 shadow-2xl shadow-black/20 md:p-6">
+          <div className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr] xl:items-end">
+            <div className="space-y-5">
+              <div>
+                <h1 className="page-title mb-2">Coice Voice Intelligence</h1>
+                <p className="max-w-3xl text-sm leading-6 text-text-dim md:text-base">
+                  A voice-ready EV command center for driver questions, route reasoning, charger decisions, and operator summaries. Mock data is active so the UI can be shown immediately.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center gap-2 text-accent-teal">
+                    <RadioTower className="h-4 w-4" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider">Signal</span>
+                  </div>
+                  <p className="mt-2 text-xl font-bold text-text-primary">Live + Mock</p>
+                  <p className="mt-1 text-xs text-text-dim">Backend safe fallback</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center gap-2 text-accent-green">
+                    <Activity className="h-4 w-4" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider">Fleet Pulse</span>
+                  </div>
+                  <p className="mt-2 text-xl font-bold text-text-primary">{soc.toFixed(0)}% SOC</p>
+                  <p className="mt-1 text-xs text-text-dim">{selectedVehicle?.vehicle_code || "Mock vehicle"} under watch</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center gap-2 text-accent-amber">
+                    <Headphones className="h-4 w-4" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider">Voice Layer</span>
+                  </div>
+                  <p className="mt-2 text-xl font-bold text-text-primary">{isListening ? "Listening" : "Ready"}</p>
+                  <p className="mt-1 text-xs text-text-dim">{voiceSupported ? "Browser speech input" : "Typed fallback"}</p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[#07090d]/72 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-accent-teal">Voice command</p>
+                  <p className="mt-1 text-sm text-text-dim">Tap the mic and ask about battery, routes, drivers, or chargers.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={startVoiceInput}
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition ${
+                    isListening
+                      ? "border-accent-red bg-accent-red text-white"
+                      : "border-accent-teal/35 bg-accent-teal/10 text-accent-teal hover:border-accent-teal"
+                  }`}
+                  aria-label="Start Coice voice input"
+                >
+                  {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                </button>
+              </div>
+              <div className="rounded-lg border border-bg-border bg-bg-primary/60 p-3">
+                <div className="flex items-center gap-2 text-xs text-text-dim">
+                  <Waves className="h-4 w-4 text-accent-teal" />
+                  Current prompt
+                </div>
+                <p className="mt-2 text-sm leading-6 text-text-primary">{message}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <h1 className="page-title mb-1">EV Intelligence Workspace</h1>
+            <h2 className="section-title mb-1">AI Workspace</h2>
             <p className="text-text-dim">Driver assistant, notification previews, route reasoning, charging guidance, and coaching.</p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap xl:w-auto">
@@ -292,6 +536,8 @@ export default function AiFeaturesPage() {
             </select>
           </div>
         </div>
+
+        {notice && <Card className="border-accent-teal/20 bg-accent-teal/5"><p className="text-sm text-accent-teal">{notice}</p></Card>}
 
         <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4 xl:grid-cols-8">
           {visiblePanels.map(({ key, label, icon: Icon }) => (
@@ -319,11 +565,22 @@ export default function AiFeaturesPage() {
             <CardContent className="space-y-4">
               <p className="text-sm leading-6 text-text-dim">{activePanel.description}</p>
               {active === "assistant" && (
-                <textarea
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  className="min-h-32 w-full resize-none rounded-lg border border-bg-border bg-bg-primary/50 p-3 text-sm text-text-primary outline-none focus:border-accent-teal"
-                />
+                <div className="space-y-3">
+                  <textarea
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    className="min-h-32 w-full resize-none rounded-lg border border-bg-border bg-bg-primary/50 p-3 text-sm text-text-primary outline-none focus:border-accent-teal"
+                  />
+                  <div className="grid gap-2 sm:grid-cols-[1fr,auto]">
+                    <div className="rounded-lg border border-bg-border bg-bg-primary/40 px-3 py-2 text-xs leading-5 text-text-dim">
+                      Try: Which vehicle needs charging before the next route?
+                    </div>
+                    <Button type="button" variant={isListening ? "danger" : "secondary"} onClick={startVoiceInput} disabled={isListening} className="gap-2">
+                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {isListening ? "Listening" : "Voice"}
+                    </Button>
+                  </div>
+                </div>
               )}
               {active !== "assistant" && (
                 <div className="rounded-xl border border-bg-border bg-bg-primary/40 p-4">

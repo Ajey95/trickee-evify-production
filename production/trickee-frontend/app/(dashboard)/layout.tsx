@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { FloatingSocBadge } from "@/components/layout/FloatingSocBadge";
+import { FloatingIntelligenceChat } from "@/components/intelligence/FloatingIntelligenceChat";
 
 export default function DashboardLayout({
   children,
@@ -19,6 +20,7 @@ export default function DashboardLayout({
           <Topbar />
           <main className="flex min-h-screen flex-col pb-[calc(6rem+env(safe-area-inset-bottom))] pt-16 md:pb-0">
             <FloatingSocBadge />
+            <FloatingIntelligenceChat />
             <div className="w-full max-w-[1640px] flex-1 px-4 py-5 sm:px-6 md:px-8 md:py-8 2xl:pr-[280px]">
               {children}
             </div>
