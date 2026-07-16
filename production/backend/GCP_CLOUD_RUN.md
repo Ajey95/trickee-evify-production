@@ -32,6 +32,8 @@ If the database is Cloud SQL and you want Cloud Run to attach the Cloud SQL conn
   -CloudSqlInstance "YOUR_GCP_PROJECT_ID:asia-south1:YOUR_SQL_INSTANCE"
 ```
 
+When `-CloudSqlInstance` is set, the deploy script rewrites `DATABASE_URL` for the Cloud SQL Unix socket before storing it in Secret Manager. The source env file can still contain the normal public-IP Postgres URL.
+
 The script:
 
 - enables Cloud Run, Cloud Build, Artifact Registry, and Secret Manager APIs;

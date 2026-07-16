@@ -57,6 +57,18 @@ function Secret-Id($Key) {
     return ("trickee-" + $Key.ToLowerInvariant().Replace("_", "-"))
 }
 
+function Convert-DatabaseUrlForCloudSql($DatabaseUrl, $CloudSqlInstance) {
+    if (-not $DatabaseUrl -or -not $CloudSqlInstance) {
+        return $DatabaseUrl
+    }
+    $uri = [Uri]$DatabaseUrl
+    $dbName = $uri.AbsolutePath.TrimStart("/")
+    if (-not $dbName) {
+        throw "DATABASE_URL must include a database name when -CloudSqlInstance is used."
+    }
+    return "postgresql://$($uri.UserInfo)@/$dbName`?host=/cloudsql/$CloudSqlInstance"
+}
+
 function Write-YamlEnvFile($Values) {
     $tempFile = New-TemporaryFile
     $lines = @()
@@ -70,12 +82,13 @@ function Write-YamlEnvFile($Values) {
 }
 
 function Ensure-Secret($Gcloud, $ProjectId, $SecretId, $Value) {
-    $exists = & $Gcloud secrets describe $SecretId --project $ProjectId --format="value(name)" 2>$null
-    if (-not $exists) {
+    $existingSecrets = & $Gcloud secrets list --project $ProjectId --format="value(name)"
+
+    if (-not ($existingSecrets -contains $SecretId)) {
         & $Gcloud secrets create $SecretId --project $ProjectId --replication-policy="automatic" | Out-Host
     }
 
-        $tempFile = New-TemporaryFile
+    $tempFile = New-TemporaryFile
     try {
         Set-Content -LiteralPath $tempFile -Value $Value -NoNewline
         & $Gcloud secrets versions add $SecretId --project $ProjectId --data-file=$tempFile | Out-Host
@@ -99,6 +112,9 @@ Set-Location $backendDir
     --project $ProjectId | Out-Host
 
 $envValues = Read-EnvFile $EnvFile
+if ($CloudSqlInstance -and $envValues.Contains("DATABASE_URL") -and $envValues["DATABASE_URL"]) {
+    $envValues["DATABASE_URL"] = Convert-DatabaseUrlForCloudSql $envValues["DATABASE_URL"] $CloudSqlInstance
+}
 
 $ignoredEnvKeys = @(
     "DATABASE_URL_OLD",
@@ -131,7 +147,6 @@ $secretKeys = @(
 
 $defaultPlainEnv = [ordered]@{
     ENVIRONMENT = "production"
-    PORT = "8080"
     MODEL_DIR = "models_ml"
     LEGACY_AUTH_ENABLED = "true"
     DEMO_SEED = "false"
