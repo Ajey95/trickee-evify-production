@@ -1,0 +1,12 @@
+.git
+.gitignore
+.gcloudignore
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+*.env
+trickee-evify-production.env
+tests/
+README.md
