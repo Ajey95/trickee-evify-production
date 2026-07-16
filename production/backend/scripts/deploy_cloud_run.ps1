@@ -5,6 +5,7 @@ param(
     [string]$Region = "asia-south1",
     [string]$ServiceName = "trickee-backend",
     [string]$EnvFile = "",
+    [string]$CloudSqlInstance = "",
     [switch]$AllowUnauthenticated = $true
 )
 
@@ -38,7 +39,13 @@ function Read-EnvFile($Path) {
         }
         $parts = $trimmed.Split("=", 2)
         $key = $parts[0].Trim()
-        $value = $parts[1]
+        $value = $parts[1].Trim()
+        if (
+            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
         if ($key) {
             $result[$key] = $value
         }
@@ -48,6 +55,18 @@ function Read-EnvFile($Path) {
 
 function Secret-Id($Key) {
     return ("trickee-" + $Key.ToLowerInvariant().Replace("_", "-"))
+}
+
+function Write-YamlEnvFile($Values) {
+    $tempFile = New-TemporaryFile
+    $lines = @()
+    foreach ($key in $Values.Keys) {
+        $value = [string]$Values[$key]
+        $escaped = $value.Replace("\", "\\").Replace('"', '\"')
+        $lines += "$key`: `"$escaped`""
+    }
+    Set-Content -LiteralPath $tempFile -Value $lines
+    return $tempFile
 }
 
 function Ensure-Secret($Gcloud, $ProjectId, $SecretId, $Value) {
@@ -81,13 +100,19 @@ Set-Location $backendDir
 
 $envValues = Read-EnvFile $EnvFile
 
+$ignoredEnvKeys = @(
+    "DATABASE_URL_OLD",
+    "FIREBASE_SERVICE_ACCOUNT_PATH",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_JWKS_URL",
+    "SUPABASE_JWT_AUDIENCE",
+    "SUPABASE_JWT_SECRET",
+    "SUPABASE_URL"
+)
+
 $secretKeys = @(
     "DATABASE_URL",
     "SECRET_KEY",
-    "SUPABASE_JWT_SECRET",
-    "SUPABASE_URL",
-    "SUPABASE_ANON_KEY",
-    "SUPABASE_JWKS_URL",
     "GEMINI_API_KEY",
     "GROQ_API_KEY",
     "GOOGLE_MAPS_API_KEY",
@@ -125,22 +150,17 @@ $defaultPlainEnv = [ordered]@{
     EXTERNAL_CONTEXT_REDIS_CACHE_ENABLED = "true"
     LIVE_STATE_REDIS_ENABLED = "true"
     LIVE_STATE_TTL_SECONDS = "300"
-    FIREBASE_AUTH_ENABLED = "false"
-    FIREBASE_FCM_ENABLED = "false"
+    FIREBASE_AUTH_ENABLED = "true"
+    FIREBASE_FCM_ENABLED = "true"
     NOTIFICATION_PROVIDER = "dashboard"
 }
 
 foreach ($key in $envValues.Keys) {
+    if ($ignoredEnvKeys.Contains($key)) {
+        continue
+    }
     if (-not $secretKeys.Contains($key) -and $envValues[$key] -ne "") {
         $defaultPlainEnv[$key] = $envValues[$key]
-    }
-}
-
-$envVars = @()
-foreach ($key in $defaultPlainEnv.Keys) {
-    $value = [string]$defaultPlainEnv[$key]
-    if ($value -ne "") {
-        $envVars += "$key=$value"
     }
 }
 
@@ -166,6 +186,11 @@ $deployArgs = @(
     "--max-instances", "3"
 )
 
+if ($CloudSqlInstance) {
+    $deployArgs += "--add-cloudsql-instances"
+    $deployArgs += $CloudSqlInstance
+}
+
 if ($AllowUnauthenticated) {
     $deployArgs += "--allow-unauthenticated"
 }
@@ -173,15 +198,19 @@ else {
     $deployArgs += "--no-allow-unauthenticated"
 }
 
-if ($envVars.Count -gt 0) {
-    $deployArgs += "--set-env-vars"
-    $deployArgs += ($envVars -join ",")
-}
+$envVarsFile = Write-YamlEnvFile $defaultPlainEnv
+$deployArgs += "--env-vars-file"
+$deployArgs += $envVarsFile
 
 if ($secretVars.Count -gt 0) {
     $deployArgs += "--set-secrets"
     $deployArgs += ($secretVars -join ",")
 }
 
-& $gcloud @deployArgs | Out-Host
-& $gcloud run services describe $ServiceName --project $ProjectId --region $Region --format="value(status.url)"
+try {
+    & $gcloud @deployArgs | Out-Host
+    & $gcloud run services describe $ServiceName --project $ProjectId --region $Region --format="value(status.url)"
+}
+finally {
+    Remove-Item -LiteralPath $envVarsFile -Force -ErrorAction SilentlyContinue
+}
