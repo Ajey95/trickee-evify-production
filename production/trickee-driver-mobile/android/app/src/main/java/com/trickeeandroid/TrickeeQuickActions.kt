@@ -10,6 +10,16 @@ object TrickeeQuickActions {
     const val PREFS = "trickee.quick.actions"
     const val PENDING_ACTION = "pending_action"
 
+    fun isQuickAction(action: String?): Boolean =
+        action == ACTION_SOS ||
+            action == ACTION_COPILOT ||
+            action == ACTION_TRIP ||
+            action == ACTION_CHARGING ||
+            action == "sos" ||
+            action == "copilot" ||
+            action == "trip" ||
+            action == "charging"
+
     fun normalize(action: String?): String =
         when (action) {
             ACTION_SOS, "sos" -> "sos"

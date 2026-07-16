@@ -302,3 +302,21 @@ export type AssistantReply = {
   escalated: boolean;
   fallback_used?: boolean;
 };
+
+export type VoiceTranscription = {
+  text: string;
+};
+
+export type VoiceDestinationResolution = {
+  intent: string;
+  destination_text?: string | null;
+  destination_lat?: number | null;
+  destination_lng?: number | null;
+  confidence?: number | null;
+  current_location?: {lat: number; lng: number} | null;
+};
+
+export type VoiceCopilotReply = AssistantReply & {
+  voice_response: string;
+  destination_resolution?: VoiceDestinationResolution | null;
+};

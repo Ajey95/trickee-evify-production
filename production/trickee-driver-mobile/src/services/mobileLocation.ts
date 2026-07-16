@@ -13,6 +13,7 @@ type LocationSnapshot = {
 };
 
 let deniedThisSession = false;
+let preciseLocationGranted = false;
 
 export function trackingStateFor(me: MobileMe): TrackingState {
   if (me.active_charging) {
@@ -36,13 +37,21 @@ export async function ensureForegroundLocationPermission() {
   }
 
   const fine = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
-  const alreadyGranted = await PermissionsAndroid.check(fine);
-  if (alreadyGranted) {
+  const coarse = PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION;
+  const [fineAlreadyGranted, coarseAlreadyGranted] = await Promise.all([
+    PermissionsAndroid.check(fine),
+    PermissionsAndroid.check(coarse),
+  ]);
+  preciseLocationGranted = fineAlreadyGranted;
+  if (fineAlreadyGranted || coarseAlreadyGranted) {
     return true;
   }
 
-  const result = await PermissionsAndroid.request(fine);
-  const granted = result === PermissionsAndroid.RESULTS.GRANTED;
+  const result = await PermissionsAndroid.requestMultiple([fine, coarse]);
+  const granted =
+    result[fine] === PermissionsAndroid.RESULTS.GRANTED ||
+    result[coarse] === PermissionsAndroid.RESULTS.GRANTED;
+  preciseLocationGranted = result[fine] === PermissionsAndroid.RESULTS.GRANTED;
   deniedThisSession = !granted;
   return granted;
 }
@@ -62,7 +71,12 @@ export function getCurrentLocation(): Promise<LocationSnapshot> {
       },
       reject,
       {
-        enableHighAccuracy: true,
+        enableHighAccuracy: preciseLocationGranted,
+        accuracy: {
+          android: preciseLocationGranted ? 'high' : 'balanced',
+        },
+        showLocationDialog: true,
+        forceRequestLocation: true,
         timeout: 15000,
         maximumAge: 10000,
       },

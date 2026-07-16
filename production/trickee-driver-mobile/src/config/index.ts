@@ -17,22 +17,23 @@ import {Platform} from 'react-native';
 // ---- Backend host -----------------------------------------------------------
 
 /** Hosted backend origin (Render / Railway / your domain). No trailing slash. */
-const HOSTED_API_ORIGIN = 'https://trickee-backend.onrender.com';
+const HOSTED_API_ORIGIN = 'https://trickee-evify-production.onrender.com';
 
 /**
  * Flip to true once you have a deployed backend URL. When false, the app talks
  * to a backend running on the developer machine (Android emulator → 10.0.2.2,
  * iOS simulator / web → 127.0.0.1).
  */
-const USE_HOSTED_BACKEND = false;
+const USE_HOSTED_BACKEND = true;
 
 /**
- * Native background GPS needs a Google Play Services emulator/device and a valid
- * react-native-background-geolocation license for this Android package. Keep it
- * off for the local AOSP demo so login/dashboard remain usable while the
- * foreground GPS ping + offline queue paths continue to run.
+ * Background GPS is not shipped in the Play testing build. Foreground location
+ * still asks Android permission and posts a current point while the app is open.
  */
 const ENABLE_NATIVE_BACKGROUND_GPS = false;
+
+/** Ask for foreground location and send /mobile/location pings while app is open. */
+const ENABLE_FOREGROUND_LOCATION_PINGS = true;
 
 /** Local backend origin, resolved per-platform for emulators/simulators. */
 const LOCAL_API_ORIGIN =
@@ -57,7 +58,7 @@ export const WS_LIVE_MAP_URL = `${WS_ORIGIN}/ws/live-map`;
 // ---- Networking -------------------------------------------------------------
 
 /** Per-request network timeout in milliseconds. */
-export const REQUEST_TIMEOUT_MS = 15000;
+export const REQUEST_TIMEOUT_MS = 90000;
 
 /** How often live screens poll /mobile/me + /mobile/alerts (ms). */
 export const LIVE_POLL_INTERVAL_MS = 15000;
@@ -94,7 +95,7 @@ export const Features = {
   /** Show driver self-service actions (start trip, charging, waiting, SOS). */
   driverActions: true,
   /** Send foreground Android GPS pings to POST /mobile/location. */
-  foregroundLocationPings: true,
+  foregroundLocationPings: ENABLE_FOREGROUND_LOCATION_PINGS,
   /** Enable native background GPS tracking and offline location retry queue. */
   backgroundLocationTracking: ENABLE_NATIVE_BACKGROUND_GPS,
   /**

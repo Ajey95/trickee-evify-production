@@ -57,18 +57,22 @@ class TrickeeActionModule(private val reactContext: ReactApplicationContext) :
         private const val CHANNEL_ID = "trickee_quick_actions"
         private const val NOTIFICATION_ID = 1042
 
-        fun dispatchAction(context: Context, rawAction: String?) {
+        fun dispatchAction(context: Context, rawAction: String?, openApp: Boolean = true) {
             val action = TrickeeQuickActions.normalize(rawAction)
             context.getSharedPreferences(TrickeeQuickActions.PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putString(TrickeeQuickActions.PENDING_ACTION, action)
                 .apply()
 
-            val app = context.applicationContext as? ReactApplication ?: return
-            val reactContext = app.reactNativeHost.reactInstanceManager.currentReactContext ?: return
+            val app = context.applicationContext as? ReactApplication
+            val reactContext = app?.reactNativeHost?.reactInstanceManager?.currentReactContext
             reactContext
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit("quickAction", action)
+                ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                ?.emit("quickAction", action)
+
+            if (openApp) {
+                openAppForAction(context, action)
+            }
         }
 
         private fun createChannel(context: Context) {
@@ -100,36 +104,49 @@ class TrickeeActionModule(private val reactContext: ReactApplicationContext) :
                 .addAction(
                     R.mipmap.ic_launcher,
                     "SOS",
-                    actionIntent(context, TrickeeQuickActions.ACTION_SOS, 1),
+                    actionActivityIntent(context, TrickeeQuickActions.ACTION_SOS, 1),
                 )
                 .addAction(
                     R.mipmap.ic_launcher,
                     "Copilot",
-                    actionIntent(context, TrickeeQuickActions.ACTION_COPILOT, 2),
+                    actionActivityIntent(context, TrickeeQuickActions.ACTION_COPILOT, 2),
                 )
                 .addAction(
                     R.mipmap.ic_launcher,
                     "Trip",
-                    actionIntent(context, TrickeeQuickActions.ACTION_TRIP, 3),
+                    actionActivityIntent(context, TrickeeQuickActions.ACTION_TRIP, 3),
                 )
                 .addAction(
                     R.mipmap.ic_launcher,
                     "Charging",
-                    actionIntent(context, TrickeeQuickActions.ACTION_CHARGING, 4),
+                    actionActivityIntent(context, TrickeeQuickActions.ACTION_CHARGING, 4),
                 )
                 .build()
 
-        private fun actionIntent(context: Context, action: String, requestCode: Int): PendingIntent {
-            val intent = Intent(context, TrickeeActionReceiver::class.java).apply {
+        private fun actionActivityIntent(context: Context, action: String, requestCode: Int): PendingIntent {
+            val intent = Intent(context, MainActivity::class.java).apply {
                 this.action = action
                 putExtra(TrickeeQuickActions.EXTRA_ACTION, action)
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            return PendingIntent.getBroadcast(
+            return PendingIntent.getActivity(
                 context,
                 requestCode,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        }
+
+        private fun openAppForAction(context: Context, action: String) {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                this.action = action
+                putExtra(TrickeeQuickActions.EXTRA_ACTION, action)
+                flags =
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            context.startActivity(intent)
         }
 
         private fun openAppIntent(context: Context): PendingIntent {

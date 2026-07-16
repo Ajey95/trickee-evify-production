@@ -298,6 +298,7 @@ const LiveMapScreen: React.FC = () => {
           initialLongitude={vehicleLng}
           initialZoom={14}
           markers={markers}
+          showUserLocation={false}
           height={300}
           borderRadius={20}
         />

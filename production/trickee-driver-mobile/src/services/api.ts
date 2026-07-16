@@ -25,6 +25,9 @@ import type {
   TrackingState,
   Trip,
   User,
+  VoiceCopilotReply,
+  VoiceDestinationResolution,
+  VoiceTranscription,
 } from './types';
 
 /** Error thrown by every client method. `status` is 0 for network/timeout. */
@@ -107,6 +110,67 @@ async function request<T>(
         ...(token ? {Authorization: `Bearer ${token}`} : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const aborted = (err as Error)?.name === 'AbortError';
+    throw new ApiError(
+      aborted
+        ? 'Request timed out. Check your connection and that the backend is running.'
+        : 'Network error. Is the backend reachable?',
+      0,
+    );
+  } finally {
+    clearTimeout(timeout);
+    if (signal) {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  let envelope: ApiResponse<T> | null = null;
+  try {
+    envelope = (await response.json()) as ApiResponse<T>;
+  } catch {
+    envelope = null;
+  }
+
+  if (!response.ok || !envelope || !envelope.success) {
+    const message =
+      envelope?.error ||
+      envelope?.message ||
+      `Request failed (${response.status})`;
+    throw new ApiError(message, response.status);
+  }
+
+  return envelope.data;
+}
+
+async function requestForm<T>(
+  path: string,
+  formData: FormData,
+  options: Pick<RequestOptions, 'token' | 'query' | 'signal'> = {},
+): Promise<T> {
+  const {token, query, signal} = options;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', onAbort);
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path, query), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        ...(token ? {Authorization: `Bearer ${token}`} : {}),
+      },
+      body: formData,
       signal: controller.signal,
     });
   } catch (err) {
@@ -357,6 +421,57 @@ export const api = {
       method: 'POST',
       token,
       body: payload,
+    });
+  },
+
+  resolveVoiceDestination(
+    token: string,
+    payload: {
+      transcript: string;
+      current_location?: {lat: number; lng: number};
+    },
+  ) {
+    return request<VoiceDestinationResolution>(
+      '/mobile/voice/resolve-destination',
+      {
+        method: 'POST',
+        token,
+        body: payload,
+      },
+    );
+  },
+
+  voiceCopilot(
+    token: string,
+    payload: {
+      transcript: string;
+      vehicle_id?: string;
+      current_location?: {lat: number; lng: number};
+    },
+  ) {
+    return request<VoiceCopilotReply>('/mobile/voice/copilot', {
+      method: 'POST',
+      token,
+      body: payload,
+    });
+  },
+
+  transcribeAssistantAudio(
+    token: string,
+    payload: {
+      uri: string;
+      name?: string;
+      type?: string;
+    },
+  ) {
+    const formData = new FormData();
+    formData.append('file', {
+      uri: payload.uri,
+      name: payload.name || 'trickee-voice.m4a',
+      type: payload.type || 'audio/mp4',
+    } as unknown as Blob);
+    return requestForm<VoiceTranscription>('/assistant/transcribe', formData, {
+      token,
     });
   },
 

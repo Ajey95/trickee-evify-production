@@ -1,6 +1,7 @@
 .gradle
 .idea
 local.properties
+signing.properties
 *.iml
 *.hprof
 .cxx/

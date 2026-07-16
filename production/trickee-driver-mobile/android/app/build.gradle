@@ -8,6 +8,12 @@ react {
 
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'org.webkit:android-jsc:+'
+def releaseSigningPropertiesFile = rootProject.file("signing.properties")
+def releaseSigningProperties = new Properties()
+def hasReleaseSigning = releaseSigningPropertiesFile.exists()
+if (hasReleaseSigning) {
+    releaseSigningPropertiesFile.withInputStream { releaseSigningProperties.load(it) }
+}
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -19,8 +25,8 @@ android {
         applicationId "com.trickeeandroid"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 5
+        versionName "1.0.4"
     }
 
     signingConfigs {
@@ -30,6 +36,14 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (hasReleaseSigning) {
+                storeFile rootProject.file(releaseSigningProperties['storeFile'])
+                storePassword releaseSigningProperties['storePassword']
+                keyAlias releaseSigningProperties['keyAlias']
+                keyPassword releaseSigningProperties['keyPassword']
+            }
+        }
     }
 
     buildTypes {
@@ -37,7 +51,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

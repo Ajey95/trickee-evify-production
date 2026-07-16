@@ -37,7 +37,7 @@ const OpenStreetMap: React.FC<OpenStreetMapProps> = ({
   initialLongitude = 72.8311,
   initialZoom = 14,
   markers = [],
-  showUserLocation = true,
+  showUserLocation = false,
   height = 300,
   borderRadius = 20,
   onMarkerPress,

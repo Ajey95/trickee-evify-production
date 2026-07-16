@@ -31,6 +31,7 @@ import type {
   Alert,
   Driver,
   LiveMapSnapshot,
+  MobileLocationPoint,
   MobileMe,
   Telemetry,
   Vehicle,
@@ -57,9 +58,59 @@ type LiveDataValue = {
 
 const LiveDataContext = createContext<LiveDataValue | undefined>(undefined);
 
+const FOREGROUND_LOCATION_FRESH_MS = 90_000;
+
+function isFreshForegroundLocation(location: MobileLocationPoint | null) {
+  if (!location) {
+    return false;
+  }
+  const rawTime = location.captured_at ?? location.received_at;
+  if (!rawTime) {
+    return true;
+  }
+  const timestamp = Date.parse(rawTime);
+  return Number.isFinite(timestamp)
+    ? Date.now() - timestamp <= FOREGROUND_LOCATION_FRESH_MS
+    : true;
+}
+
+function applyForegroundLocation(
+  current: MobileMe | null,
+  location: MobileLocationPoint | null,
+): MobileMe | null {
+  if (!current || !isFreshForegroundLocation(location)) {
+    return current;
+  }
+  const previousTelemetry = current.latest_telemetry ?? current.vehicle?.latest;
+  const latestTelemetry: Telemetry = {
+    ...(previousTelemetry ?? {
+      id: `device-${current.driver?.id ?? 'location'}`,
+    }),
+    driver_id: location!.driver_id ?? previousTelemetry?.driver_id ?? null,
+    vehicle_id: location!.vehicle_id ?? previousTelemetry?.vehicle_id ?? null,
+    lat: location!.lat,
+    lng: location!.lng,
+    soc: location!.battery_pct ?? previousTelemetry?.soc ?? null,
+    speed:
+      location!.speed_mps != null
+        ? Math.max(0, location!.speed_mps * 3.6)
+        : previousTelemetry?.speed ?? null,
+    recorded_at:
+      location!.captured_at ?? previousTelemetry?.recorded_at ?? null,
+  };
+  return {
+    ...current,
+    latest_telemetry: latestTelemetry,
+    vehicle: current.vehicle
+      ? {...current.vehicle, latest: latestTelemetry}
+      : current.vehicle,
+  };
+}
+
 function mergeLiveMapSnapshot(
   current: MobileMe | null,
   snapshot: LiveMapSnapshot,
+  foregroundLocation: MobileLocationPoint | null = null,
 ): MobileMe | null {
   if (!current?.driver) {
     return current;
@@ -75,15 +126,21 @@ function mergeLiveMapSnapshot(
   }
 
   const previousTelemetry = current.latest_telemetry ?? current.vehicle?.latest;
+  const freshForeground = isFreshForegroundLocation(foregroundLocation);
   const latestTelemetry: Telemetry = {
     ...(previousTelemetry ?? {id: `live-${current.driver.id}`}),
     driver_id: point.driver_id,
     vehicle_id: point.vehicle_id ?? previousTelemetry?.vehicle_id ?? null,
-    lat: point.lat,
-    lng: point.lng,
+    lat: freshForeground ? foregroundLocation!.lat : point.lat,
+    lng: freshForeground ? foregroundLocation!.lng : point.lng,
     soc: point.soc ?? previousTelemetry?.soc ?? null,
-    speed: point.speed ?? previousTelemetry?.speed ?? null,
-    recorded_at: point.recorded_at ?? previousTelemetry?.recorded_at ?? null,
+    speed:
+      freshForeground && foregroundLocation!.speed_mps != null
+        ? Math.max(0, foregroundLocation!.speed_mps * 3.6)
+        : point.speed ?? previousTelemetry?.speed ?? null,
+    recorded_at: freshForeground
+      ? foregroundLocation!.captured_at ?? previousTelemetry?.recorded_at ?? null
+      : point.recorded_at ?? previousTelemetry?.recorded_at ?? null,
   };
 
   return {
@@ -118,6 +175,7 @@ export const LiveDataProvider: React.FC<{children: React.ReactNode}> = ({
   const appActive = useRef(true);
   const inFlight = useRef<AbortController | null>(null);
   const lastLocationPingAt = useRef(0);
+  const foregroundLocationRef = useRef<MobileLocationPoint | null>(null);
 
   const meRef = useRef<MobileMe | null>(null);
 
@@ -184,8 +242,12 @@ export const LiveDataProvider: React.FC<{children: React.ReactNode}> = ({
           alertsResult = results[1];
         }
 
-        meRef.current = meResult;
-        setMe(meResult);
+        const liveMeResult = applyForegroundLocation(
+          meResult,
+          foregroundLocationRef.current,
+        );
+        meRef.current = liveMeResult;
+        setMe(liveMeResult);
         setAlerts(alertsResult);
 
         if (meResult.user) {
@@ -200,12 +262,24 @@ export const LiveDataProvider: React.FC<{children: React.ReactNode}> = ({
           Date.now() - lastLocationPingAt.current >= LOCATION_PING_INTERVAL_MS
         ) {
           lastLocationPingAt.current = Date.now();
-          postForegroundLocation(token, meResult).catch(err => {
-            console.warn(
-              'Foreground location ping failed',
-              err instanceof Error ? err.message : err,
-            );
-          });
+          postForegroundLocation(token, meResult)
+            .then(location => {
+              if (!location) {
+                return;
+              }
+              foregroundLocationRef.current = location;
+              setMe(prev => {
+                const next = applyForegroundLocation(prev, location);
+                meRef.current = next;
+                return next;
+              });
+            })
+            .catch(err => {
+              console.warn(
+                'Foreground location ping failed',
+                err instanceof Error ? err.message : err,
+              );
+            });
         }
 
         if (
@@ -226,7 +300,11 @@ export const LiveDataProvider: React.FC<{children: React.ReactNode}> = ({
             driverId: meResult.driver?.id,
             onSnapshot: snapshot => {
               setMe(prev => {
-                const next = mergeLiveMapSnapshot(prev, snapshot);
+                const next = mergeLiveMapSnapshot(
+                  prev,
+                  snapshot,
+                  foregroundLocationRef.current,
+                );
                 meRef.current = next;
                 return next;
               });

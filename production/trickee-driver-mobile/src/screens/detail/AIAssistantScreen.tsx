@@ -1,4 +1,4 @@
-import React, {useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -17,8 +17,23 @@ import {EmptyState} from '../../components/StateViews';
 import {useAuth} from '../../context/AuthContext';
 import {useLiveData} from '../../context/LiveDataContext';
 import {api, ApiError} from '../../services/api';
+import {
+  recordAssistantVoiceClip,
+  transcribeVoiceClip,
+} from '../../services/voiceInput';
+import {
+  speakAssistantReply,
+  stopAssistantSpeech,
+} from '../../services/voiceReply';
 
-type ChatMessage = {id: string; role: 'user' | 'assistant'; text: string};
+type ChatMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  isTyping?: boolean;
+};
+
+type VoicePhase = 'idle' | 'listening' | 'transcribing' | 'thinking';
 
 const SUGGESTIONS = [
   'How much range do I have left?',
@@ -28,6 +43,19 @@ const SUGGESTIONS = [
 
 let counter = 0;
 const nextId = () => `m${++counter}`;
+
+function assistantErrorText(error: unknown) {
+  return error instanceof ApiError
+    ? `Sorry - ${error.message}`
+    : 'Sorry, I could not reach the assistant.';
+}
+
+function voiceCaptureErrorText(error: unknown) {
+  if (error instanceof ApiError || error instanceof Error) {
+    return error.message;
+  }
+  return 'Could not capture voice input.';
+}
 
 const AIAssistantScreen: React.FC = () => {
   const {token} = useAuth();
@@ -41,50 +69,141 @@ const AIAssistantScreen: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>('idle');
   const scrollRef = useRef<ScrollView>(null);
+  const typingTimers = useRef<ReturnType<typeof setInterval>[]>([]);
 
   const canChat = !!token && !!driver && !!vehicle;
+  const voiceBusy = voicePhase !== 'idle';
+  const currentLocation =
+    telemetry?.lat != null && telemetry?.lng != null
+      ? {lat: telemetry.lat, lng: telemetry.lng}
+      : undefined;
+
+  const scrollToEnd = useCallback(() => {
+    setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 50);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      typingTimers.current.forEach(timer => clearInterval(timer));
+      typingTimers.current = [];
+      stopAssistantSpeech();
+    };
+  }, []);
+
+  const appendAssistantMessage = useCallback(
+    (text: string, animated = false) => {
+      if (!animated) {
+        setMessages(prev => [...prev, {id: nextId(), role: 'assistant', text}]);
+        scrollToEnd();
+        return Promise.resolve();
+      }
+
+      const messageId = nextId();
+      setMessages(prev => [
+        ...prev,
+        {id: messageId, role: 'assistant', text: '', isTyping: true},
+      ]);
+      scrollToEnd();
+
+      return new Promise<void>(resolve => {
+        let index = 0;
+        const timer = setInterval(() => {
+          index = Math.min(index + 2, text.length);
+          setMessages(prev =>
+            prev.map(message =>
+              message.id === messageId
+                ? {
+                    ...message,
+                    text: text.slice(0, index),
+                    isTyping: index < text.length,
+                  }
+                : message,
+            ),
+          );
+          if (index >= text.length) {
+            clearInterval(timer);
+            typingTimers.current = typingTimers.current.filter(
+              item => item !== timer,
+            );
+            resolve();
+          }
+        }, 18);
+        typingTimers.current.push(timer);
+      });
+    },
+    [scrollToEnd],
+  );
 
   const send = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || sending || !canChat) {
+    if (!trimmed || sending || voiceBusy || !canChat) {
       return;
     }
     setInput('');
     setMessages(prev => [...prev, {id: nextId(), role: 'user', text: trimmed}]);
     setSending(true);
-    setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 50);
+    scrollToEnd();
     try {
       const reply = await api.assistantMessage(token!, {
         driver_id: driver!.id,
         vehicle_id: vehicle!.id,
         message: trimmed,
-        location:
-          telemetry?.lat != null && telemetry?.lng != null
-            ? {lat: telemetry.lat, lng: telemetry.lng}
-            : undefined,
+        location: currentLocation,
       });
-      setMessages(prev => [
-        ...prev,
-        {id: nextId(), role: 'assistant', text: reply.answer},
-      ]);
-    } catch (err) {
-      setMessages(prev => [
-        ...prev,
-        {
-          id: nextId(),
-          role: 'assistant',
-          text:
-            err instanceof ApiError
-              ? `Sorry — ${err.message}`
-              : 'Sorry, I could not reach the assistant.',
-        },
-      ]);
+      await appendAssistantMessage(reply.answer, false);
+    } catch (error) {
+      await appendAssistantMessage(assistantErrorText(error), false);
     } finally {
       setSending(false);
-      setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 50);
+      scrollToEnd();
     }
   };
+
+  const listenAndSend = async () => {
+    if (sending || voiceBusy || !canChat) {
+      return;
+    }
+    setVoicePhase('listening');
+    try {
+      const audioUri = await recordAssistantVoiceClip();
+      setVoicePhase('transcribing');
+      const transcript = await transcribeVoiceClip(token!, audioUri);
+      setMessages(prev => [
+        ...prev,
+        {id: nextId(), role: 'user', text: transcript},
+      ]);
+      scrollToEnd();
+
+      setVoicePhase('thinking');
+      setSending(true);
+      const reply = await api.voiceCopilot(token!, {
+        transcript,
+        vehicle_id: vehicle!.id,
+        current_location: currentLocation,
+      });
+      const replyText = reply.voice_response || reply.answer;
+      speakAssistantReply(replyText);
+      await appendAssistantMessage(replyText, true);
+    } catch (error) {
+      await stopAssistantSpeech();
+      await appendAssistantMessage(voiceCaptureErrorText(error), false);
+    } finally {
+      setSending(false);
+      setVoicePhase('idle');
+      scrollToEnd();
+    }
+  };
+
+  const voiceStatus =
+    voicePhase === 'listening'
+      ? 'Listening for 7 seconds...'
+      : voicePhase === 'transcribing'
+      ? 'Transcribing voice...'
+      : voicePhase === 'thinking'
+      ? 'Understanding intent...'
+      : null;
 
   return (
     <View style={styles.container}>
@@ -122,13 +241,17 @@ const AIAssistantScreen: React.FC = () => {
                     m.role === 'user' ? styles.userText : styles.assistantText
                   }>
                   {m.text}
+                  {m.isTyping ? '|' : ''}
                 </Text>
               </View>
             ))}
-            {sending && (
+            {(sending || voiceBusy) && (
               <View
                 style={[styles.bubble, styles.assistantBubble, styles.typing]}>
                 <ActivityIndicator size="small" color={Colors.trickeeYellow} />
+                {voiceStatus ? (
+                  <Text style={styles.statusText}>{voiceStatus}</Text>
+                ) : null}
               </View>
             )}
             {messages.length <= 1 && (
@@ -148,21 +271,35 @@ const AIAssistantScreen: React.FC = () => {
           <View style={styles.inputRow}>
             <TextInput
               style={styles.input}
-              placeholder="Ask about battery, range, chargers…"
+              placeholder="Ask about battery, range, chargers..."
               placeholderTextColor="rgba(156,163,175,0.6)"
               value={input}
               onChangeText={setInput}
               onSubmitEditing={() => send(input)}
               returnKeyType="send"
-              editable={!sending}
+              editable={!sending && !voiceBusy}
             />
             <TouchableOpacity
               style={[
+                styles.micButton,
+                voiceBusy && styles.micButtonActive,
+                (sending || !canChat) && styles.sendDisabled,
+              ]}
+              onPress={listenAndSend}
+              disabled={sending || voiceBusy || !canChat}>
+              {voiceBusy ? (
+                <ActivityIndicator size="small" color={Colors.buttonText} />
+              ) : (
+                <Icon name="microphone" size={20} color={Colors.buttonText} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
                 styles.sendButton,
-                (!input.trim() || sending) && styles.sendDisabled,
+                (!input.trim() || sending || voiceBusy) && styles.sendDisabled,
               ]}
               onPress={() => send(input)}
-              disabled={!input.trim() || sending}>
+              disabled={!input.trim() || sending || voiceBusy}>
               <Icon name="send" size={20} color={Colors.buttonText} />
             </TouchableOpacity>
           </View>
@@ -194,7 +331,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     borderBottomLeftRadius: 4,
   },
-  typing: {paddingVertical: 14, paddingHorizontal: 20},
+  typing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  statusText: {fontSize: 12, color: Colors.secondaryText, fontWeight: '600'},
   userText: {
     fontSize: 14,
     color: Colors.buttonText,
@@ -246,6 +390,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  micButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: Colors.neonBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micButtonActive: {backgroundColor: Colors.trickeeYellow},
   sendDisabled: {opacity: 0.5},
 });
 
