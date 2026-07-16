@@ -113,6 +113,9 @@ $ignoredEnvKeys = @(
 $secretKeys = @(
     "DATABASE_URL",
     "SECRET_KEY",
+    "DEMO_ADMIN_PASSWORD",
+    "DEMO_DRIVER_PASSWORD",
+    "DEMO_FLEET_PASSWORD",
     "GEMINI_API_KEY",
     "GROQ_API_KEY",
     "GOOGLE_MAPS_API_KEY",
