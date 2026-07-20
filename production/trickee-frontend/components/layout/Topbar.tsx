@@ -2,21 +2,13 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
-import { BellRing, LogOut, User as UserIcon } from "lucide-react";
+import { LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
-import { isFirebaseMessagingEnabled, listenForFcmMessages, requestFcmToken, signOutFirebase } from "@/lib/firebase";
 
 export const Topbar = () => {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
-  const [pushState, setPushState] = React.useState<"idle" | "saving" | "enabled" | "blocked">("idle");
-
-  React.useEffect(() => {
-    return listenForFcmMessages();
-  }, []);
-
   // Get page title from pathname
   const getPageTitle = (path: string) => {
     if (path === "/fleet") return "Fleet Overview";
@@ -37,40 +29,23 @@ export const Topbar = () => {
     return "Dashboard";
   };
 
-  const enablePush = async () => {
-    setPushState("saving");
-    try {
-      const token = await requestFcmToken();
-      if (!token) {
-        setPushState("blocked");
-        return;
-      }
-      const result = await api.auth.registerFcmToken(token, "dashboard-browser");
-      if (!result.success) {
-        setPushState("blocked");
-        return;
-      }
-      const test = await api.alerts.testPush();
-      setPushState(test.success && Number(test.data?.sent || 0) > 0 ? "enabled" : "blocked");
-    } catch {
-      setPushState("blocked");
-    }
-  };
-
   const handleSignOut = async () => {
-    await signOutFirebase();
     await signOut();
     window.location.href = "/login";
   };
 
   return (
     <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-bg-border/70 bg-[#05070b]/78 px-4 backdrop-blur-xl md:left-[224px] md:px-8">
-      <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-text-primary">{getPageTitle(pathname)}</h2>
+      <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-text-primary">
+        {getPageTitle(pathname)}
+      </h2>
 
       <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="hidden flex-col items-end sm:flex">
-            <span className="text-sm font-medium text-text-primary">{user?.full_name || "User"}</span>
+            <span className="text-sm font-medium text-text-primary">
+              {user?.full_name || "User"}
+            </span>
             <span className="text-[10px] font-medium text-accent-teal uppercase tracking-widest">
               {user?.role?.replace("_", " ") || "Guest"}
             </span>
@@ -82,24 +57,9 @@ export const Topbar = () => {
 
         <div className="hidden h-6 w-[1px] bg-bg-border sm:block"></div>
 
-        {isFirebaseMessagingEnabled() && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-10 w-10 gap-2 sm:w-auto"
-            onClick={enablePush}
-            disabled={pushState === "saving" || pushState === "enabled"}
-            title="Enable browser push alerts"
-            aria-label="Enable browser push alerts"
-          >
-            <BellRing className="w-4 h-4" />
-            <span className="hidden sm:inline">{pushState === "enabled" ? "Alerts On" : "Push Alerts"}</span>
-          </Button>
-        )}
-
-        <Button 
-          variant="ghost" 
-          size="sm" 
+        <Button
+          variant="ghost"
+          size="sm"
           className="h-10 w-10 gap-2 sm:w-auto"
           onClick={handleSignOut}
           aria-label="Sign out"

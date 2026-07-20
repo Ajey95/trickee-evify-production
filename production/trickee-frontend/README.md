@@ -17,19 +17,11 @@ Default local backend:
 http://localhost:8000/api/v1
 ```
 
-Users authenticate with Supabase Auth. Supabase email/password users must be mapped to a Trickee backend user by email or `supabase_user_id`.
-
-For emergency rollback only, set `NEXT_PUBLIC_LEGACY_AUTH_ENABLED=true` in the frontend and `LEGACY_AUTH_ENABLED=true` in the backend to temporarily allow the old backend password login.
+Users authenticate with Google OAuth through the backend. The browser receives a Google ID token, exchanges it at `POST /api/v1/auth/google-login`, then stores the backend-issued Trickee access token and rotating refresh token.
 
 ## Backend Integration
 
-The frontend stores the Supabase browser session through `@supabase/ssr`. API calls send the Supabase access token as `Authorization: Bearer <token>`; the backend verifies it with `SUPABASE_JWT_SECRET`, then loads the internal Trickee user, role, fleet, and driver scope.
-
-FCM browser alerts are available through the topbar `Push Alerts` button. The browser token is registered at:
-
-```text
-POST /api/v1/auth/fcm-token
-```
+API calls send the backend-issued Trickee access token as `Authorization: Bearer <token>`. When the access token expires, the frontend rotates the stored refresh token through `POST /api/v1/auth/refresh`.
 
 Connected backend screens:
 
@@ -53,25 +45,15 @@ V5/V6 intelligence API helpers are also available in `lib/api.ts`:
 Recommended deployment:
 
 - Frontend: Vercel
-- Backend: Render
-- Database: Supabase Postgres
+- Backend: Google Cloud Run
+- Database: Google Cloud SQL Postgres
 
 Set these Vercel env vars:
 
 ```text
-BACKEND_URL=https://<render-backend-url>/api/v1
-NEXT_PUBLIC_BACKEND_URL=https://<render-backend-url>/api/v1
-NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-anon-key>
-NEXT_PUBLIC_LEGACY_AUTH_ENABLED=false
-NEXT_PUBLIC_FIREBASE_AUTH_ENABLED=true
-NEXT_PUBLIC_FIREBASE_API_KEY=<firebase-web-api-key>
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<project>.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=<firebase-project-id>
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=<project>.appspot.com
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<sender-id>
-NEXT_PUBLIC_FIREBASE_APP_ID=<web-app-id>
-NEXT_PUBLIC_FIREBASE_VAPID_KEY=<web-push-vapid-key>
+BACKEND_URL=https://<cloud-run-backend-url>/api/v1
+NEXT_PUBLIC_BACKEND_URL=https://<cloud-run-backend-url>/api/v1
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=<google-web-oauth-client-id>
 ```
 
 `next.config.mjs` includes a rewrite for `/api/backend/*` if the app later wants to proxy backend calls through Next.js.

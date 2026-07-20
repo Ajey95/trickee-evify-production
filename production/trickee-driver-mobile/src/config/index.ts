@@ -16,8 +16,9 @@ import {Platform} from 'react-native';
 
 // ---- Backend host -----------------------------------------------------------
 
-/** Hosted backend origin (Render / Railway / your domain). No trailing slash. */
-const HOSTED_API_ORIGIN = 'https://trickee-evify-production.onrender.com';
+/** Hosted backend origin (Cloud Run / custom domain). No trailing slash. */
+const HOSTED_API_ORIGIN =
+  'https://trickee-backend-397358873357.asia-southeast1.run.app';
 
 /**
  * Flip to true once you have a deployed backend URL. When false, the app talks
@@ -34,6 +35,13 @@ const ENABLE_NATIVE_BACKGROUND_GPS = false;
 
 /** Ask for foreground location and send /mobile/location pings while app is open. */
 const ENABLE_FOREGROUND_LOCATION_PINGS = true;
+
+/**
+ * Google OAuth web client ID used by native Google Sign-In to mint an ID token
+ * for the backend /auth/google-login endpoint.
+ */
+export const GOOGLE_WEB_CLIENT_ID =
+  '397358873357-qfd1kdt5fhgduu4tvq92l5dg8otmh6ln.apps.googleusercontent.com';
 
 /** Local backend origin, resolved per-platform for emulators/simulators. */
 const LOCAL_API_ORIGIN =
@@ -81,11 +89,11 @@ export const DEFAULT_MAP_CENTER = {latitude: 21.1702, longitude: 72.8311};
 
 export const Features = {
   /**
-   * Legacy email/password login. The pilot backend enables this
-   * (LEGACY_AUTH_ENABLED=true in local/dev mode). Set false once Firebase or
-   * Supabase auth is wired on the client.
+   * Legacy email/password login. Production uses Google OAuth only; local/dev
+   * can keep password login for seeded demo accounts.
    */
-  passwordLogin: true,
+  passwordLogin: !USE_HOSTED_BACKEND,
+  googleLogin: USE_HOSTED_BACKEND,
   /**
    * Try the live-map WebSocket for realtime updates, falling back to polling.
    * The backend ws endpoint requires a redis-backed live state in production;

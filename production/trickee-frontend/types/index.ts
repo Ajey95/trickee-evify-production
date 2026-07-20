@@ -13,7 +13,6 @@ export interface User {
 export interface AccessRequest {
   id: string;
   email: string;
-  supabase_user_id?: string;
   full_name: string;
   company?: string;
   requested_role: UserRole;

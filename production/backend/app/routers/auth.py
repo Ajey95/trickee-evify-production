@@ -9,8 +9,16 @@ from app.config import get_settings
 from app.models import AccessRequest, DevicePushToken, Fleet, User, Vehicle
 from app.schemas.api import ok
 from app.services.audit import record_security_event
-from app.services.auth import create_access_token, get_current_user, verify_password
+from app.services.auth import (
+    create_access_token,
+    create_refresh_session,
+    get_current_user,
+    revoke_refresh_session,
+    rotate_refresh_session,
+    verify_password,
+)
 from app.services.firebase_service import verify_firebase_id_token
+from app.services.google_oauth import verify_google_id_token
 from app.services.rate_limit import check_rate_limit, ip_rate_limit
 from app.services.serializers import device_push_token_dict, user_dict
 
@@ -33,6 +41,28 @@ class FirebaseLoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id_token: str = Field(min_length=20, max_length=4096)
+
+
+class GoogleLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id_token: str = Field(min_length=1, max_length=8192)
+    full_name: str | None = Field(default=None, max_length=255)
+    company: str | None = Field(default=None, max_length=255)
+    requested_role: str = Field(default="driver", pattern="^(fleet_operator|driver|trickee_admin)$")
+    requested_vehicle_id: str | None = Field(default=None, max_length=36)
+
+
+class RefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str = Field(min_length=20, max_length=512)
+
+
+class LogoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str | None = Field(default=None, min_length=20, max_length=512)
 
 
 class FcmTokenRequest(BaseModel):
@@ -87,11 +117,58 @@ def _record_login_failure(key: str) -> None:
     _login_failures[key] = failures
 
 
-def _session_payload(user: User) -> dict:
+def _access_payload(user: User, *, auth_provider: str | None = None) -> dict:
+    return {
+        "sub": user.id,
+        "role": user.role,
+        "fleet_id": user.fleet_id,
+        "driver_id": user.driver_id,
+        "auth_provider": auth_provider or user.auth_provider,
+    }
+
+
+def _session_payload(user: User, *, auth_provider: str | None = None, refresh_token: str | None = None) -> dict:
+    settings = get_settings()
     token = create_access_token(
-        {"sub": user.id, "role": user.role, "fleet_id": user.fleet_id, "driver_id": user.driver_id}
+        _access_payload(user, auth_provider=auth_provider)
     )
-    return {"access_token": token, "token_type": "bearer", "user": user_dict(user)}
+    data = {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in_seconds": settings.access_token_expire_minutes * 60,
+        "user": user_dict(user),
+    }
+    if refresh_token:
+        data["refresh_token"] = refresh_token
+    return data
+
+
+def _record_google_access_request(db: Session, payload: dict, request: Request, login_payload: GoogleLoginRequest) -> None:
+    email = str(payload.get("email") or "").lower()
+    if not email:
+        return
+    full_name = login_payload.full_name or payload.get("name") or email.split("@", 1)[0]
+    row = db.query(AccessRequest).filter(AccessRequest.email == email).first()
+    if not row:
+        row = AccessRequest(
+            email=email,
+            full_name=full_name,
+            company=login_payload.company,
+            requested_role=login_payload.requested_role,
+            requested_vehicle_id=login_payload.requested_vehicle_id,
+        )
+        db.add(row)
+    elif row.status == "pending":
+        row.full_name = full_name or row.full_name
+        row.company = login_payload.company or row.company
+        row.requested_role = login_payload.requested_role
+        row.requested_vehicle_id = login_payload.requested_vehicle_id or row.requested_vehicle_id
+    record_security_event(
+        db,
+        event_type="google_login_unmapped_user",
+        request=request,
+        metadata={"email_domain": email.split("@")[-1]},
+    )
 
 
 @router.get("/signup-options")
@@ -187,6 +264,61 @@ def firebase_login(
     return ok(_session_payload(user))
 
 
+@router.post("/google-login")
+def google_login(
+    payload: GoogleLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(ip_rate_limit("google-login", lambda: get_settings().auth_rate_limit_per_minute)),
+):
+    decoded = verify_google_id_token(payload.id_token)
+    google_sub = decoded.get("sub")
+    email = str(decoded.get("email") or "").lower()
+    if not google_sub or not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google token must include sub and email")
+
+    user = db.query(User).filter(User.google_sub == str(google_sub)).first()
+    if not user:
+        user = db.query(User).filter(User.email == email).first()
+    if not user:
+        _record_google_access_request(db, decoded, request, payload)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace access is pending approval")
+    if not user.is_active or user.deleted_at is not None:
+        record_security_event(db, event_type="google_login_inactive_user", request=request, user=user)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+
+    changed = False
+    if user.google_sub != str(google_sub):
+        user.google_sub = str(google_sub)
+        changed = True
+    if user.auth_provider != "google":
+        user.auth_provider = "google"
+        changed = True
+    if changed:
+        db.commit()
+        db.refresh(user)
+
+    refresh_token = create_refresh_session(db, user, request, auth_provider="google")
+    record_security_event(db, event_type="google_login_success", request=request, user=user)
+    db.commit()
+    return ok(_session_payload(user, auth_provider="google", refresh_token=refresh_token))
+
+
+@router.post("/refresh")
+def refresh_session(
+    payload: RefreshRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(ip_rate_limit("auth-refresh", lambda: get_settings().auth_rate_limit_per_minute)),
+):
+    user, refresh_token = rotate_refresh_session(db, payload.refresh_token, request)
+    record_security_event(db, event_type="refresh_token_rotated", request=request, user=user)
+    db.commit()
+    return ok(_session_payload(user, auth_provider="google", refresh_token=refresh_token))
+
+
 @router.post("/access-request")
 def request_workspace_access(
     payload: AccessRequestPayload,
@@ -241,6 +373,7 @@ async def ws_ticket(request: Request, current_user: User = Depends(get_current_u
             "role": current_user.role,
             "fleet_id": current_user.fleet_id,
             "driver_id": current_user.driver_id,
+            "auth_provider": current_user.auth_provider,
             "purpose": "ws_live_map",
         },
         expire_minutes=WS_TICKET_TTL_MINUTES,
@@ -306,5 +439,8 @@ async def unregister_fcm_token(
 
 
 @router.post("/logout")
-def logout():
-    return ok({"logged_out": True}, "JWT is stateless; remove token client-side")
+def logout(payload: LogoutRequest | None = None, db: Session = Depends(get_db)):
+    revoked = False
+    if payload and payload.refresh_token:
+        revoked = revoke_refresh_session(db, payload.refresh_token)
+    return ok({"logged_out": True, "refresh_token_revoked": revoked}, "Session closed")

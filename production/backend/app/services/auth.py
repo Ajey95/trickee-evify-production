@@ -1,4 +1,6 @@
 import logging
+import hashlib
+import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -13,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import AccessRequest, User
+from app.models import AccessRequest, RefreshSession, User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -33,7 +35,7 @@ def create_access_token(payload: dict[str, Any], expire_minutes: int | None = No
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes or settings.access_token_expire_minutes)
     to_encode = payload.copy()
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "typ": to_encode.get("typ", "access")})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
@@ -52,13 +54,116 @@ def _workspace_access_error() -> HTTPException:
     )
 
 
-def _decode_legacy_token(token: str, settings) -> str | None:
+def _decode_trickee_token(token: str, settings) -> dict[str, Any] | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        user_id = payload.get("sub")
-        return str(user_id) if user_id else None
+        return payload if payload.get("sub") else None
     except JWTError:
         return None
+
+
+def _provider_allowed(payload: dict[str, Any], settings) -> bool:
+    required = (settings.auth_required_provider or "legacy").lower()
+    if required in {"", "legacy", "any"}:
+        return settings.legacy_auth_enabled or payload.get("auth_provider") in {"google", "firebase", "supabase"}
+    return payload.get("auth_provider") == required
+
+
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def refresh_token_hash(refresh_token: str) -> str:
+    return hashlib.sha256(refresh_token.encode("utf-8")).hexdigest()
+
+
+def _request_user_agent(request) -> str | None:
+    user_agent = request.headers.get("user-agent") if request else None
+    return user_agent[:255] if user_agent else None
+
+
+def _request_ip(request) -> str | None:
+    if not request:
+        return None
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()[:80]
+    return (request.client.host[:80] if request.client else None)
+
+
+def create_refresh_session(
+    db: Session,
+    user: User,
+    request=None,
+    *,
+    auth_provider: str = "google",
+) -> str:
+    settings = get_settings()
+    raw_token = generate_refresh_token()
+    now = datetime.utcnow()
+    session = RefreshSession(
+        user_id=user.id,
+        token_hash=refresh_token_hash(raw_token),
+        auth_provider=auth_provider,
+        user_agent=_request_user_agent(request),
+        ip_address=_request_ip(request),
+        created_at=now,
+        expires_at=now + timedelta(days=settings.refresh_token_expire_days),
+    )
+    db.add(session)
+    db.commit()
+    return raw_token
+
+
+def rotate_refresh_session(db: Session, refresh_token: str, request=None) -> tuple[User, str]:
+    now = datetime.utcnow()
+    session = (
+        db.query(RefreshSession)
+        .filter(RefreshSession.token_hash == refresh_token_hash(refresh_token))
+        .first()
+    )
+    if (
+        not session
+        or session.revoked_at is not None
+        or session.rotated_at is not None
+        or session.expires_at <= now
+    ):
+        raise _credentials_error()
+
+    user = db.get(User, session.user_id)
+    if not user or not user.is_active or user.deleted_at is not None:
+        raise _credentials_error()
+
+    new_raw_token = generate_refresh_token()
+    new_session = RefreshSession(
+        user_id=user.id,
+        token_hash=refresh_token_hash(new_raw_token),
+        auth_provider=session.auth_provider,
+        user_agent=_request_user_agent(request),
+        ip_address=_request_ip(request),
+        created_at=now,
+        expires_at=now + timedelta(days=get_settings().refresh_token_expire_days),
+    )
+    db.add(new_session)
+    db.flush()
+    session.rotated_at = now
+    session.replaced_by_session_id = new_session.id
+    db.commit()
+    db.refresh(user)
+    return user, new_raw_token
+
+
+def revoke_refresh_session(db: Session, refresh_token: str) -> bool:
+    session = (
+        db.query(RefreshSession)
+        .filter(RefreshSession.token_hash == refresh_token_hash(refresh_token))
+        .first()
+    )
+    if not session or session.revoked_at is not None:
+        return False
+    session.revoked_at = datetime.utcnow()
+    db.commit()
+    return True
 
 
 def _normalized_supabase_url(settings) -> str | None:
@@ -207,26 +312,29 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     settings = get_settings()
     credentials_error = _credentials_error()
 
-    supabase_payload = _decode_supabase_token(token, settings)
-    if supabase_payload:
-        user = _find_supabase_user(db, supabase_payload)
+    trickee_payload = _decode_trickee_token(token, settings)
+    if trickee_payload:
+        if not _provider_allowed(trickee_payload, settings):
+            raise credentials_error
+        user = db.get(User, str(trickee_payload["sub"]))
         if not user or not user.is_active or user.deleted_at is not None:
-            if not user:
-                record_supabase_access_request(db, supabase_payload)
-            raise _workspace_access_error()
+            raise credentials_error
         return user
+
+    if (settings.auth_required_provider or "").lower() != "google":
+        supabase_payload = _decode_supabase_token(token, settings)
+        if supabase_payload:
+            user = _find_supabase_user(db, supabase_payload)
+            if not user or not user.is_active or user.deleted_at is not None:
+                if not user:
+                    record_supabase_access_request(db, supabase_payload)
+                raise _workspace_access_error()
+            return user
 
     if not settings.legacy_auth_enabled:
         raise credentials_error
 
-    user_id = _decode_legacy_token(token, settings)
-    if not user_id:
-        raise credentials_error
-
-    user = db.get(User, user_id)
-    if not user or not user.is_active or user.deleted_at is not None:
-        raise credentials_error
-    return user
+    raise credentials_error
 
 
 def require_roles(*roles: str):

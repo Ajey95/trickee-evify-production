@@ -2,10 +2,14 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectId,
 
-    [string]$Region = "asia-south1",
+    [string]$Region = "asia-southeast1",
     [string]$ServiceName = "trickee-backend",
     [string]$EnvFile = "",
     [string]$CloudSqlInstance = "",
+    [string]$GoogleOAuthClientIds = "",
+    [string]$GoogleOAuthHostedDomain = "",
+    [switch]$SkipSecretUpdates,
+    [switch]$PreserveInvokerPolicy,
     [switch]$AllowUnauthenticated = $true
 )
 
@@ -112,12 +116,22 @@ Set-Location $backendDir
     --project $ProjectId | Out-Host
 
 $envValues = Read-EnvFile $EnvFile
+if ($GoogleOAuthClientIds) {
+    $envValues["GOOGLE_OAUTH_CLIENT_IDS"] = $GoogleOAuthClientIds
+}
+if ($GoogleOAuthHostedDomain) {
+    $envValues["GOOGLE_OAUTH_HOSTED_DOMAIN"] = $GoogleOAuthHostedDomain
+}
 if ($CloudSqlInstance -and $envValues.Contains("DATABASE_URL") -and $envValues["DATABASE_URL"]) {
     $envValues["DATABASE_URL"] = Convert-DatabaseUrlForCloudSql $envValues["DATABASE_URL"] $CloudSqlInstance
 }
 
 $ignoredEnvKeys = @(
     "DATABASE_URL_OLD",
+    "FIREBASE_AUTH_ENABLED",
+    "FIREBASE_FCM_ENABLED",
+    "FIREBASE_PROJECT_ID",
+    "FIREBASE_SERVICE_ACCOUNT_JSON",
     "FIREBASE_SERVICE_ACCOUNT_PATH",
     "SUPABASE_ANON_KEY",
     "SUPABASE_JWKS_URL",
@@ -141,14 +155,15 @@ $secretKeys = @(
     "RESEND_API_KEY",
     "REPORT_FROM_EMAIL",
     "REPORT_TO_EMAILS",
-    "FIREBASE_SERVICE_ACCOUNT_JSON",
     "NOTIFICATION_WEBHOOK_URL"
 )
 
 $defaultPlainEnv = [ordered]@{
     ENVIRONMENT = "production"
     MODEL_DIR = "models_ml"
-    LEGACY_AUTH_ENABLED = "true"
+    AUTH_REQUIRED_PROVIDER = "google"
+    LEGACY_AUTH_ENABLED = "false"
+    REFRESH_TOKEN_EXPIRE_DAYS = "30"
     DEMO_SEED = "false"
     ALLOWED_ORIGINS = "https://trickee-evify-live.vercel.app"
     LLM_PROVIDER = "gemini"
@@ -168,8 +183,8 @@ $defaultPlainEnv = [ordered]@{
     EXTERNAL_CONTEXT_REDIS_CACHE_ENABLED = "true"
     LIVE_STATE_REDIS_ENABLED = "true"
     LIVE_STATE_TTL_SECONDS = "300"
-    FIREBASE_AUTH_ENABLED = "true"
-    FIREBASE_FCM_ENABLED = "true"
+    FIREBASE_AUTH_ENABLED = "false"
+    FIREBASE_FCM_ENABLED = "false"
     NOTIFICATION_PROVIDER = "dashboard"
 }
 
@@ -182,11 +197,20 @@ foreach ($key in $envValues.Keys) {
     }
 }
 
+if (
+    $defaultPlainEnv["AUTH_REQUIRED_PROVIDER"] -eq "google" -and
+    (-not $defaultPlainEnv.Contains("GOOGLE_OAUTH_CLIENT_IDS") -or [string]::IsNullOrWhiteSpace($defaultPlainEnv["GOOGLE_OAUTH_CLIENT_IDS"]))
+) {
+    throw "GOOGLE_OAUTH_CLIENT_IDS is required when AUTH_REQUIRED_PROVIDER=google. Add the web and Android OAuth client IDs as a comma-separated value in the env file."
+}
+
 $secretVars = @()
 foreach ($key in $secretKeys) {
     if ($envValues.Contains($key) -and $envValues[$key] -ne "") {
         $secretId = Secret-Id $key
-        Ensure-Secret $gcloud $ProjectId $secretId $envValues[$key]
+        if (-not $SkipSecretUpdates) {
+            Ensure-Secret $gcloud $ProjectId $secretId $envValues[$key]
+        }
         $secretVars += "$key=$secretId`:latest"
     }
 }
@@ -201,7 +225,8 @@ $deployArgs = @(
     "--memory", "1Gi",
     "--cpu", "1",
     "--min-instances", "0",
-    "--max-instances", "3"
+    "--max-instances", "3",
+    "--quiet"
 )
 
 if ($CloudSqlInstance) {
@@ -209,11 +234,13 @@ if ($CloudSqlInstance) {
     $deployArgs += $CloudSqlInstance
 }
 
-if ($AllowUnauthenticated) {
-    $deployArgs += "--allow-unauthenticated"
-}
-else {
-    $deployArgs += "--no-allow-unauthenticated"
+if (-not $PreserveInvokerPolicy) {
+    if ($AllowUnauthenticated) {
+        $deployArgs += "--allow-unauthenticated"
+    }
+    else {
+        $deployArgs += "--no-allow-unauthenticated"
+    }
 }
 
 $envVarsFile = Write-YamlEnvFile $defaultPlainEnv
@@ -227,7 +254,13 @@ if ($secretVars.Count -gt 0) {
 
 try {
     & $gcloud @deployArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cloud Run deployment failed with gcloud exit code $LASTEXITCODE."
+    }
     & $gcloud run services describe $ServiceName --project $ProjectId --region $Region --format="value(status.url)"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cloud Run service lookup failed with gcloud exit code $LASTEXITCODE."
+    }
 }
 finally {
     Remove-Item -LiteralPath $envVarsFile -Force -ErrorAction SilentlyContinue

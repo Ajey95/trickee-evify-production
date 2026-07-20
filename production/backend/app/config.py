@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     supabase_anon_key: str | None = None
     supabase_jwks_url: str | None = None
     supabase_jwt_audience: str = "authenticated"
+    google_oauth_client_ids: str | None = None
+    google_oauth_hosted_domain: str | None = None
+    auth_required_provider: str = "legacy"
     legacy_auth_enabled: bool = True
+    refresh_token_expire_days: int = 30
     llm_provider: str = "gemini"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"

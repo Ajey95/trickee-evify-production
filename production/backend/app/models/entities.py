@@ -33,6 +33,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     supabase_user_id: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, nullable=True)
     firebase_uid: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="password")
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -47,6 +48,22 @@ class User(Base):
     fleet: Mapped[Fleet | None] = relationship(back_populates="users")
     driver: Mapped["Driver | None"] = relationship(back_populates="user")
     push_tokens: Mapped[list["DevicePushToken"]] = relationship(back_populates="user")
+
+
+class RefreshSession(Base):
+    __tablename__ = "refresh_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    auth_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="google")
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    replaced_by_session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class AccessRequest(Base):

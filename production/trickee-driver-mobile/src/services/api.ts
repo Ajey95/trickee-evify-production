@@ -217,14 +217,29 @@ export const api = {
     });
   },
 
+  googleLogin(idToken: string) {
+    return request<LoginResponse>('/auth/google-login', {
+      method: 'POST',
+      body: {id_token: idToken},
+    });
+  },
+
+  refresh(refreshToken: string) {
+    return request<LoginResponse>('/auth/refresh', {
+      method: 'POST',
+      body: {refresh_token: refreshToken},
+    });
+  },
+
   me(token: string, signal?: AbortSignal) {
     return request<User>('/auth/me', {token, signal});
   },
 
-  logout(token: string) {
+  logout(token: string, refreshToken?: string | null) {
     return request<{logged_out: boolean}>('/auth/logout', {
       method: 'POST',
       token,
+      body: refreshToken ? {refresh_token: refreshToken} : undefined,
     });
   },
 
