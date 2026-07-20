@@ -21,6 +21,7 @@ export type User = {
   email: string;
   supabase_user_id?: string | null;
   firebase_uid?: string | null;
+  google_sub?: string | null;
   auth_provider?: string | null;
   full_name: string;
   role: UserRole | string;
@@ -251,7 +252,9 @@ export type Trip = {
 
 export type LoginResponse = {
   access_token: string;
+  refresh_token?: string;
   token_type: string;
+  expires_in_seconds?: number;
   user: User;
 };
 

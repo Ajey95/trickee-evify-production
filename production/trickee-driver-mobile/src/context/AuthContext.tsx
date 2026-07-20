@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
 import React, {
   createContext,
   useCallback,
@@ -9,21 +10,67 @@ import React, {
 } from 'react';
 import {Features} from '../config';
 import {api, ApiError} from '../services/api';
-import type {User} from '../services/types';
+import type {LoginResponse, User} from '../services/types';
 
 const TOKEN_KEY = 'trickee.accessToken';
+const REFRESH_TOKEN_KEY = 'trickee.refreshToken';
+const AUTH_KEYCHAIN_SERVICE = 'com.trickeeandroid.auth';
+
+type StoredSession = {
+  accessToken: string;
+  refreshToken?: string;
+};
+
+async function saveStoredSession(session: StoredSession) {
+  await Keychain.setGenericPassword(
+    'trickee-session',
+    JSON.stringify(session),
+    {
+      service: AUTH_KEYCHAIN_SERVICE,
+      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    },
+  );
+}
+
+async function clearStoredSession() {
+  await Keychain.resetGenericPassword({service: AUTH_KEYCHAIN_SERVICE});
+  await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY]);
+}
+
+async function readStoredSession(): Promise<StoredSession | null> {
+  const credentials = await Keychain.getGenericPassword({
+    service: AUTH_KEYCHAIN_SERVICE,
+  });
+  if (credentials) {
+    try {
+      return JSON.parse(credentials.password) as StoredSession;
+    } catch {
+      await clearStoredSession();
+      return null;
+    }
+  }
+
+  // Move sessions created by older app versions out of plain AsyncStorage.
+  const [[, accessToken], [, refreshToken]] = await AsyncStorage.multiGet([
+    TOKEN_KEY,
+    REFRESH_TOKEN_KEY,
+  ]);
+  if (!accessToken) return null;
+  const migrated = {accessToken, refreshToken: refreshToken || undefined};
+  await saveStoredSession(migrated);
+  await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY]);
+  return migrated;
+}
 
 type AuthContextValue = {
   token: string | null;
   user: User | null;
   loading: boolean;
-  /** Last login error message, cleared on a new attempt. */
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
+  googleLogin: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
-  /** Restore a persisted session; resolves true if a valid token was found. */
   restore: () => Promise<boolean>;
-  /** Update the cached user (e.g. after /mobile/me returns a fresher copy). */
   setUser: (user: User) => void;
 };
 
@@ -36,55 +83,86 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({
   const [user, setUserState] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Guards against overlapping restore() calls from Splash + navigation.
   const restoringRef = useRef(false);
 
-  const login = useCallback(async (email: string, password: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.login(email, password);
-      await AsyncStorage.setItem(TOKEN_KEY, data.access_token);
-      setToken(data.access_token);
-      setUserState(data.user);
-    } catch (err) {
-      if (
-        Features.mockBackendFallback &&
-        err instanceof ApiError &&
-        err.isNetwork
-      ) {
-        console.warn('Backend unreachable. Using mock session for demo.');
-        const mockToken = 'mock-session-token';
-        const mockUser: User = {
-          id: 'mock-user-id',
-          email: email,
-          full_name: 'Demo Driver',
-          role: 'driver',
-        };
-        setToken(mockToken);
-        setUserState(mockUser);
-        return;
-      }
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : 'Unable to sign in. Please try again.';
-      setError(message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+  const persistSession = useCallback(async (data: LoginResponse) => {
+    const stored = await readStoredSession();
+    await saveStoredSession({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || stored?.refreshToken,
+    });
+    setToken(data.access_token);
+    setUserState(data.user);
   }, []);
+
+  const login = useCallback(
+    async (email: string, password: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await api.login(email, password);
+        await persistSession(data);
+      } catch (err) {
+        if (
+          Features.mockBackendFallback &&
+          err instanceof ApiError &&
+          err.isNetwork
+        ) {
+          console.warn('Backend unreachable. Using mock session for demo.');
+          const mockToken = 'mock-session-token';
+          const mockUser: User = {
+            id: 'mock-user-id',
+            email,
+            full_name: 'Demo Driver',
+            role: 'driver',
+          };
+          setToken(mockToken);
+          setUserState(mockUser);
+          return;
+        }
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : 'Unable to sign in. Please try again.';
+        setError(message);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [persistSession],
+  );
+
+  const googleLogin = useCallback(
+    async (idToken: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await api.googleLogin(idToken);
+        await persistSession(data);
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : 'Unable to sign in with Google. Please try again.';
+        setError(message);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [persistSession],
+  );
 
   const logout = useCallback(async () => {
     const current = token;
+    const savedRefreshToken = (await readStoredSession())?.refreshToken;
     setToken(null);
     setUserState(null);
     setError(null);
-    await AsyncStorage.removeItem(TOKEN_KEY);
-    // Best-effort server notification; token is stateless so failure is fine.
+    await clearStoredSession();
     if (current) {
-      api.logout(current).catch(() => undefined);
+      api.logout(current, savedRefreshToken).catch(() => undefined);
     }
   }, [token]);
 
@@ -94,32 +172,55 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({
     }
     restoringRef.current = true;
     try {
-      const saved = await AsyncStorage.getItem(TOKEN_KEY);
-      if (!saved) {
+      const stored = await readStoredSession();
+      const saved = stored?.accessToken;
+      const savedRefreshToken = stored?.refreshToken;
+      if (!saved && !savedRefreshToken) {
         return false;
       }
-      // Validate the token cheaply; a 401 means it expired → drop it.
-      const me = await api.me(saved);
-      setToken(saved);
-      setUserState(me);
+      if (saved) {
+        try {
+          const me = await api.me(saved);
+          setToken(saved);
+          setUserState(me);
+          return true;
+        } catch (err) {
+          if (!(err instanceof ApiError && err.isAuth)) {
+            return false;
+          }
+        }
+      }
+      if (!savedRefreshToken) {
+        return false;
+      }
+      const refreshed = await api.refresh(savedRefreshToken);
+      await persistSession(refreshed);
       return true;
     } catch (err) {
       if (err instanceof ApiError && err.isAuth) {
-        await AsyncStorage.removeItem(TOKEN_KEY);
+        await clearStoredSession();
       }
-      // Keep a stale token on transient network errors so the user isn't
-      // logged out just because the backend was momentarily unreachable.
       return false;
     } finally {
       restoringRef.current = false;
     }
-  }, [token]);
+  }, [persistSession, token]);
 
   const setUser = useCallback((next: User) => setUserState(next), []);
 
   const value = useMemo(
-    () => ({token, user, loading, error, login, logout, restore, setUser}),
-    [token, user, loading, error, login, logout, restore, setUser],
+    () => ({
+      token,
+      user,
+      loading,
+      error,
+      login,
+      googleLogin,
+      logout,
+      restore,
+      setUser,
+    }),
+    [token, user, loading, error, login, googleLogin, logout, restore, setUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

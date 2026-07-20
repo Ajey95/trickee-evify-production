@@ -32,7 +32,7 @@ python -m app.utils.seed
 uvicorn app.main:app --reload --port 8000
 ```
 
-Demo users are seeded for local development. The production auth path is Supabase Auth, so create matching Supabase users with the same emails or set `supabase_user_id` on the backend `users` row. Backend password login works only when `LEGACY_AUTH_ENABLED=true`.
+Demo users are seeded for local development. Production uses Google OAuth: create a matching backend `users` row by email, then the first successful Google login links `users.google_sub`. Backend password login works only when `LEGACY_AUTH_ENABLED=true`.
 
 - `admin@trickee.ai` / `Trickee@2026`
 - `fleet@evify.in` / `Evify@2026`
@@ -42,6 +42,8 @@ Demo users are seeded for local development. The production auth path is Supabas
 
 - `GET /api/v1/auth/me`
 - `GET /api/v1/auth/ws-ticket`
+- `POST /api/v1/auth/google-login`
+- `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/login` (legacy rollback only)
 - `POST /api/v1/auth/firebase-login` (optional Firebase auth only)
 - `POST /api/v1/auth/fcm-token`
@@ -131,16 +133,17 @@ COACHING_RATE_LIMIT_PER_DAY=10
 
 For Google-tech-first submission, keep Gemini as the primary provider and Groq as optional fallback.
 
-## Supabase Auth, Legacy Rollback, And FCM
+## Google OAuth, Legacy Rollback, And FCM
 
-Supabase Auth is the primary identity provider. Frontend API requests send the Supabase access token as a bearer token. The backend verifies it with:
+Google OAuth is the production identity provider. Clients send a Google ID token to `POST /api/v1/auth/google-login`; the backend verifies it with configured OAuth client IDs and returns a short-lived Trickee access token plus a rotating refresh token.
 
 ```text
-SUPABASE_JWT_SECRET=<Supabase JWT secret>
-SUPABASE_JWT_AUDIENCE=authenticated
+AUTH_REQUIRED_PROVIDER=google
+GOOGLE_OAUTH_CLIENT_IDS=<web-client-id>,<android-client-id>
+REFRESH_TOKEN_EXPIRE_DAYS=30
 ```
 
-The backend maps the Supabase JWT `sub` to `users.supabase_user_id`; if that is not populated yet, it falls back to the JWT email and links the row on first successful request. Trickee still owns app authorization through the internal `users.role`, `fleet_id`, and `driver_id` fields.
+The backend maps the Google JWT `sub` to `users.google_sub`; if that is not populated yet, it falls back to the verified Google email and links the row on first successful request. Trickee still owns app authorization through the internal `users.role`, `fleet_id`, and `driver_id` fields.
 
 Set `LEGACY_AUTH_ENABLED=true` only for emergency rollback to the old password endpoint.
 
@@ -158,7 +161,7 @@ Implemented production controls:
   - Redis-backed cross-worker cache when `REDIS_URL` is set
   - stale cached fallback when daily quota is exhausted
   - daily provider circuit breakers through `GOOGLE_EXTERNAL_DAILY_LIMIT` and `OPENWEATHER_EXTERNAL_DAILY_LIMIT`
-- Short-lived legacy backend JWTs; Supabase remains the primary session authority.
+- Short-lived backend access JWTs plus opaque refresh tokens stored hashed in Postgres.
 - Security event audit records for legacy/Firebase login success and failure paths.
 - Supabase-only RLS baseline migration when the database exposes the `auth` schema.
 
@@ -171,7 +174,7 @@ Firebase is now used primarily for push delivery. Trickee still owns RBAC, fleet
 Required backend env when enabling FCM:
 
 ```text
-FIREBASE_AUTH_ENABLED=true
+FIREBASE_AUTH_ENABLED=false
 FIREBASE_FCM_ENABLED=true
 FIREBASE_PROJECT_ID=<firebase-project-id>
 FIREBASE_SERVICE_ACCOUNT_JSON=<single-line-service-account-json>
@@ -293,17 +296,15 @@ Useful history endpoints:
 - `GET /api/v1/intelligence/history/charging-decisions`
 - `GET /api/v1/intelligence/history/waits`
 
-## Free Cloud Deployment
+## GCP Cloud Deployment
 
-Recommended free path for this project scope:
+Recommended path for this project scope:
 
-- Backend: Render Free web service using Docker.
-- Database: Supabase Free Postgres.
+- Backend: Google Cloud Run using Docker.
+- Database: Google Cloud SQL Postgres.
 - Frontend: Vercel Free once the frontend is shared.
 
-Why this path: Render Free web services support Python/Docker apps, managed TLS, and custom domains, but spin down after idle time. Render Free Postgres is useful only for short demos because it expires after 30 days. Supabase Free gives a normal hosted Postgres project that is better for a continuing MVP.
-
-Use `render.yaml` at the repo root as the Render blueprint. Set `DATABASE_URL` to the Supabase pooled Postgres URL and append `?sslmode=require` if Supabase provides a direct Postgres URL requiring SSL.
+Use `scripts/deploy_cloud_run.ps1` from this backend folder. Set `DATABASE_URL` to the GCP Postgres URL, set `GOOGLE_OAUTH_CLIENT_IDS`, and pass the Cloud SQL instance connection name when deploying with the Cloud SQL connector.
 
 ## Railway + Cloud PostgreSQL
 

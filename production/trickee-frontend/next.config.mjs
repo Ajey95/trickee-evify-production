@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
-const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 const isDevelopment = process.env.NODE_ENV !== "production";
+const defaultBackendUrl = isDevelopment
+  ? "http://127.0.0.1:8000"
+  : "https://trickee-backend-397358873357.asia-southeast1.run.app";
+const backendUrl =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  defaultBackendUrl;
 
 const nextConfig = {
   productionBrowserSourceMaps: false,
@@ -9,17 +15,21 @@ const nextConfig = {
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       { key: "X-Frame-Options", value: "DENY" },
-      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
+      { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+      {
+        key: "Permissions-Policy",
+        value: "camera=(), microphone=(), geolocation=(self)",
+      },
       {
         key: "Content-Security-Policy",
         value: [
           "default-src 'self'",
-          `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""} https://unpkg.com https://www.gstatic.com`,
-          "style-src 'self' 'unsafe-inline' https://unpkg.com",
+          `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""} https://unpkg.com https://www.gstatic.com https://accounts.google.com/gsi/client`,
+          "style-src 'self' 'unsafe-inline' https://unpkg.com https://accounts.google.com/gsi/style",
           "img-src 'self' data: blob: https://*.openstreetmap.org https://*.basemaps.cartocdn.com",
           "font-src 'self' data:",
           `connect-src 'self' https: wss: ws:${isDevelopment ? " http:" : ""}`,
-          "frame-src https://www.openstreetmap.org",
+          "frame-src https://www.openstreetmap.org https://accounts.google.com/gsi/",
           "object-src 'none'",
           "base-uri 'self'",
           "frame-ancestors 'none'",

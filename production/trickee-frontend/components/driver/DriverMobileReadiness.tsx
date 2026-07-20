@@ -1,11 +1,9 @@
 "use client";
 
 import React from "react";
-import { BellRing, LocateFixed, Smartphone } from "lucide-react";
+import { LocateFixed, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
-import { api } from "@/lib/api";
-import { isFirebaseMessagingEnabled, requestFcmToken } from "@/lib/firebase";
 
 type BrowserLocation = {
   lat: number;
@@ -18,9 +16,12 @@ type DriverMobileReadinessProps = {
   onLocation?: (location: BrowserLocation) => void;
 };
 
-export function DriverMobileReadiness({ onLocation }: DriverMobileReadinessProps) {
-  const [alertStatus, setAlertStatus] = React.useState<"idle" | "saving" | "enabled" | "blocked">("idle");
-  const [locationStatus, setLocationStatus] = React.useState<"idle" | "requesting" | "enabled" | "blocked">("idle");
+export function DriverMobileReadiness({
+  onLocation,
+}: DriverMobileReadinessProps) {
+  const [locationStatus, setLocationStatus] = React.useState<
+    "idle" | "requesting" | "enabled" | "blocked"
+  >("idle");
   const [message, setMessage] = React.useState("");
   const locationWatchIdRef = React.useRef<number | null>(null);
 
@@ -43,7 +44,7 @@ export function DriverMobileReadiness({ onLocation }: DriverMobileReadinessProps
       setLocationStatus("enabled");
       setMessage("");
     },
-    [onLocation]
+    [onLocation],
   );
 
   const enableLocation = React.useCallback(() => {
@@ -66,7 +67,7 @@ export function DriverMobileReadiness({ onLocation }: DriverMobileReadinessProps
         setLocationStatus("blocked");
         setMessage(error.message || "Location permission was not allowed.");
       },
-      options
+      options,
     );
 
     clearLocationWatch();
@@ -76,34 +77,9 @@ export function DriverMobileReadiness({ onLocation }: DriverMobileReadinessProps
         setLocationStatus("blocked");
         setMessage(error.message || "Location permission was not allowed.");
       },
-      options
+      options,
     );
   }, [applyPosition, clearLocationWatch]);
-
-  const enableAlerts = React.useCallback(async () => {
-    if (!isFirebaseMessagingEnabled()) {
-      setAlertStatus("blocked");
-      setMessage("Alerts are not configured for this environment.");
-      return;
-    }
-
-    setAlertStatus("saving");
-    const token = await requestFcmToken();
-    if (!token) {
-      setAlertStatus("blocked");
-      setMessage("Notification permission was not allowed.");
-      return;
-    }
-
-    const result = await api.auth.registerFcmToken(token, "driver-mobile-browser");
-    if (result.success) {
-      setAlertStatus("enabled");
-      setMessage("");
-    } else {
-      setAlertStatus("blocked");
-      setMessage(result.error || "Could not enable alerts for this device.");
-    }
-  }, []);
 
   React.useEffect(() => clearLocationWatch, [clearLocationWatch]);
 
@@ -119,26 +95,19 @@ export function DriverMobileReadiness({ onLocation }: DriverMobileReadinessProps
             <Smartphone className="h-5 w-5 text-accent-teal" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-text-primary">Ride setup</p>
-            <p className="mt-1 text-xs leading-relaxed text-text-dim">
-              Keep alerts enabled and share location while this browser stays open.
+            <p className="text-sm font-semibold text-text-primary">
+              Ride setup
             </p>
-            {message && <p className="mt-2 text-xs text-accent-amber">{message}</p>}
+            <p className="mt-1 text-xs leading-relaxed text-text-dim">
+              Share location while this browser stays open.
+            </p>
+            {message && (
+              <p className="mt-2 text-xs text-accent-amber">{message}</p>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Button
-            type="button"
-            variant={alertStatus === "enabled" ? "primary" : "outline"}
-            size="sm"
-            className="min-h-10 gap-2"
-            onClick={enableAlerts}
-            isLoading={alertStatus === "saving"}
-          >
-            <BellRing className="h-4 w-4" />
-            {alertStatus === "enabled" ? "Alerts On" : "Enable alerts"}
-          </Button>
+        <div>
           <Button
             type="button"
             variant={locationStatus === "enabled" ? "primary" : "outline"}

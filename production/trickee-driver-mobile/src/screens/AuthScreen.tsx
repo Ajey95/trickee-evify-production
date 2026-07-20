@@ -12,6 +12,10 @@ import {
   Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {Colors} from '../constants/Colors';
 import TrickeeInput from '../components/TrickeeInput';
@@ -21,7 +25,12 @@ import AnimatedOrbs from '../components/AnimatedOrbs';
 import {useAuth} from '../context/AuthContext';
 import {api} from '../services/api';
 import type {SignupVehicleOption} from '../services/types';
-import {DEMO_LOGINS, SHOW_DEMO_LOGINS} from '../config';
+import {
+  DEMO_LOGINS,
+  Features,
+  GOOGLE_WEB_CLIENT_ID,
+  SHOW_DEMO_LOGINS,
+} from '../config';
 
 type AuthScreenProps = {
   navigation: NativeStackNavigationProp<any>;
@@ -62,13 +71,22 @@ interface SignInViewProps {
 }
 
 const SignInView: React.FC<SignInViewProps> = ({onSignUp, onSuccess}) => {
-  const {login, loading} = useAuth();
+  const {login, googleLogin, loading} = useAuth();
   const [email, setEmail] = useState('driver1@evify.in');
   const [password, setPassword] = useState('Driver@2026');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const isFormValid = email.includes('@') && password.length >= 6;
+
+  useEffect(() => {
+    if (GOOGLE_WEB_CLIENT_ID) {
+      GoogleSignin.configure({
+        webClientId: GOOGLE_WEB_CLIENT_ID,
+        offlineAccess: false,
+      });
+    }
+  }, []);
 
   const handleSignIn = async () => {
     let hasError = false;
@@ -91,6 +109,35 @@ const SignInView: React.FC<SignInViewProps> = ({onSignUp, onSuccess}) => {
             : 'Unable to sign in. Please check the backend connection.';
         Alert.alert('Sign in failed', message);
       }
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!GOOGLE_WEB_CLIENT_ID) {
+      Alert.alert(
+        'Google sign-in setup required',
+        'Add the Google OAuth web client ID in src/config/index.ts before building this Play release.',
+      );
+      return;
+    }
+    try {
+      await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
+      const result = (await GoogleSignin.signIn()) as any;
+      const idToken = result?.idToken ?? result?.data?.idToken;
+      if (!idToken) {
+        throw new Error('Google did not return an ID token.');
+      }
+      await googleLogin(idToken);
+      onSuccess();
+    } catch (error) {
+      if ((error as {code?: string})?.code === statusCodes.SIGN_IN_CANCELLED) {
+        return;
+      }
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to sign in with Google.';
+      Alert.alert('Google sign-in failed', message);
     }
   };
 
@@ -118,86 +165,75 @@ const SignInView: React.FC<SignInViewProps> = ({onSignUp, onSuccess}) => {
           </Text>
         </View>
 
-        {/* Form card */}
-        <GlassCard style={styles.formCard} cornerRadius={22}>
-          <View style={styles.formContent}>
-            <TrickeeInput
-              title="Email Address"
-              placeholder="john.doe@fleet.com"
-              value={email}
-              onChangeText={text => {
-                setEmail(text);
-                if (emailError) {
-                  setEmailError(null);
-                }
-              }}
-              icon="email"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              error={emailError}
+        {Features.passwordLogin && (
+          <>
+            {/* Form card */}
+            <GlassCard style={styles.formCard} cornerRadius={22}>
+              <View style={styles.formContent}>
+                <TrickeeInput
+                  title="Email Address"
+                  placeholder="john.doe@fleet.com"
+                  value={email}
+                  onChangeText={text => {
+                    setEmail(text);
+                    if (emailError) {
+                      setEmailError(null);
+                    }
+                  }}
+                  icon="email"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  error={emailError}
+                />
+                <View>
+                  <TrickeeInput
+                    title="Password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChangeText={text => {
+                      setPassword(text);
+                      if (passwordError) {
+                        setPasswordError(null);
+                      }
+                    }}
+                    icon="lock"
+                    secureTextEntry
+                    showPasswordToggle
+                    error={passwordError}
+                  />
+                  <TouchableOpacity style={styles.forgotButton}>
+                    <Text style={styles.forgotText}>FORGOT PASSWORD?</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </GlassCard>
+
+            {/* Sign In button */}
+            <TrickeeButton
+              label="Sign in"
+              onPress={handleSignIn}
+              disabled={!isFormValid}
+              loading={loading}
+              style={styles.signInButton}
             />
-            <View>
-              <TrickeeInput
-                title="Password"
-                placeholder="••••••••"
-                value={password}
-                onChangeText={text => {
-                  setPassword(text);
-                  if (passwordError) {
-                    setPasswordError(null);
-                  }
-                }}
-                icon="lock"
-                secureTextEntry
-                showPasswordToggle
-                error={passwordError}
-              />
-              <TouchableOpacity style={styles.forgotButton}>
-                <Text style={styles.forgotText}>FORGOT PASSWORD?</Text>
-              </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+              <View style={styles.dividerLine} />
             </View>
-          </View>
-        </GlassCard>
-
-        {/* Sign In button */}
-        <TrickeeButton
-          label="Sign in"
-          onPress={handleSignIn}
-          disabled={!isFormValid}
-          loading={loading}
-          style={styles.signInButton}
-        />
-
-        {/* Divider */}
-        <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
-          <View style={styles.dividerLine} />
-        </View>
+          </>
+        )}
 
         {/* Social buttons */}
         <View style={styles.socialRow}>
           <TouchableOpacity
             style={styles.socialButton}
-            onPress={() =>
-              Alert.alert(
-                'Apple login',
-                'Apple/Firebase sign-in is supported by the backend but needs the native client SDK + credentials. The pilot uses email & password.',
-              )
-            }>
-            <Icon name="apple" size={18} color={Colors.white} />
-            <Text style={styles.socialText}>Apple</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.socialButton}
-            onPress={() =>
-              Alert.alert(
-                'Google login',
-                'Google/Firebase sign-in is supported by the backend but needs the native client SDK + credentials. The pilot uses email & password.',
-              )
-            }>
+            disabled={loading}
+            onPress={handleGoogleSignIn}>
             <Icon name="google" size={18} color={Colors.white} />
-            <Text style={styles.socialText}>Google</Text>
+            <Text style={styles.socialText}>Continue with Google</Text>
           </TouchableOpacity>
         </View>
 

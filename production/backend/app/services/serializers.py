@@ -14,6 +14,7 @@ def user_dict(user) -> dict[str, Any]:
         "email": user.email,
         "supabase_user_id": user.supabase_user_id,
         "firebase_uid": user.firebase_uid,
+        "google_sub": getattr(user, "google_sub", None),
         "auth_provider": user.auth_provider,
         "full_name": user.full_name,
         "role": user.role,
