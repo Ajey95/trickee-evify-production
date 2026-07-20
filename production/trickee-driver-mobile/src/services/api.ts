@@ -26,6 +26,7 @@ import type {
   Trip,
   User,
   VoiceCopilotReply,
+  VoiceLiveContext,
   VoiceDestinationResolution,
   VoiceTranscription,
 } from './types';
@@ -462,6 +463,7 @@ export const api = {
       transcript: string;
       vehicle_id?: string;
       current_location?: {lat: number; lng: number};
+      live_context?: VoiceLiveContext;
     },
   ) {
     return request<VoiceCopilotReply>('/mobile/voice/copilot', {

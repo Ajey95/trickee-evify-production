@@ -79,6 +79,16 @@ const AIAssistantScreen: React.FC = () => {
     telemetry?.lat != null && telemetry?.lng != null
       ? {lat: telemetry.lat, lng: telemetry.lng}
       : undefined;
+  const liveContext = telemetry
+    ? {
+        speed_kmh: telemetry.speed,
+        soc: telemetry.soc,
+        battery_voltage_v: telemetry.battery_voltage,
+        temp_c: telemetry.temp_max,
+        soh: telemetry.soh,
+        recorded_at: telemetry.recorded_at,
+      }
+    : undefined;
 
   const scrollToEnd = useCallback(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 50);
@@ -182,6 +192,7 @@ const AIAssistantScreen: React.FC = () => {
         transcript,
         vehicle_id: vehicle!.id,
         current_location: currentLocation,
+        live_context: liveContext,
       });
       const replyText = reply.voice_response || reply.answer;
       speakAssistantReply(replyText);
