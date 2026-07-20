@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import (
     Alert,
+    AssistantMessage,
     MobileChargingSession,
     MobileIssueEvent,
     MobileLocationPoint,
@@ -78,12 +79,24 @@ class VoiceResolveRequest(BaseModel):
     current_location: MobileLocation | None = None
 
 
+class VoiceLiveContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    speed_kmh: float | None = Field(default=None, ge=0, le=250)
+    soc: float | None = Field(default=None, ge=0, le=100)
+    battery_voltage_v: float | None = Field(default=None, ge=0, le=1000)
+    temp_c: float | None = Field(default=None, ge=-50, le=150)
+    soh: float | None = Field(default=None, ge=0, le=100)
+    recorded_at: datetime | None = None
+
+
 class VoiceCopilotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     transcript: str = Field(min_length=1, max_length=255)
     vehicle_id: str | None = Field(default=None, max_length=36)
     current_location: MobileLocation | None = None
+    live_context: VoiceLiveContext | None = None
 
 
 class TripStartRequest(BaseModel):
@@ -286,8 +299,33 @@ async def voice_copilot(
     if not vehicle:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active vehicle mapped for this driver")
     location = payload.current_location.model_dump() if payload.current_location else None
-    response = assistant_answer(db, current_user, driver, vehicle, "voice", payload.transcript, location)
+    live_context = payload.live_context.model_dump() if payload.live_context else None
+    response = assistant_answer(
+        db,
+        current_user,
+        driver,
+        vehicle,
+        "voice",
+        payload.transcript,
+        location,
+        live_context=live_context,
+    )
     destination = resolve_destination_text(payload.transcript)
+    db.add(
+        AssistantMessage(
+            user_id=current_user.id,
+            driver_id=driver.id,
+            vehicle_id=vehicle.id,
+            channel="voice",
+            message=payload.transcript,
+            response=response["answer"],
+            intent=response["intent"],
+            tool_calls=response["tools_called"],
+            confidence=response["confidence"],
+            escalated=response["escalated"],
+        )
+    )
+    db.commit()
     return ok(
         {
             **response,

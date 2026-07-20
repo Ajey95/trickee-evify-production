@@ -319,7 +319,22 @@ export type VoiceDestinationResolution = {
   current_location?: {lat: number; lng: number} | null;
 };
 
+export type VoiceLiveContext = {
+  speed_kmh?: number | null;
+  soc?: number | null;
+  battery_voltage_v?: number | null;
+  temp_c?: number | null;
+  soh?: number | null;
+  recorded_at?: string | null;
+};
+
 export type VoiceCopilotReply = AssistantReply & {
   voice_response: string;
   destination_resolution?: VoiceDestinationResolution | null;
+  model_name?: string | null;
+  data_freshness?: {
+    live_context_recorded_at?: string | null;
+    telemetry_recorded_at?: string | null;
+    generated_at?: string | null;
+  };
 };

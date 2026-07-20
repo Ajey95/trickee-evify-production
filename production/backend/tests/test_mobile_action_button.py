@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from starlette.requests import Request
 
 from app.models import (
+    AIInteractionLog,
+    AssistantMessage,
     Fleet,
     Driver,
     MobileChargingSession,
@@ -239,3 +241,52 @@ def test_voice_copilot_routes_to_grounded_assistant(db_session):
     assert response["specialist_agent"] == "battery_guard_agent"
     assert response["voice_response"]
     assert response["destination_resolution"]["intent"] == "start_trip"
+
+
+def test_voice_copilot_uses_fresh_mobile_context_for_live_status(db_session):
+    user, _, _ = _seed_driver(db_session)
+
+    response = asyncio.run(
+        voice_copilot(
+            VoiceCopilotRequest(
+                transcript="What speed am I doing now?",
+                current_location={"lat": 21.1702, "lng": 72.8311},
+                live_context={
+                    "speed_kmh": 42.0,
+                    "soc": 63.0,
+                    "recorded_at": "2026-05-29T10:01:00Z",
+                },
+            ),
+            _request("/api/v1/mobile/voice/copilot"),
+            db_session,
+            user,
+        )
+    )["data"]
+
+    assert response["intent"] == "LIVE_VEHICLE_STATUS"
+    assert "42 km/h" in response["voice_response"]
+    assert response["fallback_used"] is True
+    assert response["data_freshness"]["live_context_recorded_at"] == "2026-05-29T10:01:00Z"
+
+
+def test_voice_copilot_grounds_driver_performance_questions(db_session):
+    user, _, _ = _seed_driver(db_session)
+
+    response = asyncio.run(
+        voice_copilot(
+            VoiceCopilotRequest(transcript="How was my driving today?"),
+            _request("/api/v1/mobile/voice/copilot"),
+            db_session,
+            user,
+        )
+    )["data"]
+
+    assert response["intent"] == "DRIVER_PERFORMANCE"
+    assert set(response["tools_called"]) >= {
+        "get_driver_profile",
+        "get_driver_baseline",
+        "get_trip_history",
+        "get_vehicle_state",
+    }
+    assert db_session.query(AIInteractionLog).filter(AIInteractionLog.feature == "assistant").count() == 1
+    assert db_session.query(AssistantMessage).filter(AssistantMessage.channel == "voice").count() == 1
