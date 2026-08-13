@@ -471,6 +471,9 @@ export default function Home() {
           <Link href="/fleet" className="hover:text-white">Fleet</Link>
           <Link href="/map" className="hover:text-white">Map</Link>
           <Link href="/routes" className="hover:text-white">Routes</Link>
+          <Link href="/gpsdriver/privacy" className="hover:text-white">GPS Driver privacy</Link>
+          <Link href="/gpsdriver/support" className="hover:text-white">Support</Link>
+          <Link href="/gpsdriver/terms" className="hover:text-white">Terms</Link>
           <Link href="/login" className="hover:text-white">Sign in</Link>
         </div>
       </footer>
