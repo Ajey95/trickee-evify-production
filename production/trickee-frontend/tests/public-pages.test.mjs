@@ -53,7 +53,7 @@ async function stopServer() {
   if (server.exitCode === null) server.kill("SIGKILL");
 }
 
-test("GPS Driver public information routes render without authentication", async (t) => {
+test("mobile app public information routes render without authentication", async (t) => {
   t.after(stopServer);
   await waitForServer();
 
@@ -61,6 +61,9 @@ test("GPS Driver public information routes render without authentication", async
     ["/gpsdriver/privacy", "GPS Driver Privacy Policy"],
     ["/gpsdriver/support", "GPS Driver Support"],
     ["/gpsdriver/terms", "GPS Driver Terms of Use"],
+    ["/vrtrickee/privacy", "VRTrickee Privacy Policy"],
+    ["/vrtrickee/support", "VRTrickee Support"],
+    ["/vrtrickee/terms", "VRTrickee Terms of Use"],
   ];
 
   for (const [route, heading] of routes) {

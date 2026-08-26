@@ -5,6 +5,7 @@ import {
   googleClientId,
   loadGoogleIdentityScript,
 } from "@/lib/google-identity";
+import { createGoogleIdentityButtonController } from "@/lib/google-button-controller.mjs";
 
 type GoogleSignInButtonProps = {
   onCredential: (idToken: string) => void;
@@ -34,38 +35,28 @@ export function GoogleSignInButton({
       return;
     }
 
+    let controller: ReturnType<typeof createGoogleIdentityButtonController> | null = null;
     const render = () => {
-      if (!active || !window.google?.accounts.id || !containerRef.current)
-        return;
-      const target = containerRef.current;
-      target.replaceChildren();
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        auto_select: false,
-        cancel_on_tap_outside: true,
-        callback: (response) => {
-          if (response.credential) {
-            credentialHandlerRef.current(response.credential);
-          } else {
-            errorHandlerRef.current("Google did not return an ID token.");
-          }
-        },
-      });
-      window.google.accounts.id.renderButton(target, {
-        type: "standard",
-        theme: "outline",
-        size: "large",
-        text: "continue_with",
-        shape: "rectangular",
-        logo_alignment: "left",
-        width: Math.min(Math.max(target.clientWidth, 240), 400),
-      });
+      if (!active || !controller || !containerRef.current) return;
+      controller.render(containerRef.current);
       setReady(true);
     };
 
-    loadGoogleIdentityScript().then(render).catch(() => {
-      if (active) errorHandlerRef.current("Unable to load Google sign-in.");
-    });
+    loadGoogleIdentityScript()
+      .then(() => {
+        if (!active || !window.google?.accounts.id) return;
+        controller = createGoogleIdentityButtonController({
+          googleIdentity: window.google.accounts.id,
+          clientId,
+          onCredential: (credential: string) =>
+            credentialHandlerRef.current(credential),
+          onError: (message: string) => errorHandlerRef.current(message),
+        });
+        render();
+      })
+      .catch(() => {
+        if (active) errorHandlerRef.current("Unable to load Google sign-in.");
+      });
     window.addEventListener("resize", render);
     return () => {
       active = false;

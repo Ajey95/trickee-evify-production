@@ -6,6 +6,13 @@ react {
     // Needed for autolinking
 }
 
+def configuredBuildRoot = providers.gradleProperty("TRICKEE_VR_ANDROID_BUILD_ROOT").orNull
+def checkoutIsSynced = rootDir.absolutePath.toLowerCase(Locale.ROOT).contains("${File.separator}onedrive${File.separator}")
+if (configuredBuildRoot || checkoutIsSynced) {
+    def externalBuildRoot = file(configuredBuildRoot ?: "${System.getenv('LOCALAPPDATA')}\\Trickee\\vrtrickee-android-build")
+    layout.buildDirectory.set(new File(externalBuildRoot, "app"))
+}
+
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'org.webkit:android-jsc:+'
 def releaseSigningPropertiesFile = rootProject.file("signing.properties")
@@ -13,6 +20,16 @@ def releaseSigningProperties = new Properties()
 def hasReleaseSigning = releaseSigningPropertiesFile.exists()
 if (hasReleaseSigning) {
     releaseSigningPropertiesFile.withInputStream { releaseSigningProperties.load(it) }
+}
+def privateApplicationId = "com.trickeeandroid"
+def publicApplicationId = "com.trickee.vrtrickee"
+def requestedApplicationId = project.findProperty("trickeeApplicationId") ?: privateApplicationId
+if (!(requestedApplicationId in [privateApplicationId, publicApplicationId])) {
+    throw new GradleException("Unsupported Trickee application ID: ${requestedApplicationId}")
+}
+def requestedAppLabel = requestedApplicationId == publicApplicationId ? "VRTrickee" : "Trickee"
+if (requestedApplicationId == publicApplicationId && !hasReleaseSigning) {
+    throw new GradleException("Public VRTrickee releases require android/signing.properties")
 }
 
 android {
@@ -22,11 +39,12 @@ android {
 
     namespace "com.trickeeandroid"
     defaultConfig {
-        applicationId "com.trickeeandroid"
+        applicationId requestedApplicationId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 7
-        versionName "1.0.6"
+        versionCode 10
+        versionName "1.0.9"
+        manifestPlaceholders = [appLabel: requestedAppLabel]
     }
 
     signingConfigs {
@@ -49,11 +67,13 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
             signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
         }
     }
 }
@@ -73,4 +93,13 @@ dependencies {
 }
 
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+
+// Gradle 8 validates task inputs before release lint runs. The vector-icons
+// script supplies generated font assets but does not wire that copy task into
+// Android Gradle Plugin's lint model writer, so assembleRelease can otherwise
+// fail with an implicit-dependency error when the build directory is external.
+tasks.matching { it.name.startsWith("generate") && it.name.endsWith("LintVitalReportModel") }.configureEach {
+    dependsOn(tasks.named("copyReactNativeVectorIconFonts"))
+}
+
 apply from: file("../../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesAppBuildGradle(project)

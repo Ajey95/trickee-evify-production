@@ -139,7 +139,9 @@ function mergeLiveMapSnapshot(
         ? Math.max(0, foregroundLocation!.speed_mps * 3.6)
         : point.speed ?? previousTelemetry?.speed ?? null,
     recorded_at: freshForeground
-      ? foregroundLocation!.captured_at ?? previousTelemetry?.recorded_at ?? null
+      ? foregroundLocation!.captured_at ??
+        previousTelemetry?.recorded_at ??
+        null
       : point.recorded_at ?? previousTelemetry?.recorded_at ?? null,
   };
 

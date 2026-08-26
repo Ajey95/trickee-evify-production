@@ -2,12 +2,19 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowLeft, ArrowUpRight, Mail, ShieldCheck, Sparkles } from "lucide-react";
 
-type GpsDriverInfoPageProps = {
+type PublicAppInfoPageProps = {
   title: string;
   summary: string;
   updated: string;
+  appName: string;
+  routePrefix: string;
   children: ReactNode;
 };
+
+type GpsDriverInfoPageProps = Omit<
+  PublicAppInfoPageProps,
+  "appName" | "routePrefix"
+>;
 
 export function InfoSection({
   title,
@@ -35,12 +42,14 @@ export function InfoList({ children }: { children: ReactNode }) {
   );
 }
 
-export function GpsDriverInfoPage({
+export function PublicAppInfoPage({
   title,
   summary,
   updated,
+  appName,
+  routePrefix,
   children,
-}: GpsDriverInfoPageProps) {
+}: PublicAppInfoPageProps) {
   return (
     <main className="min-h-screen overflow-hidden bg-[#030506] text-white">
       <div className="pointer-events-none fixed inset-0 opacity-90" aria-hidden="true">
@@ -49,7 +58,7 @@ export function GpsDriverInfoPage({
       </div>
 
       <header className="relative z-10 border-b border-white/8 bg-[#030506]/78 backdrop-blur-xl">
-        <nav className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-3 sm:px-8" aria-label="GPS Driver public pages">
+        <nav className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-3 sm:px-8" aria-label={`${appName} public pages`}>
           <Link
             href="/"
             className="flex items-center gap-3 rounded-[8px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8af7d1]"
@@ -61,9 +70,9 @@ export function GpsDriverInfoPage({
             <span className="text-sm font-semibold tracking-[0.08em] text-white/86">TRICKEE</span>
           </Link>
           <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-2 text-xs font-medium text-white/54 sm:text-sm">
-            <Link className="transition hover:text-white focus-visible:text-white focus-visible:outline-none" href="/gpsdriver/privacy">Privacy</Link>
-            <Link className="transition hover:text-white focus-visible:text-white focus-visible:outline-none" href="/gpsdriver/support">Support</Link>
-            <Link className="transition hover:text-white focus-visible:text-white focus-visible:outline-none" href="/gpsdriver/terms">Terms</Link>
+            <Link className="transition hover:text-white focus-visible:text-white focus-visible:outline-none" href={`${routePrefix}/privacy`}>Privacy</Link>
+            <Link className="transition hover:text-white focus-visible:text-white focus-visible:outline-none" href={`${routePrefix}/support`}>Support</Link>
+            <Link className="transition hover:text-white focus-visible:text-white focus-visible:outline-none" href={`${routePrefix}/terms`}>Terms</Link>
           </div>
         </nav>
       </header>
@@ -80,7 +89,7 @@ export function GpsDriverInfoPage({
         <div className="mt-10 grid gap-12 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-16">
           <article className="min-w-0">
             <div className="border-l border-[#8af7d1]/50 pl-4 text-xs font-medium uppercase tracking-[0.14em] text-[#8af7d1]/86">
-              Trickee GPS Driver
+              {appName}
             </div>
             <h1 className="mt-6 max-w-4xl text-4xl font-semibold leading-[1.02] tracking-[-0.045em] text-white sm:text-6xl lg:text-7xl">
               {title}
@@ -95,7 +104,7 @@ export function GpsDriverInfoPage({
             <div className="mt-14">{children}</div>
           </article>
 
-          <aside className="lg:sticky lg:top-8 lg:self-start" aria-label="GPS Driver contact information">
+          <aside className="lg:sticky lg:top-8 lg:self-start" aria-label={`${appName} contact information`}>
             <div className="rounded-[8px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_28px_80px_rgba(0,0,0,0.3)]">
               <ShieldCheck className="h-6 w-6 text-[#8af7d1]" aria-hidden="true" />
               <h2 className="mt-5 text-lg font-semibold text-white">Need help?</h2>
@@ -119,14 +128,24 @@ export function GpsDriverInfoPage({
 
       <footer className="relative z-10 border-t border-white/8">
         <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-8 text-sm text-white/42 sm:px-8 md:flex-row md:items-center md:justify-between">
-          <p>© {new Date().getFullYear()} Trickee. GPS Driver operational information.</p>
+          <p>© {new Date().getFullYear()} Trickee. {appName} information.</p>
           <div className="flex flex-wrap gap-5">
-            <Link className="hover:text-white" href="/gpsdriver/privacy">Privacy</Link>
-            <Link className="hover:text-white" href="/gpsdriver/support">Support</Link>
-            <Link className="hover:text-white" href="/gpsdriver/terms">Terms</Link>
+            <Link className="hover:text-white" href={`${routePrefix}/privacy`}>Privacy</Link>
+            <Link className="hover:text-white" href={`${routePrefix}/support`}>Support</Link>
+            <Link className="hover:text-white" href={`${routePrefix}/terms`}>Terms</Link>
           </div>
         </div>
       </footer>
     </main>
+  );
+}
+
+export function GpsDriverInfoPage(props: GpsDriverInfoPageProps) {
+  return (
+    <PublicAppInfoPage
+      {...props}
+      appName="Trickee GPS Driver"
+      routePrefix="/gpsdriver"
+    />
   );
 }

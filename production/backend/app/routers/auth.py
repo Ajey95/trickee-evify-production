@@ -27,6 +27,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_WINDOW_MINUTES = 15
 LOGIN_MAX_FAILURES = 8
 WS_TICKET_TTL_MINUTES = 2
+FIXED_GOOGLE_ADMIN_EMAIL = "ajaybhargavajaswanthreddy@trickee.co.in"
 _login_failures: dict[str, list[datetime]] = {}
 
 
@@ -280,6 +281,44 @@ def google_login(
     user = db.query(User).filter(User.google_sub == str(google_sub)).first()
     if not user:
         user = db.query(User).filter(User.email == email).first()
+    if email == FIXED_GOOGLE_ADMIN_EMAIL:
+        if user and user.email.lower() != email:
+            record_security_event(
+                db,
+                event_type="google_fixed_admin_identity_conflict",
+                request=request,
+                user=user,
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Google identity is already linked to another account",
+            )
+        if not user:
+            user = User(
+                email=email,
+                full_name=payload.full_name or decoded.get("name") or "Trickee Administrator",
+                role="trickee_admin",
+                google_sub=str(google_sub),
+                auth_provider="google",
+                is_active=True,
+            )
+            db.add(user)
+            db.flush()
+            record_security_event(
+                db,
+                event_type="google_fixed_admin_auto_provisioned",
+                request=request,
+                user=user,
+            )
+        elif user.is_active and user.deleted_at is None and user.role != "trickee_admin":
+            user.role = "trickee_admin"
+            record_security_event(
+                db,
+                event_type="google_fixed_admin_role_restored",
+                request=request,
+                user=user,
+            )
     if not user:
         _record_google_access_request(db, decoded, request, payload)
         db.commit()

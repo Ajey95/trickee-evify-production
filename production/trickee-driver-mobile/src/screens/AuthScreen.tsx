@@ -277,47 +277,27 @@ interface SignUpViewProps {
 }
 
 const SignUpView: React.FC<SignUpViewProps> = ({onSignIn}) => {
-  const [step, setStep] = useState(1);
-
-  // Step 1 fields
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-
-  // Step 2 fields
-  const [driverId, setDriverId] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
-  const [licenceNumber, setLicenceNumber] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [signupVehicles, setSignupVehicles] = useState<SignupVehicleOption[]>(
     [],
   );
 
-  // Errors
   const [firstNameError, setFirstNameError] = useState<string | null>(null);
   const [lastNameError, setLastNameError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
-  const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [driverIdError, setDriverIdError] = useState<string | null>(null);
   const [vehiclePlateError, setVehiclePlateError] = useState<string | null>(
     null,
   );
-  const [licenceError, setLicenceError] = useState<string | null>(null);
 
-  const isStep1Valid =
+  const isFormValid =
     firstName.length > 0 &&
     lastName.length > 0 &&
     email.includes('@') &&
-    phone.length > 0 &&
-    password.length >= 6;
-
-  const isStep2Valid =
-    driverId.length > 0 &&
     vehiclePlate.length > 0 &&
-    licenceNumber.length > 0 &&
     agreedToTerms;
 
   useEffect(() => {
@@ -342,30 +322,7 @@ const SignUpView: React.FC<SignUpViewProps> = ({onSignIn}) => {
     return match?.id ?? vehiclePlate.trim();
   }, [signupVehicles, vehiclePlate]);
 
-  const getPasswordStrength = () => {
-    if (password.length === 0) {
-      return {label: '', color: 'transparent', segments: 0};
-    }
-    if (password.length < 6) {
-      return {label: 'Weak password', color: Colors.red, segments: 1};
-    }
-    const hasLetters = /[a-zA-Z]/.test(password);
-    const hasDigits = /\d/.test(password);
-    const hasSpecials = /[!@#$%^&*()_+{}|:<>?]/.test(password);
-    if (hasLetters && hasDigits && hasSpecials && password.length >= 8) {
-      return {label: 'Strong password', color: Colors.greenAccent, segments: 4};
-    }
-    if (hasLetters && hasDigits) {
-      return {
-        label: 'Medium password',
-        color: Colors.trickeeYellow,
-        segments: 3,
-      };
-    }
-    return {label: 'Weak password', color: Colors.red, segments: 1};
-  };
-
-  const handleStep1 = () => {
+  const handleSubmit = async () => {
     let hasError = false;
     if (!firstName) {
       setFirstNameError('First Name is required');
@@ -379,39 +336,12 @@ const SignUpView: React.FC<SignUpViewProps> = ({onSignIn}) => {
       setEmailError('Please enter a valid email');
       hasError = true;
     }
-    if (!phone) {
-      setPhoneError('Phone Number is required');
-      hasError = true;
-    }
-    if (password.length < 6) {
-      setPasswordError('Password must be 6+ characters');
-      hasError = true;
-    }
-    if (!hasError) {
-      setStep(2);
-    }
-  };
-
-  const handleStep2 = async () => {
-    let hasError = false;
-    if (!driverId) {
-      setDriverIdError('Driver ID is required');
-      hasError = true;
-    }
     if (!vehiclePlate) {
       setVehiclePlateError('Vehicle Plate is required');
       hasError = true;
     }
-    if (!licenceNumber) {
-      setLicenceError('Licence Number is required');
-      hasError = true;
-    }
     if (!hasError && agreedToTerms) {
       try {
-        // The backend access-request contract accepts email, full_name,
-        // requested_role and a vehicle hint. We send the assigned plate as the
-        // vehicle hint; the internal driver id / licence are captured by the
-        // operator during approval.
         await api.accessRequest({
           email: email.trim().toLowerCase(),
           full_name: `${firstName} ${lastName}`.trim(),
@@ -433,19 +363,15 @@ const SignUpView: React.FC<SignUpViewProps> = ({onSignIn}) => {
     }
   };
 
-  const strength = getPasswordStrength();
-
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'android' ? 'height' : 'padding'}>
       {/* Top nav bar */}
       <View style={styles.signUpHeader}>
-        <TouchableOpacity
-          onPress={() => (step === 2 ? setStep(1) : onSignIn())}
-          style={styles.backButton}>
+        <TouchableOpacity onPress={onSignIn} style={styles.backButton}>
           <Icon name="chevron-left" size={20} color={Colors.trickeeYellow} />
-          <Text style={styles.backText}>{step === 2 ? 'Back' : 'Sign in'}</Text>
+          <Text style={styles.backText}>Sign in</Text>
         </TouchableOpacity>
         <View style={styles.driverBadge}>
           <Text style={styles.driverBadgeText}>DRIVER</Text>
@@ -455,8 +381,8 @@ const SignUpView: React.FC<SignUpViewProps> = ({onSignIn}) => {
       {/* Title row */}
       <View style={styles.signUpTitleRow}>
         <View style={styles.signUpTitleLeft}>
-          <Text style={styles.signUpTitle}>Driver registration</Text>
-          <Text style={styles.signUpStep}>STEP {step} OF 2</Text>
+          <Text style={styles.signUpTitle}>Request driver access</Text>
+          <Text style={styles.signUpStep}>AUTHORISED FLEET ACCESS</Text>
         </View>
         <View style={styles.miniLogo}>
           <Image
@@ -472,171 +398,86 @@ const SignUpView: React.FC<SignUpViewProps> = ({onSignIn}) => {
         contentContainerStyle={styles.signUpScroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
-        {step === 1 ? (
-          <GlassCard style={styles.formCard} cornerRadius={22}>
-            <View style={styles.formContent}>
-              <Text style={styles.sectionLabel}>PERSONAL DETAILS</Text>
-              <View style={styles.nameRow}>
-                <View style={styles.halfInput}>
-                  <TrickeeInput
-                    title="First Name"
-                    placeholder="John"
-                    value={firstName}
-                    onChangeText={t => {
-                      setFirstName(t);
-                      setFirstNameError(null);
-                    }}
-                    icon="account"
-                    error={firstNameError}
-                  />
-                </View>
-                <View style={styles.halfInput}>
-                  <TrickeeInput
-                    title="Last Name"
-                    placeholder="Doe"
-                    value={lastName}
-                    onChangeText={t => {
-                      setLastName(t);
-                      setLastNameError(null);
-                    }}
-                    icon="account"
-                    error={lastNameError}
-                  />
-                </View>
-              </View>
-              <TrickeeInput
-                title="Email Address"
-                placeholder="john.doe@fleet.com"
-                value={email}
-                onChangeText={t => {
-                  setEmail(t);
-                  setEmailError(null);
-                }}
-                icon="email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                error={emailError}
-              />
-              <TrickeeInput
-                title="Phone Number"
-                placeholder="98765 43210"
-                value={phone}
-                onChangeText={t => {
-                  setPhone(t);
-                  setPhoneError(null);
-                }}
-                icon="phone"
-                keyboardType="phone-pad"
-                error={phoneError}
-              />
-              <View>
+        <GlassCard style={styles.formCard} cornerRadius={22}>
+          <View style={styles.formContent}>
+            <Text style={styles.sectionLabel}>YOUR DETAILS</Text>
+            <View style={styles.nameRow}>
+              <View style={styles.halfInput}>
                 <TrickeeInput
-                  title="Password"
-                  placeholder="••••••••"
-                  value={password}
+                  title="First Name"
+                  placeholder="John"
+                  value={firstName}
                   onChangeText={t => {
-                    setPassword(t);
-                    setPasswordError(null);
+                    setFirstName(t);
+                    setFirstNameError(null);
                   }}
-                  icon="lock"
-                  secureTextEntry
-                  showPasswordToggle
-                  error={passwordError}
+                  icon="account"
+                  error={firstNameError}
                 />
-                {password.length > 0 && (
-                  <View style={styles.strengthContainer}>
-                    <View style={styles.strengthBar}>
-                      {[0, 1, 2, 3].map(i => (
-                        <View
-                          key={i}
-                          style={[
-                            styles.strengthSegment,
-                            {
-                              backgroundColor:
-                                i < strength.segments
-                                  ? strength.color
-                                  : 'rgba(255,255,255,0.06)',
-                            },
-                          ]}
-                        />
-                      ))}
-                    </View>
-                    <Text
-                      style={[styles.strengthLabel, {color: strength.color}]}>
-                      {strength.label}
-                    </Text>
-                  </View>
-                )}
+              </View>
+              <View style={styles.halfInput}>
+                <TrickeeInput
+                  title="Last Name"
+                  placeholder="Doe"
+                  value={lastName}
+                  onChangeText={t => {
+                    setLastName(t);
+                    setLastNameError(null);
+                  }}
+                  icon="account"
+                  error={lastNameError}
+                />
               </View>
             </View>
-          </GlassCard>
-        ) : (
-          <GlassCard style={styles.formCard} cornerRadius={22}>
-            <View style={styles.formContent}>
-              <Text style={styles.sectionLabel}>VEHICLE & LICENCE DETAILS</Text>
-              <TrickeeInput
-                title="Internal Driver ID"
-                placeholder="EMP-2024-88"
-                value={driverId}
-                onChangeText={t => {
-                  setDriverId(t);
-                  setDriverIdError(null);
-                }}
-                icon="card-account-details"
-                error={driverIdError}
+            <TrickeeInput
+              title="Email Address"
+              placeholder="john.doe@fleet.com"
+              value={email}
+              onChangeText={t => {
+                setEmail(t);
+                setEmailError(null);
+              }}
+              icon="email"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              error={emailError}
+            />
+            <Text style={styles.sectionLabel}>ASSIGNED VEHICLE</Text>
+            <TrickeeInput
+              title="Vehicle Plate or Fleet Vehicle ID"
+              placeholder="KA 01 EV 1234"
+              value={vehiclePlate}
+              onChangeText={t => {
+                setVehiclePlate(t);
+                setVehiclePlateError(null);
+              }}
+              icon="car"
+              error={vehiclePlateError}
+            />
+            <TouchableOpacity
+              style={styles.termsRow}
+              onPress={() => setAgreedToTerms(!agreedToTerms)}>
+              <Icon
+                name={
+                  agreedToTerms ? 'checkbox-marked' : 'checkbox-blank-outline'
+                }
+                size={22}
+                color={
+                  agreedToTerms ? Colors.trickeeYellow : Colors.secondaryText
+                }
               />
-              <TrickeeInput
-                title="Assigned Vehicle Plate"
-                placeholder="KA 01 EV 1234"
-                value={vehiclePlate}
-                onChangeText={t => {
-                  setVehiclePlate(t);
-                  setVehiclePlateError(null);
-                }}
-                icon="car"
-                error={vehiclePlateError}
-              />
-              <TrickeeInput
-                title="Driving Licence Number"
-                placeholder="DL-1420110012345"
-                value={licenceNumber}
-                onChangeText={t => {
-                  setLicenceNumber(t);
-                  setLicenceError(null);
-                }}
-                icon="file-document"
-                error={licenceError}
-              />
-              <TouchableOpacity
-                style={styles.termsRow}
-                onPress={() => setAgreedToTerms(!agreedToTerms)}>
-                <Icon
-                  name={
-                    agreedToTerms ? 'checkbox-marked' : 'checkbox-blank-outline'
-                  }
-                  size={22}
-                  color={
-                    agreedToTerms ? Colors.trickeeYellow : Colors.secondaryText
-                  }
-                />
-                <Text style={styles.termsText}>
-                  I agree to the Terms of Service and Privacy Policy regarding
-                  data telemetry and driver monitoring.
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </GlassCard>
-        )}
+              <Text style={styles.termsText}>
+                I agree to the Terms of Service and Privacy Policy regarding
+                fleet telemetry and driver operations.
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
 
         <TrickeeButton
-          label={step === 1 ? 'Next step' : 'Create driver account'}
-          onPress={step === 1 ? handleStep1 : handleStep2}
-          disabled={step === 1 ? !isStep1Valid : !isStep2Valid}
-          icon={
-            step === 1 ? (
-              <Icon name="chevron-right" size={18} color={Colors.buttonText} />
-            ) : undefined
-          }
+          label="Send access request"
+          onPress={handleSubmit}
+          disabled={!isFormValid}
           style={styles.signInButton}
         />
 

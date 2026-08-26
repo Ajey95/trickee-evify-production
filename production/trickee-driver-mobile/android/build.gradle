@@ -2,10 +2,10 @@
 
 buildscript {
     ext {
-        buildToolsVersion = "34.0.0"
+        buildToolsVersion = "36.0.0"
         minSdkVersion = 24
-        compileSdkVersion = 35
-        targetSdkVersion = 35
+        compileSdkVersion = 36
+        targetSdkVersion = 36
         ndkVersion = "25.1.8937393"
         kotlinVersion = "1.9.22"
     }
@@ -52,3 +52,48 @@ subprojects {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Native Android builds from a OneDrive checkout can exceed Windows' object
+// path limit and can have generated Ninja files rewritten while compilation is
+// in progress. Keep disposable compiler output in a short, non-synced path.
+def configuredBuildRoot = providers.gradleProperty("TRICKEE_VR_ANDROID_BUILD_ROOT").orNull
+def checkoutIsSynced = rootDir.absolutePath.toLowerCase(Locale.ROOT).contains("${File.separator}onedrive${File.separator}")
+if (configuredBuildRoot || checkoutIsSynced) {
+    def externalBuildRoot = file(configuredBuildRoot ?: "${System.getenv('LOCALAPPDATA')}\\Trickee\\vrtrickee-android-build")
+    subprojects { subproject ->
+        def relativeName = subproject.path.tokenize(':').join(File.separator)
+        subproject.layout.buildDirectory.set(new File(externalBuildRoot, relativeName))
+        subproject.plugins.withId("com.android.library") {
+            if (subproject.name == "react-native-reanimated") {
+                subproject.extensions.getByName("android").externalNativeBuild.cmake.buildStagingDirectory =
+                    new File(externalBuildRoot, "cxx${File.separator}react-native-reanimated")
+                subproject.tasks.configureEach { task ->
+                    if (task.name.startsWith("buildCMake")) {
+                        task.doNotTrackState("Windows NDK outputs libc++_shared.so as a hard link")
+                        task.doLast {
+                            def nativeOutputRoot = new File(
+                                subproject.layout.buildDirectory.get().asFile,
+                                "intermediates${File.separator}cxx"
+                            )
+                            fileTree(nativeOutputRoot).matching {
+                                include "**/libc++_shared.so"
+                            }.files.each { linkedRuntime ->
+                                def regularCopy = new File(linkedRuntime.parentFile, "${linkedRuntime.name}.copy")
+                                java.nio.file.Files.copy(
+                                    linkedRuntime.toPath(),
+                                    regularCopy.toPath(),
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                                )
+                                java.nio.file.Files.move(
+                                    regularCopy.toPath(),
+                                    linkedRuntime.toPath(),
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

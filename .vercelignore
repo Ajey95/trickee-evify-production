@@ -1,0 +1,13 @@
+production/backend/
+production/trickee-driver-mobile/
+rohith-trickee-android/
+play-store-assets/
+Trickee/
+docs/
+.github/
+*.md
+*.html
+production/trickee-frontend/.env*
+production/trickee-frontend/.next/
+production/trickee-frontend/.vercel/
+production/trickee-frontend/node_modules/

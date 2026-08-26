@@ -85,6 +85,81 @@ def test_google_login_maps_existing_user_and_returns_refresh_token(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_google_login_auto_provisions_fixed_trickee_admin(monkeypatch):
+    client, TestingSessionLocal = _client(monkeypatch)
+    monkeypatch.setattr(
+        "app.routers.auth.verify_google_id_token",
+        lambda token: {
+            "sub": "google-admin-sub-1",
+            "email": "ajaybhargavajaswanthreddy@trickee.co.in",
+            "email_verified": True,
+            "name": "Ajay Bhargava Jaswanth Reddy",
+        },
+    )
+
+    try:
+        response = client.post("/api/v1/auth/google-login", json={"id_token": "valid-google-token"})
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["access_token"]
+        assert data["refresh_token"]
+        assert data["user"]["email"] == "ajaybhargavajaswanthreddy@trickee.co.in"
+        assert data["user"]["role"] == "trickee_admin"
+        assert data["user"]["is_active"] is True
+        assert data["user"]["google_sub"] == "google-admin-sub-1"
+        assert data["user"]["auth_provider"] == "google"
+
+        with TestingSessionLocal() as db:
+            user = db.query(User).filter(
+                User.email == "ajaybhargavajaswanthreddy@trickee.co.in"
+            ).one()
+            assert user.role == "trickee_admin"
+            assert user.is_active is True
+            assert user.deleted_at is None
+    finally:
+        app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+def test_google_login_restores_fixed_admin_role_for_active_user(monkeypatch):
+    client, TestingSessionLocal = _client(monkeypatch)
+    with TestingSessionLocal() as db:
+        db.add(
+            User(
+                email="ajaybhargavajaswanthreddy@trickee.co.in",
+                full_name="Ajay Bhargava Jaswanth Reddy",
+                role="fleet_operator",
+                auth_provider="google",
+                is_active=True,
+            )
+        )
+        db.commit()
+    monkeypatch.setattr(
+        "app.routers.auth.verify_google_id_token",
+        lambda token: {
+            "sub": "google-admin-sub-2",
+            "email": "ajaybhargavajaswanthreddy@trickee.co.in",
+            "email_verified": True,
+            "name": "Ajay Bhargava Jaswanth Reddy",
+        },
+    )
+
+    try:
+        response = client.post("/api/v1/auth/google-login", json={"id_token": "valid-google-token"})
+
+        assert response.status_code == 200
+        assert response.json()["data"]["user"]["role"] == "trickee_admin"
+        with TestingSessionLocal() as db:
+            user = db.query(User).filter(
+                User.email == "ajaybhargavajaswanthreddy@trickee.co.in"
+            ).one()
+            assert user.role == "trickee_admin"
+    finally:
+        app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_refresh_rotates_refresh_session(monkeypatch):
     client, TestingSessionLocal = _client(monkeypatch)
     monkeypatch.setattr(

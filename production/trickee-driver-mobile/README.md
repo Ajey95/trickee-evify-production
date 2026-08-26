@@ -55,3 +55,23 @@ npx react-native run-android
 - `USE_HOSTED_BACKEND` is currently `false`, so local emulator builds use `10.0.2.2`.
 - Apple/Google login buttons are placeholders until native auth SDK wiring is added.
 - FCM and background GPS from the earlier pilot app still need to be reintroduced behind this UI.
+# VRTrickee Android mobile application
+
+The normal Android configuration keeps the existing Managed Google Play
+package `com.trickeeandroid`.
+
+To produce the separate public Play bundle with package
+`com.trickee.vrtrickee`, run from this directory:
+
+```powershell
+.\scripts\build-public-release.ps1
+```
+
+The command requires the ignored `android/signing.properties` file, places
+compiler output outside OneDrive, verifies the generated package and bundle
+signature, and writes the upload artifact under
+`%LOCALAPPDATA%\Trickee\vrtrickee-public-android-build\release`.
+
+The current public candidate is `com.trickee.vrtrickee` version `1.0.9 (10)`
+targeting Android API 36. The normal build remains the separate managed package
+`com.trickeeandroid`.
