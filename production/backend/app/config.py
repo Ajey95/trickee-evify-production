@@ -107,6 +107,7 @@ class Settings(BaseSettings):
         origins = [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
         production_origins = [
             "https://trickee-evify-live.vercel.app",
+            "https://www.trickee.co.in/",
         ]
         return list(dict.fromkeys([*origins, *production_origins]))
 
