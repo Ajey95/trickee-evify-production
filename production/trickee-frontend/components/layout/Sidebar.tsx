@@ -20,6 +20,7 @@ import {
   BrainCircuit,
   CircleDollarSign,
   History,
+  Satellite,
 } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -44,6 +45,7 @@ const iconByLabel = {
   Reports: BarChart3,
   Alerts: Bell,
   "Operations Health": Radio,
+  "GPS Pilot": Satellite,
   "Data Quality": DatabaseZap,
   "Model Health": BrainCircuit,
   "Model Metrics": Settings2,

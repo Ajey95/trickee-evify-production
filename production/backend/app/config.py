@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     intelligence_rate_limit_per_minute: int = 90
     ai_rate_limit_per_minute: int = 20
     websocket_ticket_rate_limit_per_minute: int = 30
+    gps_pilot_monitoring_url: str = ""
+    gps_pilot_monitoring_audience: str = ""
+    gps_pilot_request_timeout_seconds: float = 6.0
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -107,8 +110,6 @@ class Settings(BaseSettings):
         origins = [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
         production_origins = [
             "https://trickee-evify-live.vercel.app",
-            "https://www.trickee.co.in",
-            "https://trickee.co.in",
         ]
         return list(dict.fromkeys([*origins, *production_origins]))
 

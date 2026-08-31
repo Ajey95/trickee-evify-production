@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import admin, alerts, assistant, auth, battery, chargers, drivers, fleet, intelligence, mobile, notifications, predictions, routes, telemetry, vehicles, ws
+from app.routers import admin, alerts, assistant, auth, battery, chargers, drivers, fleet, gps_pilot, intelligence, mobile, notifications, predictions, routes, telemetry, vehicles, ws
 from app.services.ai_engine import FEATURE_COLS, SEQ_LEN, ai_engine
 from app.services.security import SecurityMiddleware, http_exception_handler, unhandled_exception_handler
 from app.services.ws_manager import manager
@@ -37,6 +37,7 @@ app.include_router(predictions.router, prefix=settings.api_prefix)
 app.include_router(routes.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
+app.include_router(gps_pilot.router, prefix=settings.api_prefix)
 app.include_router(notifications.router, prefix=settings.api_prefix)
 app.include_router(assistant.router, prefix=settings.api_prefix)
 app.include_router(battery.router, prefix=settings.api_prefix)

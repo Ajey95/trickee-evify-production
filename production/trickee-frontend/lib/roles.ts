@@ -28,6 +28,7 @@ export const ROLE_ROUTES: RoleRoute[] = [
   { label: "Reports", href: "/reports", roles: ["trickee_admin", "fleet_operator"] },
   { label: "Alerts", href: "/alerts", roles: ["trickee_admin", "fleet_operator", "driver"] },
   { label: "Operations Health", href: "/observability", roles: ["trickee_admin"] },
+  { label: "GPS Pilot", href: "/gps-pilot", roles: ["trickee_admin"] },
   { label: "Data Quality", href: "/data-quality", roles: ["trickee_admin", "fleet_operator"] },
   { label: "Model Health", href: "/model-drift", roles: ["trickee_admin"] },
   { label: "Model Metrics", href: "/admin", roles: ["trickee_admin"] },

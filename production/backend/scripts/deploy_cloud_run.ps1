@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectId,
 
-    [string]$Region = "asia-southeast1",
+    [string]$Region = "asia-south1",
     [string]$ServiceName = "trickee-backend",
     [string]$EnvFile = "",
     [string]$CloudSqlInstance = "",

@@ -44,7 +44,11 @@ function mergeVehiclePoint(current: LiveMapData | null, point: any): LiveMapData
  * (/ws/live-map), not under the /api/v1 prefix.
  */
 function wsBaseUrl(): string {
-  const rest = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
+  const defaultRestUrl =
+    process.env.NODE_ENV === "production"
+      ? "https://trickee-backend-397358873357.asia-south1.run.app/api/v1"
+      : "http://localhost:8000/api/v1";
+  const rest = (process.env.NEXT_PUBLIC_BACKEND_URL || defaultRestUrl).replace(/\/$/, "");
   return rest
     .replace(/\/api\/v1$/, "")
     .replace(/^https:/, "wss:")

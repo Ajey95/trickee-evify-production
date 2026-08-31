@@ -10,6 +10,7 @@ import {
   Alert,
   ModelMetrics,
 } from "@/types";
+import type { GpsPilotSnapshot } from "@/types/gps-pilot";
 import {
   readAccessToken,
   readRefreshToken,
@@ -18,7 +19,7 @@ import {
 
 const DEFAULT_BACKEND_URL =
   process.env.NODE_ENV === "production"
-    ? "https://trickee-backend-397358873357.asia-southeast1.run.app/api/v1"
+    ? "https://trickee-backend-397358873357.asia-south1.run.app/api/v1"
     : "http://localhost:8000/api/v1";
 const BASE_URL = (
   process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL
@@ -466,6 +467,11 @@ export const api = {
   // 6.7 Admin
   admin: {
     metrics: () => fetcher<ModelMetrics>("/admin/metrics"),
+    gpsPilot: () =>
+      fetcher<GpsPilotSnapshot>("/admin/gps-pilot", {
+        cacheTtlMs: 0,
+        timeoutMs: 10_000,
+      }),
     users: () => fetcher<User[]>("/admin/users"),
     fleets: () => fetcher<Fleet[]>("/admin/fleets"),
     drivers: () => fetcher<Driver[]>("/admin/drivers"),

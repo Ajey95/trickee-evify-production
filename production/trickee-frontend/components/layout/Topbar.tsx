@@ -23,6 +23,7 @@ export const Topbar = () => {
     if (path === "/scorecards") return "Performance Scorecards";
     if (path === "/alerts") return "Alerts";
     if (path === "/observability") return "Operations Health";
+    if (path === "/gps-pilot") return "GPS Pilot Monitoring";
     if (path === "/data-quality") return "Data Quality";
     if (path === "/model-drift") return "Model Health";
     if (path === "/admin") return "Model Performance Metrics";
