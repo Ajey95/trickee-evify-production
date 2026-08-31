@@ -3,10 +3,11 @@ const isDevelopment = process.env.NODE_ENV !== "production";
 const defaultBackendUrl = isDevelopment
   ? "http://127.0.0.1:8000"
   : "https://trickee-backend-397358873357.asia-south1.run.app";
-const backendUrl =
-  process.env.BACKEND_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  defaultBackendUrl;
+const backendUrl = isDevelopment
+  ? process.env.BACKEND_URL ||
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    defaultBackendUrl
+  : defaultBackendUrl;
 
 const nextConfig = {
   productionBrowserSourceMaps: false,

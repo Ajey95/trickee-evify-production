@@ -22,7 +22,9 @@ const DEFAULT_BACKEND_URL =
     ? "https://trickee-backend-397358873357.asia-south1.run.app/api/v1"
     : "http://localhost:8000/api/v1";
 const BASE_URL = (
-  process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL
+  process.env.NODE_ENV === "production"
+    ? DEFAULT_BACKEND_URL
+    : process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL
 ).replace(/\/$/, "");
 
 type ApiResult<T> = {

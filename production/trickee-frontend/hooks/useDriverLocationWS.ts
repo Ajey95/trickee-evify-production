@@ -48,7 +48,11 @@ function wsBaseUrl(): string {
     process.env.NODE_ENV === "production"
       ? "https://trickee-backend-397358873357.asia-south1.run.app/api/v1"
       : "http://localhost:8000/api/v1";
-  const rest = (process.env.NEXT_PUBLIC_BACKEND_URL || defaultRestUrl).replace(/\/$/, "");
+  const rest = (
+    process.env.NODE_ENV === "production"
+      ? defaultRestUrl
+      : process.env.NEXT_PUBLIC_BACKEND_URL || defaultRestUrl
+  ).replace(/\/$/, "");
   return rest
     .replace(/\/api\/v1$/, "")
     .replace(/^https:/, "wss:")
