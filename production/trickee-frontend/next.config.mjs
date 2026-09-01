@@ -27,7 +27,7 @@ const nextConfig = {
           "default-src 'self'",
           `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""} https://unpkg.com https://www.gstatic.com https://accounts.google.com/gsi/client`,
           "style-src 'self' 'unsafe-inline' https://unpkg.com https://accounts.google.com/gsi/style",
-          "img-src 'self' data: blob: https://*.openstreetmap.org https://*.basemaps.cartocdn.com",
+          "img-src 'self' data: blob: https://*.openstreetmap.org",
           "font-src 'self' data:",
           `connect-src 'self' https: wss: ws:${isDevelopment ? " http:" : ""}`,
           "frame-src https://www.openstreetmap.org https://accounts.google.com/gsi/",

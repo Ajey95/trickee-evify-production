@@ -65,7 +65,7 @@ export default function FleetPage() {
         <div className="flex justify-between items-end">
           <div>
             <h1 className="page-title mb-1">Fleet Overview</h1>
-            <p className="text-text-dim">Real-time status of all vehicles in Evify Surat Fleet.</p>
+            <p className="text-text-dim">Real-time status of all vehicles in xyz Surat Fleet.</p>
           </div>
           <div className="text-right">
             <p className="text-[10px] text-text-dim uppercase tracking-widest mb-1">Last Sync</p>
@@ -203,7 +203,7 @@ export default function FleetPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-accent-teal" />
-              Weekly Evify Live Report
+              Weekly xyz Live Report
             </CardTitle>
           </CardHeader>
           <CardContent>

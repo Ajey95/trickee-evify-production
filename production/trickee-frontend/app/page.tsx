@@ -21,7 +21,7 @@ import Lenis from "lenis";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-const partners = ["Evify", "ABZO", "FleetOS", "Surat Ops", "Pilot Ready", "Live Range"];
+const partners = ["xyz", "ABZO", "FleetOS", "Surat Ops", "Pilot Ready", "Live Range"];
 
 const featureCards = [
   {
