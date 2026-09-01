@@ -17,3 +17,27 @@ test("GPS Pilot is an admin-only route backed by the monitoring proxy", () => {
   assert.match(page, /useVisibilityPolling\(load.+30_000/s);
   assert.match(api, /gpsPilot.+\/admin\/gps-pilot/s);
 });
+
+test("trip reconciliation separates stored delivery from contiguous progress", () => {
+  const page = read("app/(dashboard)/gps-pilot/page.tsx");
+  const types = read("types/gps-pilot.ts");
+
+  for (const field of [
+    "actual_missing_sequences",
+    "upload_completeness_pct",
+    "highest_contiguous_sequence",
+    "highest_received_sequence",
+    "stored_gps_pct",
+    "end_to_end_gps_pct",
+    "phone_backlog",
+  ]) {
+    assert.match(types, new RegExp(`${field}:`));
+    assert.match(page, new RegExp(`trip\\.${field}`));
+  }
+  assert.doesNotMatch(page, />Uploaded \{trip\.uploaded_through\}/);
+  assert.doesNotMatch(page, />Processed \{trip\.processed_through/);
+  assert.doesNotMatch(page, /trip\.missing_sequences/);
+  assert.match(page, /Stored/);
+  assert.match(page, /Contiguous/);
+  assert.match(page, /Phone backlog/);
+});

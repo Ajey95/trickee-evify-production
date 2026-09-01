@@ -39,6 +39,15 @@ export interface GpsPilotTrip {
   stored_windows: number;
   gps_windows: number;
   gps_availability_pct: number | null;
+  stored_gps_pct: number | null;
+  end_to_end_gps_pct: number | null;
+  upload_completeness_pct: number | null;
+  highest_contiguous_sequence: number;
+  highest_received_sequence: number;
+  actual_missing_sequences: number | null;
+  missing_ranges: number[][] | null;
+  phone_backlog: number | null;
+  phone_backlog_observed_at: string | null;
   uploaded_through: number;
   processed_through: number | null;
   missing_sequences: number | null;

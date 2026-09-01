@@ -40,6 +40,12 @@ function humanize(value: string | null | undefined) {
   return value ? value.replaceAll("_", " ") : "Not available";
 }
 
+function formatMissingRanges(ranges: number[][] | null) {
+  if (!ranges?.length) return "No gaps";
+  const visible = ranges.slice(0, 3).map(([start, end]) => start === end ? `${start}` : `${start}-${end}`);
+  return `${visible.join(", ")}${ranges.length > visible.length ? ` +${ranges.length - visible.length} more` : ""}`;
+}
+
 function statusVariant(status: GpsPilotServiceStatus) {
   if (status === "healthy") return "success" as const;
   if (status === "degraded") return "error" as const;
@@ -213,18 +219,20 @@ export default function GpsPilotPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Recent trip reconciliation</CardTitle>
-            <p className="text-xs text-text-dim">Latest 20 trips with GPS completeness, sequence progress, and label readiness.</p>
+            <p className="text-xs text-text-dim">Latest 20 trips with cloud delivery, GPS quality, sequence gaps, phone backlog, and label readiness.</p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="w-full min-w-[1280px] text-left text-sm">
               <thead className="border-b border-bg-border text-[10px] uppercase tracking-wider text-text-dim">
                 <tr>
                   <th className="px-3 py-3 font-medium">Vehicle / trip</th>
                   <th className="px-3 py-3 font-medium">Started</th>
                   <th className="px-3 py-3 font-medium">Trip state</th>
-                  <th className="px-3 py-3 font-medium">GPS coverage</th>
-                  <th className="px-3 py-3 font-medium">Sequence</th>
-                  <th className="px-3 py-3 font-medium">Missing</th>
+                  <th className="px-3 py-3 font-medium">Cloud delivery</th>
+                  <th className="px-3 py-3 font-medium">GPS quality</th>
+                  <th className="px-3 py-3 font-medium">Sequence progress</th>
+                  <th className="px-3 py-3 font-medium">Phone backlog</th>
+                  <th className="px-3 py-3 font-medium">Actual missing</th>
                   <th className="px-3 py-3 font-medium">Training label</th>
                 </tr>
               </thead>
@@ -233,15 +241,17 @@ export default function GpsPilotPage() {
                   <tr key={trip.trip_id}>
                     <td className="px-3 py-4"><p className="font-medium text-text-primary">{trip.vehicle_code || trip.vehicle_id}</p><p className="mt-1 font-mono text-[10px] text-text-dim">{trip.trip_id}</p></td>
                     <td className="px-3 py-4 text-xs text-text-dim">{formatDate(trip.started_at)}</td>
-                    <td className="px-3 py-4"><Badge variant={trip.status === "completed" ? "success" : "info"}>{humanize(trip.status)}</Badge><p className="mt-2 text-[11px] text-text-dim">Finalizer: {humanize(trip.finalizer_state || trip.finalization_state)}</p></td>
-                    <td className="px-3 py-4"><p className="font-semibold text-text-primary">{trip.gps_availability_pct === null ? "—" : `${trip.gps_availability_pct}%`}</p><p className="mt-1 text-[11px] text-text-dim">{trip.gps_windows}/{trip.stored_windows} windows</p></td>
-                    <td className="px-3 py-4 text-xs text-text-dim">Uploaded {trip.uploaded_through}<br />Processed {trip.processed_through ?? "—"}<br />Final {trip.final_sequence_no ?? "—"}</td>
-                    <td className="px-3 py-4"><Badge variant={(trip.missing_sequences ?? 0) > 0 ? "warning" : "success"}>{trip.missing_sequences ?? "Pending"}</Badge></td>
+                    <td className="px-3 py-4"><Badge variant={trip.status === "completed" ? "success" : trip.status === "completed_incomplete" ? "warning" : "info"}>{humanize(trip.status)}</Badge><p className="mt-2 text-[11px] text-text-dim">Finalizer: {humanize(trip.finalizer_state || trip.finalization_state)}</p></td>
+                    <td className="px-3 py-4"><p className="font-semibold text-text-primary">{trip.upload_completeness_pct === null ? "Pending" : `${trip.upload_completeness_pct}%`}</p><p className="mt-1 text-[11px] text-text-dim">Stored {trip.stored_windows}/{trip.final_sequence_no ?? "pending"}</p></td>
+                    <td className="px-3 py-4"><p className="font-semibold text-text-primary">{trip.stored_gps_pct === null ? "—" : `${trip.stored_gps_pct}% received`}</p><p className="mt-1 text-[11px] text-text-dim">End to end {trip.end_to_end_gps_pct === null ? "pending" : `${trip.end_to_end_gps_pct}%`}</p></td>
+                    <td className="px-3 py-4 text-xs text-text-dim">Highest received {trip.highest_received_sequence}<br />Contiguous through {trip.highest_contiguous_sequence}<br />Final {trip.final_sequence_no ?? "—"}</td>
+                    <td className="px-3 py-4"><p className="font-semibold text-text-primary">{trip.phone_backlog ?? "Unknown"}</p><p className="mt-1 text-[11px] text-text-dim">{trip.phone_backlog_observed_at ? formatDate(trip.phone_backlog_observed_at) : "Not reported"}</p></td>
+                    <td className="px-3 py-4"><Badge variant={(trip.actual_missing_sequences ?? 0) > 0 ? "warning" : "success"}>{trip.actual_missing_sequences ?? "Pending"}</Badge><p className="mt-2 max-w-[180px] text-[10px] text-text-dim">{formatMissingRanges(trip.missing_ranges)}</p></td>
                     <td className="px-3 py-4">{trip.training_eligible === null ? <span className="text-xs text-text-dim">Pending</span> : <div className="flex items-center gap-2"><CheckCircle2 className={`h-4 w-4 ${trip.training_eligible ? "text-accent-green" : "text-text-dim"}`} /><span className="text-xs text-text-primary">{trip.training_eligible ? "Eligible" : "Excluded"}{trip.label_confidence !== null ? ` · ${Math.round(trip.label_confidence * 100)}%` : ""}</span></div>}</td>
                   </tr>
                 ))}
                 {!snapshot?.recent_trips.length && (
-                  <tr><td colSpan={7} className="px-3 py-10 text-center text-sm text-text-dim">No trips have reached the pilot backend yet.</td></tr>
+                  <tr><td colSpan={9} className="px-3 py-10 text-center text-sm text-text-dim">No trips have reached the pilot backend yet.</td></tr>
                 )}
               </tbody>
             </table>
