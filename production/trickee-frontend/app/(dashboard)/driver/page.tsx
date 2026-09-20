@@ -20,7 +20,6 @@ export default function DriverProfilePage() {
   const [liveProfile, setLiveProfile] = useState<any | null>(null);
   const [liveDecision, setLiveDecision] = useState<any | null>(null);
   const [liveMap, setLiveMap] = useState<any | null>(null);
-  const [behaviorHistory, setBehaviorHistory] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
@@ -28,12 +27,7 @@ export default function DriverProfilePage() {
     async function loadDriver() {
       setIsLoading(true);
       const mine = await api.drivers.me();
-      let selectedDriver: Driver | null = mine.success ? mine.data : null;
-
-      if (!selectedDriver) {
-        const list = await api.drivers.list();
-        selectedDriver = list.success && list.data.length ? list.data[0] : null;
-      }
+      const selectedDriver: Driver | null = mine.success ? mine.data : null;
 
       if (!selectedDriver) {
         setError("No driver profile is available for this account.");
@@ -42,16 +36,15 @@ export default function DriverProfilePage() {
       }
 
       setDriver(selectedDriver);
-      const [tripResult, myVehicleResult, behaviorResult, liveProfileResult, liveDecisionResult, liveMapResult, behaviorHistoryResult] = await Promise.all([
+      const [tripResult, myVehicleResult, behaviorResult, liveProfileResult, liveDecisionResult, liveMapResult] = await Promise.all([
         api.drivers.trips(selectedDriver.id),
         api.vehicles.mine(),
         api.intelligence.driverBehavior(selectedDriver.id),
         api.intelligence.driverLiveProfile(selectedDriver.id),
         api.intelligence.driverLiveDecision(selectedDriver.id),
         api.intelligence.liveMap(selectedDriver.id),
-        api.intelligence.driverBehaviorHistory(50),
       ]);
-      const vehicleResult = myVehicleResult.success ? myVehicleResult : await api.vehicles.list();
+      const vehicleResult = myVehicleResult;
 
       if (tripResult.success) setTrips(tripResult.data);
       if (vehicleResult.success) setVehicles(vehicleResult.data);
@@ -59,9 +52,6 @@ export default function DriverProfilePage() {
       if (liveProfileResult.success) setLiveProfile(liveProfileResult.data);
       if (liveDecisionResult.success) setLiveDecision(liveDecisionResult.data);
       if (liveMapResult.success) setLiveMap(liveMapResult.data);
-      if (behaviorHistoryResult.success) {
-        setBehaviorHistory(behaviorHistoryResult.data.filter((row: any) => row.driver_id === selectedDriver.id));
-      }
       setError("");
       setIsLoading(false);
     }
@@ -91,7 +81,7 @@ export default function DriverProfilePage() {
         {driver && (
           <>
             <DriverProfileCard driver={{ ...driver, ...(behavior || {}) }} currentVehicle={currentVehicle} />
-            <ArchetypePanel archetype={liveProfile?.archetype || behavior?.archetype} history={behaviorHistory} />
+            <ArchetypePanel archetype={liveProfile?.archetype || behavior?.archetype} />
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-8">
               <div className="space-y-5 lg:col-span-2 lg:space-y-8">

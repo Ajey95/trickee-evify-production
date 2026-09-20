@@ -1,5 +1,5 @@
-const CACHE_NAME = "trickee-shell-v2";
-const SHELL_ASSETS = ["/", "/login", "/driver", "/map", "/alerts", "/ai", "/icon.png", "/trickee.png"];
+const CACHE_NAME = "trickee-shell-v4";
+const SHELL_ASSETS = ["/login", "/icon.png", "/trickee.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -15,7 +15,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("trickee-shell-") && key !== CACHE_NAME).map((key) => caches.delete(key))))
       .catch(() => undefined)
   );
   self.clients.claim();
@@ -25,19 +25,25 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
+  // Never cache partial video responses, external services, or Next.js RSC data.
+  if (url.origin !== self.location.origin || request.headers.has("range")) return;
   if (url.pathname.startsWith("/api/") || url.pathname.includes("/api/v1/")) return;
+  if (request.mode !== "navigate" && !["script", "style", "image", "font"].includes(request.destination)) return;
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        if (response.ok && request.destination !== "document") {
+        if (response.status === 200 && request.destination !== "document") {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => undefined));
         }
         return response;
       })
-      .catch(() =>
-        caches.match(request).then((cached) => cached || caches.match("/login") || Response.error())
-      )
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        if (request.mode === "navigate") return (await caches.match("/login")) || Response.error();
+        return Response.error();
+      })
   );
 });

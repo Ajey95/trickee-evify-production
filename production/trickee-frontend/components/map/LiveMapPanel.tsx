@@ -473,7 +473,10 @@ export function LiveMapPanel({ data, selectedDriverId, wsConnected, userLocation
       </div>
 
       <div className="relative min-h-[560px] overflow-hidden rounded-[22px] border border-white/10 bg-[#eef0ec] shadow-[0_28px_80px_rgba(0,0,0,0.24)]">
-        <div ref={leafletRef} className={`absolute inset-0 ${mode === "leaflet" ? "" : "opacity-0"}`} />
+        <div
+          ref={leafletRef}
+          className={`absolute inset-0 isolate z-0 ${mode === "leaflet" ? "" : "opacity-0"}`}
+        />
         {mode !== "leaflet" && (
           <div className="absolute inset-0">
             <iframe

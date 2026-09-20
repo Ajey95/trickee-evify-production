@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, Building2, CheckCircle2, UserRound } from "lucide-react";
@@ -11,6 +17,7 @@ import { api, resetApiClientState } from "@/lib/api";
 import { writeAuthSession } from "@/lib/auth-storage";
 import { homeForRole } from "@/lib/roles";
 import type { UserRole } from "@/types";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type SignupState = "idle" | "pending_mapping";
 type SignupVehicleOption = {
@@ -29,17 +36,57 @@ export default function SignupPage() {
   const [vehicleOptions, setVehicleOptions] = useState<SignupVehicleOption[]>(
     [],
   );
+  const [vehicleOptionsState, setVehicleOptionsState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [vehicleOptionsError, setVehicleOptionsError] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+  const [workspaceRetryAvailable, setWorkspaceRetryAvailable] =
+    useState(false);
   const [state, setState] = useState<SignupState>("idle");
+  const mountedRef = useRef(false);
+  const authAttemptRef = useRef(0);
   const router = useRouter();
   const { refreshUser } = useAuth();
 
   useEffect(() => {
-    api.auth.signupOptions().then((result) => {
-      if (result.success) setVehicleOptions(result.data.vehicles || []);
-    });
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      authAttemptRef.current += 1;
+    };
   }, []);
+
+  const loadVehicleOptions = useCallback(async () => {
+    setVehicleOptionsState("loading");
+    setVehicleOptionsError("");
+    try {
+      const result = await api.auth.signupOptions();
+      if (result.success) {
+        setVehicleOptions(result.data?.vehicles || []);
+        setVehicleOptionsState("ready");
+        return;
+      }
+      setVehicleOptions([]);
+      setVehicleOptionsError(
+        result.error || "Could not load the available vehicles.",
+      );
+      setVehicleOptionsState("error");
+    } catch (err) {
+      setVehicleOptions([]);
+      setVehicleOptionsError(
+        err instanceof Error
+          ? err.message
+          : "Could not load the available vehicles.",
+      );
+      setVehicleOptionsState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadVehicleOptions();
+  }, [loadVehicleOptions]);
 
   const validationError = useMemo(() => {
     if (!company.trim()) return "Company or fleet name is required.";
@@ -54,8 +101,12 @@ export default function SignupPage() {
       return;
     }
 
+    const attempt = ++authAttemptRef.current;
+    const isCurrent = () =>
+      mountedRef.current && authAttemptRef.current === attempt;
     setGoogleLoading(true);
     setError("");
+    setWorkspaceRetryAvailable(false);
     try {
       const result = await api.auth.googleLogin(idToken, {
         full_name: fullName.trim() || undefined,
@@ -64,24 +115,32 @@ export default function SignupPage() {
         requested_vehicle_id:
           requestedRole === "driver" ? requestedVehicleId : undefined,
       });
+      if (!isCurrent()) return;
 
       if (result.success && result.data?.access_token) {
         writeAuthSession(result.data);
         resetApiClientState();
         const mappedUser = await refreshUser();
+        if (!isCurrent()) return;
         if (mappedUser) {
           router.replace(homeForRole(mappedUser.role));
           return;
         }
+        setError(
+          "Signed in, but your workspace could not be loaded. Retry workspace access.",
+        );
+        setWorkspaceRetryAvailable(true);
+        return;
       }
 
-      const message = result.error || "Workspace access is pending approval.";
+      const message = result.error || "Could not continue with Google.";
       if (/approval|workspace access|pending/i.test(message)) {
         setState("pending_mapping");
       } else {
         setError(message);
       }
     } catch (err) {
+      if (!isCurrent()) return;
       const message =
         err instanceof Error ? err.message : "Could not continue with Google.";
       if (/approval|workspace access|pending/i.test(message)) {
@@ -90,13 +149,41 @@ export default function SignupPage() {
         setError(message);
       }
     } finally {
-      setGoogleLoading(false);
+      if (isCurrent()) setGoogleLoading(false);
+    }
+  };
+
+  const retryWorkspace = async () => {
+    const attempt = ++authAttemptRef.current;
+    const isCurrent = () =>
+      mountedRef.current && authAttemptRef.current === attempt;
+    setGoogleLoading(true);
+    setError("");
+    setWorkspaceRetryAvailable(false);
+    try {
+      const mappedUser = await refreshUser();
+      if (!isCurrent()) return;
+      if (mappedUser) {
+        router.replace(homeForRole(mappedUser.role));
+      } else {
+        setError("Workspace is still unavailable. Please try again.");
+        setWorkspaceRetryAvailable(true);
+      }
+    } catch (err) {
+      if (!isCurrent()) return;
+      setError(
+        err instanceof Error ? err.message : "Could not load your workspace.",
+      );
+      setWorkspaceRetryAvailable(true);
+    } finally {
+      if (isCurrent()) setGoogleLoading(false);
     }
   };
 
   if (state === "pending_mapping") {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#05070a] px-6 text-text-primary">
+      <main className="auth-root grid min-h-screen place-items-center bg-[#03070b] px-6 text-text-primary">
+        <ThemeToggle className="theme-toggle-floating" />
         <section className="w-full max-w-md rounded-2xl border border-accent-amber/30 bg-[#0b0f16] p-7 text-center">
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-accent-amber/12 text-accent-amber">
             <CheckCircle2 className="h-6 w-6" />
@@ -120,8 +207,9 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#05070a] px-6 py-10 text-text-primary">
-      <section className="mx-auto w-full max-w-xl rounded-2xl border border-white/[0.09] bg-[#0b0f16] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)] sm:p-8">
+    <main className="auth-root min-h-screen bg-[#03070b] px-6 py-10 text-text-primary">
+      <ThemeToggle className="theme-toggle-floating" />
+      <section className="relative mx-auto w-full max-w-xl rounded-[10px] border border-white/[0.11] bg-[#081119]/90 p-6 shadow-[0_28px_100px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:p-8">
         <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent-teal">
           Workspace access
         </p>
@@ -203,20 +291,64 @@ export default function SignupPage() {
               >
                 Vehicle
               </label>
-              <select
-                id="requested-vehicle"
-                value={requestedVehicleId}
-                onChange={(event) => setRequestedVehicleId(event.target.value)}
-                className="h-11 w-full rounded-lg border border-white/[0.1] bg-[#111722] px-3 text-sm outline-none focus:border-accent-teal/70"
-              >
-                <option value="">Select vehicle</option>
-                {vehicleOptions.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.vehicle_code}
-                    {vehicle.fleet_name ? ` - ${vehicle.fleet_name}` : ""}
-                  </option>
-                ))}
-              </select>
+              {vehicleOptionsState === "loading" ? (
+                <div
+                  className="grid h-11 place-items-center rounded-lg border border-white/[0.1] bg-white/[0.035] text-sm text-text-dim"
+                  role="status"
+                >
+                  Loading available vehicles...
+                </div>
+              ) : vehicleOptionsState === "error" ? (
+                <div
+                  className="rounded-lg border border-accent-red/30 bg-accent-red/8 p-3"
+                  role="alert"
+                >
+                  <p className="text-sm text-accent-red">
+                    {vehicleOptionsError}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-3 h-9 w-full"
+                    onClick={() => void loadVehicleOptions()}
+                  >
+                    Retry vehicle list
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <select
+                    id="requested-vehicle"
+                    value={requestedVehicleId}
+                    onChange={(event) =>
+                      setRequestedVehicleId(event.target.value)
+                    }
+                    className="h-11 w-full rounded-lg border border-white/[0.1] bg-[#111722] px-3 text-sm outline-none focus:border-accent-teal/70"
+                    disabled={vehicleOptions.length === 0}
+                  >
+                    <option value="">Select vehicle</option>
+                    {vehicleOptions.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.vehicle_code}
+                        {vehicle.fleet_name ? ` - ${vehicle.fleet_name}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {vehicleOptions.length === 0 && (
+                    <div className="rounded-lg border border-white/[0.1] bg-white/[0.035] p-3 text-sm text-text-dim">
+                      <p>No driver vehicles are currently available.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-3 h-9 w-full"
+                        onClick={() => void loadVehicleOptions()}
+                      >
+                        Retry vehicle list
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -238,9 +370,22 @@ export default function SignupPage() {
           )}
 
           {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-accent-red/30 bg-accent-red/8 p-3 text-sm text-accent-red">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
+            <div className="rounded-lg border border-accent-red/30 bg-accent-red/8 p-3 text-sm text-accent-red">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+              {workspaceRetryAvailable && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-3 h-9 w-full"
+                  disabled={googleLoading}
+                  onClick={() => void retryWorkspace()}
+                >
+                  Retry workspace
+                </Button>
+              )}
             </div>
           )}
         </div>

@@ -21,9 +21,14 @@ import { RoleGuard } from "@/components/layout/RoleGuard";
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [resolving, setResolving] = useState<Set<string>>(new Set());
+  const pendingRef = React.useRef(new Set<string>());
 
-  useEffect(() => {
-    async function loadAlerts() {
+  const loadAlerts = React.useCallback(async () => {
+      setIsLoading(true);
+      setError("");
+      try {
       const result = await api.alerts.list();
       if (result.success) {
         setAlerts(result.data.map((alert: any) => ({
@@ -35,14 +40,30 @@ export default function AlertsPage() {
       } else {
         setError(result.error || "Unable to load alerts");
       }
-    }
-    loadAlerts();
+      } catch {
+        setError("Unable to load alerts. Please retry.");
+      } finally { setIsLoading(false); }
   }, []);
 
+  useEffect(() => { void loadAlerts(); }, [loadAlerts]);
+
   const resolveAlert = async (id: string) => {
+    if (pendingRef.current.has(id)) return;
+    pendingRef.current.add(id);
+    setResolving(new Set(pendingRef.current));
+    setError("");
+    try {
     const result = await api.alerts.resolve(id);
     if (result.success) {
       setAlerts(prev => prev.map(a => a.id === id ? { ...a, is_resolved: true } : a));
+    } else {
+      setError(result.error || "Unable to resolve this alert. Please retry.");
+    }
+    } catch {
+      setError("Unable to resolve this alert. Please retry.");
+    } finally {
+      pendingRef.current.delete(id);
+      setResolving(new Set(pendingRef.current));
     }
   };
 
@@ -82,9 +103,11 @@ export default function AlertsPage() {
       <div className="max-w-3xl mx-auto space-y-4">
         {error && (
           <Card className="border-accent-red/30 bg-accent-red/5">
-            <p className="text-sm text-accent-red">{error}</p>
+            <p role="alert" className="text-sm text-accent-red">{error}</p>
+            <Button onClick={() => void loadAlerts()} disabled={isLoading || resolving.size > 0} variant="outline" className="mt-3">Retry alerts</Button>
           </Card>
         )}
+        {isLoading && <p role="status" className="py-6 text-text-dim">Loading alerts…</p>}
 
         {alerts.map((alert) => {
           const Icon = getAlertIcon(alert.alert_type);
@@ -153,6 +176,7 @@ export default function AlertsPage() {
                         size="sm" 
                         className="min-h-10 w-full gap-2 sm:w-auto"
                         onClick={() => resolveAlert(alert.id)}
+                        isLoading={resolving.has(alert.id)}
                       >
                         <CheckCircle2 className="w-4 h-4" />
                         Mark as Resolved
@@ -165,7 +189,7 @@ export default function AlertsPage() {
           );
         })}
 
-        {alerts.length === 0 && (
+        {!isLoading && !error && alerts.length === 0 && (
           <div className="text-center py-24 glass-card border-dashed">
             <Bell className="w-12 h-12 text-bg-border mx-auto mb-4" />
             <p className="text-text-dim">No active alerts. All systems nominal.</p>

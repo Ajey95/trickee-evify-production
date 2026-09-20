@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { PredictiveKpiCards } from "@/components/vehicle/PredictiveKpiCards";
 import { RangePenaltyBreakdown } from "@/components/vehicle/RangePenaltyBreakdown";
 import { SocLineChart } from "@/components/charts/SocLineChart";
@@ -11,7 +12,8 @@ import { Prediction, Vehicle } from "@/types";
 import { api } from "@/lib/api";
 import { useVisibilityPolling } from "@/hooks/useVisibilityPolling";
 
-export default function VehiclePage({ params }: { params: { id: string } }) {
+export default function VehiclePage() {
+  const params = useParams<{ id: string }>();
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [latestTelemetry, setLatestTelemetry] = useState<any | null>(null);
   const [chartData, setChartData] = useState<{ time: string; soc: number; isPredicted?: boolean }[]>([]);
@@ -24,7 +26,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const loadData = useCallback(async () => {
     setIsRefreshing(true);
     let vehicleId = params.id;
-    let predictionResult = await api.predictions.infer(vehicleId);
+    const [vehicleResult, initialPrediction] = await Promise.all([
+      api.vehicles.get(vehicleId),
+      api.predictions.infer(vehicleId),
+    ]);
+    let predictionResult = initialPrediction;
+    if (vehicleResult.success) setVehicleLabel(vehicleResult.data.vehicle_code);
 
     if (!predictionResult.success && predictionResult.error?.toLowerCase().includes("vehicle not found")) {
       const vehiclesResult = await api.vehicles.list();
@@ -88,13 +95,13 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-8 pb-12">
-      <div className="flex justify-between items-start">
+      <div className="flex flex-wrap justify-between items-start gap-4">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-accent-teal/10 rounded-2xl border border-accent-teal/20">
             <Shield className="w-8 h-8 text-accent-teal" />
           </div>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="page-title mb-0">{vehicleLabel}</h1>
               <Badge variant="success">Active Monitoring</Badge>
             </div>

@@ -44,15 +44,7 @@ function mergeVehiclePoint(current: LiveMapData | null, point: any): LiveMapData
  * (/ws/live-map), not under the /api/v1 prefix.
  */
 function wsBaseUrl(): string {
-  const defaultRestUrl =
-    process.env.NODE_ENV === "production"
-      ? "https://trickee-backend-397358873357.asia-south1.run.app/api/v1"
-      : "http://localhost:8000/api/v1";
-  const rest = (
-    process.env.NODE_ENV === "production"
-      ? defaultRestUrl
-      : process.env.NEXT_PUBLIC_BACKEND_URL || defaultRestUrl
-  ).replace(/\/$/, "");
+  const rest = (process.env.NEXT_PUBLIC_WS_URL || "wss://trickee-backend-397358873357.asia-south1.run.app").replace(/\/$/, "");
   return rest
     .replace(/\/api\/v1$/, "")
     .replace(/^https:/, "wss:")
@@ -100,6 +92,7 @@ export function useDriverLocationWS(driverId?: string): {
       if (!active) return;
 
       const ticketResult = await api.auth.wsTicket();
+      if (!active) return;
       const ticket = ticketResult.success ? ticketResult.data?.ticket : undefined;
 
       if (!ticket) {
@@ -112,7 +105,13 @@ export function useDriverLocationWS(driverId?: string): {
       if (driverId) params.set("driver_id", driverId);
 
       const url = `${wsBaseUrl()}/ws/live-map?${params.toString()}`;
-      const ws = new WebSocket(url);
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(url);
+      } catch {
+        scheduleReconnect(connect);
+        return;
+      }
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -152,6 +151,9 @@ export function useDriverLocationWS(driverId?: string): {
       const ws = wsRef.current;
       wsRef.current = null;
       if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
         ws.onclose = null;
         ws.close();
       }

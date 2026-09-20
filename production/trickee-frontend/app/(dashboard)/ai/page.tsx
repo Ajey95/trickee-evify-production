@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { api } from "@/lib/api";
 import { Driver, Vehicle } from "@/types";
 import { useAuth } from "@/components/AuthProvider";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
 type PanelKey = "assistant" | "notification" | "route" | "battery" | "charger" | "profile" | "fleet" | "coaching";
 type ContextItem = { label: string; value: string; hint?: string };
@@ -24,127 +25,12 @@ const panels: Array<{ key: PanelKey; label: string; icon: any; description: stri
   { key: "coaching", label: "Coaching", icon: Sparkles, description: "Create end-of-shift coaching based on observed metrics.", cta: "Create coaching" },
 ];
 
-const mockDrivers: Driver[] = [
-  {
-    id: "mock-driver-rohith",
-    driver_code: "DRV-018",
-    full_name: "Rohith Kumar",
-    style_label: "Smooth",
-    personal_factor: 0.94,
-    avg_regen_ratio: 0.31,
-    avg_throttle_variance: 0.18,
-    avg_current_30m: 31.4,
-    avg_speed_30m: 34.2,
-    trips_this_week: 22,
-    kwh_used_this_week: 47.6,
-    efficiency_rank: 3,
-    efficiency_vs_fleet_pct: 11,
-    trickee_points: 1280,
-  },
-];
-
-const mockVehicles: Vehicle[] = [
-  {
-    id: "mock-vehicle-trk-204",
-    vehicle_code: "TRK-204",
-    make: "Euler",
-    model: "HiLoad EV",
-    max_range_km: 140,
-    latest_dynamic_range_km: 37,
-    latest: {
-      id: "mock-tel-1",
-      vehicle_id: "mock-vehicle-trk-204",
-      driver_id: "mock-driver-rohith",
-      recorded_at: new Date().toISOString(),
-      soc: 22,
-      current: 38.8,
-      battery_voltage: 51.6,
-      speed: 32.4,
-      temp_max: 36.8,
-      soh: 94,
-      charge_plug: false,
-      ignition_on: true,
-      regen_status: true,
-      throttle_status: true,
-      status_tag: "route_risk_watch",
-      lat: 21.1702,
-      lng: 72.8311,
-    },
-  },
-];
-
-function mockResultFor(active: PanelKey, message: string, soc: number, vehicleCode?: string) {
-  const vehicle = vehicleCode || "TRK-204";
-  if (active === "assistant") {
-    return {
-      answer: `${vehicle} can finish the next 18 km stop, but the reserve will be tight. Keep speed below 38 km/h and take the Adajan top-up if a second delivery is added.`,
-      confidence: "mock-high",
-      transcript: message,
-      next_best_action: "Offer a 14 minute charge window before accepting a longer route.",
-      fallback_used: true,
-    };
-  }
-  if (active === "notification") {
-    return {
-      message: `Heads up: ${vehicle} is at ${soc.toFixed(0)}% SOC. Take the Adajan charger window now to avoid a late-route low battery alert.`,
-      severity: soc < 20 ? "high" : "medium",
-      channel: "driver_app_preview",
-      fallback_used: true,
-    };
-  }
-  if (active === "route") {
-    return {
-      explanation: "Route B is recommended because it avoids the high stop-and-go section and preserves roughly 8% more SOC, even though it adds 6 minutes.",
-      selected_route: "B",
-      soc_end_pct: Math.max(9, soc - 12),
-      fallback_used: true,
-    };
-  }
-  if (active === "battery") {
-    return {
-      range_translation: `${soc.toFixed(0)}% SOC maps to about 37 km practical range under the current speed, heat, and current-draw pattern.`,
-      risk_flag: soc < 25 ? "Watch reserve closely" : "Stable",
-      fallback_used: true,
-    };
-  }
-  if (active === "charger") {
-    return {
-      recommendation: "Adajan Fast Charge",
-      reason: "Closest reliable top-up with a short queue and enough gain for the next route block.",
-      distance_km: 2.7,
-      charge_minutes: 14,
-      fallback_used: true,
-    };
-  }
-  if (active === "profile") {
-    return {
-      summary: "Rohith is smoother than fleet baseline today with lower throttle variance and good regen recovery.",
-      driver_style: "Smooth",
-      coaching_tone: "Positive reinforcement",
-      fallback_used: true,
-    };
-  }
-  if (active === "fleet") {
-    return {
-      summary: "Fleet is healthy overall. One vehicle needs charging attention, two routes have avoidable energy penalties, and no severe driver risk is active.",
-      vehicles_at_risk: 1,
-      charging_windows: 3,
-      fallback_used: true,
-    };
-  }
-  return {
-    summary: "End-of-shift coaching should praise smooth acceleration, then remind the driver to accept charger windows before SOC drops below 20%.",
-    coaching_points: ["Strong regen use", "Avoid late charging", "Keep route speed below 38 km/h in heat"],
-    fallback_used: true,
-  };
-}
-
 function formatLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatPoint(point: { lat: number; lng: number }) {
-  return `${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}`;
+  return Number.isFinite(point.lat) && Number.isFinite(point.lng) ? `${point.lat.toFixed(3)}, ${point.lng.toFixed(3)}` : "Not available";
 }
 
 function renderValue(value: any): React.ReactNode {
@@ -217,10 +103,15 @@ export default function AiFeaturesPage() {
   const [message, setMessage] = useState("Can I reach my next stop with current battery?");
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("Mock Coice/voice mode is ready if live backend data is unavailable.");
+  const [notice, setNotice] = useState("Loading fleet context...");
   const [isLoading, setIsLoading] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(true);
+  const voice = useSpeechRecognition({
+    onTranscript: (transcript) => {
+      setMessage(transcript);
+      setActive("assistant");
+    },
+    onStatus: setNotice,
+  });
 
   useEffect(() => {
     async function load() {
@@ -246,21 +137,20 @@ export default function AiFeaturesPage() {
       }
 
       if (driverList.success) {
-        const nextDrivers = driverList.data.length ? driverList.data : mockDrivers;
+        const nextDrivers = driverList.data;
         setDrivers(nextDrivers);
         setSelectedDriverId(nextDrivers[0]?.id || "");
       }
       if (vehicleList.success) {
-        const nextVehicles = vehicleList.data.length ? vehicleList.data : mockVehicles;
+        const nextVehicles = vehicleList.data;
         setVehicles(nextVehicles);
         setSelectedVehicleId(nextVehicles[0]?.id || "");
       }
       if (!driverList.success || !vehicleList.success) {
-        setDrivers(mockDrivers);
-        setVehicles(mockVehicles);
-        setSelectedDriverId(mockDrivers[0].id);
-        setSelectedVehicleId(mockVehicles[0].id);
-        setNotice("Live backend context was not available, so the AI workspace is showing polished mock fleet data.");
+        setError(driverList.error || vehicleList.error || "Unable to load fleet context.");
+        setNotice("Fleet context is unavailable. Please reload to retry.");
+      } else {
+        setNotice(driverList.data.length && vehicleList.data.length ? "Fleet context loaded from the backend." : "No assigned drivers or vehicles. Ask your fleet administrator to complete your mapping.");
       }
     }
     if (user) load();
@@ -279,11 +169,16 @@ export default function AiFeaturesPage() {
   const selectedDriver = useMemo(() => drivers.find((driver) => driver.id === selectedDriverId) || drivers[0], [drivers, selectedDriverId]);
   const latest: any = selectedVehicle?.latest || selectedVehicle?.latest_telemetry || {};
   const point = useMemo(
-    () => ({ lat: Number(latest.lat || 21.1702), lng: Number(latest.lng || 72.8311) }),
+    () => ({ lat: Number(latest.lat ?? Number.NaN), lng: Number(latest.lng ?? Number.NaN) }),
     [latest.lat, latest.lng]
   );
-  const soc = Number(latest.soc || 42);
-  const routeDestination = useMemo(() => ({ lat: point.lat + 0.035, lng: point.lng + 0.032 }), [point.lat, point.lng]);
+  const soc = Number(latest.soc ?? Number.NaN);
+  const [destinationLat, setDestinationLat] = useState("");
+  const [destinationLng, setDestinationLng] = useState("");
+  const [destinationKm, setDestinationKm] = useState("18");
+  const [availableMinutes, setAvailableMinutes] = useState("15");
+  const routeDestination = { lat: destinationLat.trim() ? Number(destinationLat) : Number.NaN, lng: destinationLng.trim() ? Number(destinationLng) : Number.NaN };
+  const socLabel = Number.isFinite(soc) ? `${soc.toFixed(1)}%` : "Not available";
   const activePanel = visiblePanels.find((panel) => panel.key === active) || visiblePanels[0] || panels[0];
   const contextItems: ContextItem[] = (() => {
     const driverLabel = selectedDriver ? `${selectedDriver.driver_code} - ${selectedDriver.full_name}` : "No driver selected";
@@ -309,7 +204,7 @@ export default function AiFeaturesPage() {
         ...base,
         { label: "Alert type", value: "Charging opportunity", hint: "Backend decides alert category" },
         { label: "Severity", value: soc < 20 ? "High" : "Medium", hint: "LLM cannot change severity" },
-        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "From latest vehicle telemetry" },
+        { label: "SOC", value: socLabel, hint: "From latest vehicle telemetry" },
         { label: "Tools", value: "Profile, battery, vehicle, charger", hint: "Allowed backend facts only" },
       ];
     }
@@ -317,15 +212,15 @@ export default function AiFeaturesPage() {
       return [
         ...base,
         { label: "Origin", value: formatPoint(point), hint: "Latest GPS point" },
-        { label: "Destination", value: formatPoint(routeDestination), hint: "Demo route target" },
-        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Battery margin input" },
+        { label: "Destination", value: formatPoint(routeDestination), hint: "Entered route destination" },
+        { label: "SOC", value: socLabel, hint: "Battery margin input" },
         { label: "Tools", value: "Route score, traffic/weather, battery, chargers", hint: "Explanation cannot change route rank" },
       ];
     }
     if (active === "battery") {
       return [
         ...base,
-        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Range translation input" },
+        { label: "SOC", value: socLabel, hint: "Range translation input" },
         { label: "Speed", value: speed, hint: "Latest telemetry" },
         { label: "Temperature", value: temp, hint: "Thermal context" },
         { label: "Current draw", value: current, hint: "Drain-vs-baseline signal" },
@@ -335,16 +230,16 @@ export default function AiFeaturesPage() {
       return [
         ...base,
         { label: "Location", value: formatPoint(point), hint: "Nearest charger search center" },
-        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Urgency and gain estimate" },
-        { label: "Destination", value: "18 km", hint: "Demo trip distance" },
-        { label: "Wait window", value: "15 min", hint: "Charge opportunity window" },
+        { label: "SOC", value: socLabel, hint: "Urgency and gain estimate" },
+        { label: "Destination", value: `${destinationKm} km`, hint: "Entered trip distance" },
+        { label: "Wait window", value: `${availableMinutes} min`, hint: "Entered charge window" },
       ];
     }
     if (active === "profile") {
       return [
         ...base,
         { label: "Telemetry age", value: recordedAt, hint: "Latest profile signal freshness" },
-        { label: "SOC", value: `${soc.toFixed(1)}%`, hint: "Recent behavior context" },
+        { label: "SOC", value: socLabel, hint: "Recent behavior context" },
       ];
     }
     if (active === "fleet") {
@@ -363,46 +258,27 @@ export default function AiFeaturesPage() {
     ];
   })();
 
-  function startVoiceInput() {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      setNotice("This browser does not expose speech recognition, but the chat and mock intelligence flow still work.");
+  async function runPanel() {
+    setNotice("");
+    setResult(null);
+    if (active !== "fleet" && (!selectedDriverId || !selectedVehicle?.id)) {
+      setError("Select an assigned driver and vehicle before requesting intelligence.");
       return;
     }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-IN";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onstart = () => {
-      setIsListening(true);
-      setNotice("Listening for your Coice/voice command...");
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => {
-      setIsListening(false);
-      setNotice("Voice capture stopped. You can type the same command in the assistant box.");
-    };
-    recognition.onresult = (event: any) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || "";
-      setMessage(transcript);
-      setActive("assistant");
-      setNotice("Voice command captured and moved into the assistant prompt.");
-    };
-    recognition.start();
-  }
-
-  async function runPanel() {
-    if (!selectedDriverId || !selectedVehicle?.id) {
-      setDrivers(mockDrivers);
-      setVehicles(mockVehicles);
-      setSelectedDriverId(mockDrivers[0].id);
-      setSelectedVehicleId(mockVehicles[0].id);
-      setResult(mockResultFor(active, message, soc, mockVehicles[0].vehicle_code));
-      setNotice("No live driver or vehicle was selected, so Trickee is showing the mock Coice intelligence result.");
+    if (["battery", "route", "charger", "notification"].includes(active) && !Number.isFinite(soc)) {
+      setError("Current battery telemetry is unavailable for this vehicle.");
+      return;
+    }
+    if (["route", "charger"].includes(active) && (!Number.isFinite(point.lat) || !Number.isFinite(point.lng))) {
+      setError("Current GPS coordinates are unavailable for this vehicle.");
+      return;
+    }
+    if (active === "route" && (!Number.isFinite(routeDestination.lat) || !Number.isFinite(routeDestination.lng) || Math.abs(routeDestination.lat) > 90 || Math.abs(routeDestination.lng) > 180)) {
+      setError("Enter valid destination latitude and longitude.");
+      return;
+    }
+    if (active === "charger" && (!(Number(destinationKm) > 0) || !(Number(availableMinutes) > 0))) {
+      setError("Enter a positive trip distance and charging window.");
       return;
     }
     if (active === "fleet" && user?.role === "driver") {
@@ -412,10 +288,10 @@ export default function AiFeaturesPage() {
     setIsLoading(true);
     setError("");
     setResult(null);
-    const common = { driver_id: selectedDriverId, vehicle_id: selectedVehicle.id };
+    const common = { driver_id: selectedDriverId, vehicle_id: selectedVehicle?.id };
     let response;
     if (active === "assistant") {
-      response = await api.assistant.message({ ...common, channel: "app", message, location: point });
+      response = await api.assistant.message({ ...common, channel: "app", message, ...(Number.isFinite(point.lat) && Number.isFinite(point.lng) ? { location: point } : {}) });
     } else if (active === "notification") {
       response = await api.notifications.personalize({
         ...common,
@@ -435,7 +311,7 @@ export default function AiFeaturesPage() {
     } else if (active === "battery") {
       response = await api.battery.insight({ ...common, current_soc: soc, trip_context: {}, environment_context: {} });
     } else if (active === "charger") {
-      response = await api.chargers.recommend({ ...common, ...point, soc, destination_km: 18, available_time_min: 15 });
+      response = await api.chargers.recommend({ ...common, ...point, soc, destination_km: Number(destinationKm), available_time_min: Number(availableMinutes) });
     } else if (active === "profile") {
       response = await api.drivers.profile(selectedDriverId);
     } else if (active === "fleet") {
@@ -447,8 +323,8 @@ export default function AiFeaturesPage() {
       setResult(response.data);
       setNotice("Live backend response received.");
     } else {
-      setResult(mockResultFor(active, message, soc, selectedVehicle?.vehicle_code));
-      setNotice(response.error ? `Live request failed (${response.error}). Showing mock Coice intelligence output.` : "Showing mock Coice intelligence output.");
+      setError(response.error || "The request failed. Please try again.");
+      setNotice("");
     }
     setIsLoading(false);
   }
@@ -460,9 +336,9 @@ export default function AiFeaturesPage() {
           <div className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr] xl:items-end">
             <div className="space-y-5">
               <div>
-                <h1 className="page-title mb-2">Coice Voice Intelligence</h1>
+                <h1 className="page-title mb-2">Voice Intelligence</h1>
                 <p className="max-w-3xl text-sm leading-6 text-text-dim md:text-base">
-                  A voice-ready EV command center for driver questions, route reasoning, charger decisions, and operator summaries. Mock data is active so the UI can be shown immediately.
+                  A voice-ready EV command center for driver questions, route reasoning, charger decisions, and operator summaries. Answers use your assigned fleet and vehicle context.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -471,24 +347,24 @@ export default function AiFeaturesPage() {
                     <RadioTower className="h-4 w-4" />
                     <span className="text-[11px] font-semibold uppercase tracking-wider">Signal</span>
                   </div>
-                  <p className="mt-2 text-xl font-bold text-text-primary">Live + Mock</p>
-                  <p className="mt-1 text-xs text-text-dim">Backend safe fallback</p>
+                  <p className="mt-2 text-xl font-bold text-text-primary">{drivers.length && vehicles.length ? "Fleet loaded" : "No fleet context"}</p>
+                  <p className="mt-1 text-xs text-text-dim">API-backed intelligence</p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                   <div className="flex items-center gap-2 text-accent-green">
                     <Activity className="h-4 w-4" />
                     <span className="text-[11px] font-semibold uppercase tracking-wider">Fleet Pulse</span>
                   </div>
-                  <p className="mt-2 text-xl font-bold text-text-primary">{soc.toFixed(0)}% SOC</p>
-                  <p className="mt-1 text-xs text-text-dim">{selectedVehicle?.vehicle_code || "Mock vehicle"} under watch</p>
+                  <p className="mt-2 text-xl font-bold text-text-primary">{socLabel} SOC</p>
+                  <p className="mt-1 text-xs text-text-dim">{selectedVehicle?.vehicle_code || "No assigned vehicle"} under watch</p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                   <div className="flex items-center gap-2 text-accent-amber">
                     <Headphones className="h-4 w-4" />
                     <span className="text-[11px] font-semibold uppercase tracking-wider">Voice Layer</span>
                   </div>
-                  <p className="mt-2 text-xl font-bold text-text-primary">{isListening ? "Listening" : "Ready"}</p>
-                  <p className="mt-1 text-xs text-text-dim">{voiceSupported ? "Browser speech input" : "Typed fallback"}</p>
+                  <p className="mt-2 text-xl font-bold text-text-primary">{voice.isListening ? "Listening" : "Ready"}</p>
+                  <p className="mt-1 text-xs text-text-dim">{voice.isSupported ? "Browser speech input" : "Typed fallback"}</p>
                 </div>
               </div>
             </div>
@@ -500,15 +376,15 @@ export default function AiFeaturesPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={startVoiceInput}
+                  onClick={voice.isListening ? voice.stop : voice.start}
                   className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border transition ${
-                    isListening
+                    voice.isListening
                       ? "border-accent-red bg-accent-red text-white"
                       : "border-accent-teal/35 bg-accent-teal/10 text-accent-teal hover:border-accent-teal"
                   }`}
-                  aria-label="Start Coice voice input"
+                  aria-label={voice.isListening ? "Stop voice input" : "Start voice input"}
                 >
-                  {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                  {voice.isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                 </button>
               </div>
               <div className="rounded-lg border border-bg-border bg-bg-primary/60 p-3">
@@ -528,10 +404,10 @@ export default function AiFeaturesPage() {
             <p className="text-text-dim">Driver assistant, notification previews, route reasoning, charging guidance, and coaching.</p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap xl:w-auto">
-            <select value={selectedDriverId} onChange={(event) => setSelectedDriverId(event.target.value)} className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[220px] sm:w-auto">
+            <select aria-label="Driver" value={selectedDriverId} onChange={(event) => setSelectedDriverId(event.target.value)} className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[220px] sm:w-auto">
               {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.driver_code} - {driver.full_name}</option>)}
             </select>
-            <select value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[180px] sm:w-auto">
+            <select aria-label="Vehicle" value={selectedVehicleId} onChange={(event) => setSelectedVehicleId(event.target.value)} className="h-10 w-full rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal sm:min-w-[180px] sm:w-auto">
               {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.vehicle_code}</option>)}
             </select>
           </div>
@@ -575,9 +451,9 @@ export default function AiFeaturesPage() {
                     <div className="rounded-lg border border-bg-border bg-bg-primary/40 px-3 py-2 text-xs leading-5 text-text-dim">
                       Try: Which vehicle needs charging before the next route?
                     </div>
-                    <Button type="button" variant={isListening ? "danger" : "secondary"} onClick={startVoiceInput} disabled={isListening} className="gap-2">
-                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      {isListening ? "Listening" : "Voice"}
+                    <Button type="button" variant={voice.isListening ? "danger" : "secondary"} onClick={voice.isListening ? voice.stop : voice.start} className="gap-2">
+                      {voice.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {voice.isListening ? "Stop" : "Voice"}
                     </Button>
                   </div>
                 </div>
@@ -588,6 +464,18 @@ export default function AiFeaturesPage() {
                   <p className="mt-2 text-sm leading-6 text-text-primary">
                     The backend resolves additional facts through allowed tools before generating language. These cards show the visible scenario inputs for this feature.
                   </p>
+                </div>
+              )}
+              {active === "route" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm">Destination latitude<input type="number" min="-90" max="90" step="any" value={destinationLat} onChange={event => setDestinationLat(event.target.value)} className="mt-2 w-full rounded border border-bg-border bg-bg-primary p-3" /></label>
+                  <label className="text-sm">Destination longitude<input type="number" min="-180" max="180" step="any" value={destinationLng} onChange={event => setDestinationLng(event.target.value)} className="mt-2 w-full rounded border border-bg-border bg-bg-primary p-3" /></label>
+                </div>
+              )}
+              {active === "charger" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm">Trip distance (km)<input type="number" min="0.1" step="0.1" value={destinationKm} onChange={event => setDestinationKm(event.target.value)} className="mt-2 w-full rounded border border-bg-border bg-bg-primary p-3" /></label>
+                  <label className="text-sm">Charging window (minutes)<input type="number" min="1" value={availableMinutes} onChange={event => setAvailableMinutes(event.target.value)} className="mt-2 w-full rounded border border-bg-border bg-bg-primary p-3" /></label>
                 </div>
               )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -11,7 +11,6 @@ import React, {
 import type { User } from "@/types";
 import {
   readAccessToken,
-  readCachedProfile,
   readRefreshToken,
   writeAuthSession,
   writeCachedProfile,
@@ -41,10 +40,10 @@ async function fetchCurrentUser(): Promise<CurrentUserResult> {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => readCachedProfile());
-  const [status, setStatus] = useState<AuthState>(() =>
-    readCachedProfile() ? "authenticated" : "loading",
-  );
+  // Server and first client render must agree. Browser storage is read only
+  // after hydration; a cached profile is never proof of an active session.
+  const [user, setUser] = useState<User | null>(null);
+  const [status, setStatus] = useState<AuthState>("loading");
   const [authError, setAuthError] = useState<string | null>(null);
 
   const refreshUser = useCallback(async () => {
@@ -80,13 +79,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     const { api, resetApiClientState } = await import("@/lib/api");
     const refreshToken = readRefreshToken();
-    if (refreshToken) await api.auth.logout(refreshToken);
     writeAuthSession(undefined);
     writeCachedProfile(null);
     setUser(null);
     setAuthError(null);
     setStatus("unauthenticated");
     resetApiClientState();
+    if (refreshToken) await api.auth.logout(refreshToken);
   }, []);
 
   const value = useMemo(

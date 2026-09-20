@@ -87,10 +87,10 @@ export default function GpsDriverSupportPage() {
 
       <InfoSection title="Contact support">
         <p>
-          Email <a className="font-medium text-[#8af7d1] underline decoration-[#8af7d1]/35 underline-offset-4 hover:text-white" href="mailto:support@trickee.co.in">support@trickee.co.in</a> with your Google email, fleet name, vehicle code, trip date and approximate time, phone model, Android version, app version, and a screenshot of the error. Never include your Google password or verification code.
+          Email <a className="font-medium text-[#ffe000] underline decoration-[#ffe000]/35 underline-offset-4 hover:text-white" href="mailto:support@trickee.co.in">support@trickee.co.in</a> with your Google email, fleet name, vehicle code, trip date and approximate time, phone model, Android version, app version, and a screenshot of the error. Never include your Google password or verification code.
         </p>
         <p>
-          For privacy or deletion requests, email <a className="font-medium text-[#8af7d1] underline decoration-[#8af7d1]/35 underline-offset-4 hover:text-white" href="mailto:privacy@trickee.co.in">privacy@trickee.co.in</a>.
+          For privacy or deletion requests, email <a className="font-medium text-[#ffe000] underline decoration-[#ffe000]/35 underline-offset-4 hover:text-white" href="mailto:privacy@trickee.co.in">privacy@trickee.co.in</a>.
         </p>
       </InfoSection>
     </GpsDriverInfoPage>

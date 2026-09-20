@@ -1,24 +1,35 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { PwaRegistrar } from "@/components/PwaRegistrar";
+import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme-runtime.mjs";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
+const manrope = localFont({
+  src: "./fonts/GeistVF.woff",
+  variable: "--font-manrope",
+  weight: "100 900",
 });
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-space-grotesk",
-  weight: ["400", "500", "600", "700"],
+const syne = localFont({
+  src: "./fonts/GeistVF.woff",
+  variable: "--font-syne",
+  weight: "100 900",
+});
+
+const michroma = localFont({
+  src: "./fonts/GeistMonoVF.woff",
+  variable: "--font-michroma",
+  weight: "100 900",
 });
 
 export const metadata: Metadata = {
-  title: "Trickee | EV Operations Intelligence",
-  description: "Premium fleet intelligence for EV routing, charging, and live operations.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://trickee.co.in"),
+  title: {
+    default: "Trickee | Your Car Already Knows the Way",
+    template: "%s | Trickee",
+  },
+  description: "Trickee turns raw GPS movement into protected range, safer routing, and decisions your EV fleet can trust.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -35,7 +46,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#07090d",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#03070b" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+  ],
 };
 
 export default function RootLayout({
@@ -44,7 +58,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
+    <html lang="en" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning className={`${manrope.variable} ${syne.variable} ${michroma.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
+      </head>
       <body className="font-sans antialiased">
         <AuthProvider>
           <PwaRegistrar />

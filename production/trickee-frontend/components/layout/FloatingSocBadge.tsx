@@ -48,7 +48,7 @@ export function FloatingSocBadge() {
   const colorClass = average === null ? "text-text-dim" : average < 20 ? "text-accent-red" : average < 45 ? "text-accent-amber" : "text-accent-teal";
 
   return (
-    <aside className="fixed right-7 top-[88px] z-40 hidden w-[230px] rounded-2xl border border-accent-teal/45 bg-bg-primary/85 p-4 shadow-2xl shadow-accent-teal/10 backdrop-blur-xl xl:block">
+    <aside className="fixed right-7 top-[88px] z-40 hidden w-[230px] rounded-2xl border border-accent-teal/45 bg-bg-primary/85 p-4 shadow-2xl shadow-accent-teal/10 backdrop-blur-xl 2xl:block">
       <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_20%_0%,rgba(0,180,216,0.18),transparent_42%)]" />
       <div className="relative">
         <div className="mb-3 flex items-center justify-between">

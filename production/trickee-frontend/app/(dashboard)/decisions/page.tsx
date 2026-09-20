@@ -9,6 +9,19 @@ import { Badge } from "@/components/ui/Badge";
 import { PitchTelemetryCharts } from "@/components/intelligence/PitchTelemetryCharts";
 import { api } from "@/lib/api";
 import { Driver, Vehicle } from "@/types";
+import { buildDriverContext, parseOrderInput } from "@/lib/operational-inputs.mjs";
+import { createDecisionRunCache, runCachedDecisionSteps } from "@/lib/decision-run-cache.mjs";
+
+const orderFields = [
+  ["orderId", "Order ID", "text", undefined, undefined],
+  ["waitMinutes", "Preparation time (minutes)", "number", 0, 180],
+  ["distanceKm", "Delivery distance (km)", "number", 0.01, 200],
+  ["requiredRangeKm", "Required range (km)", "number", 0.01, 500],
+  ["pickupLat", "Pickup latitude", "number", -90, 90],
+  ["pickupLng", "Pickup longitude", "number", -180, 180],
+  ["dropLat", "Drop-off latitude", "number", -90, 90],
+  ["dropLng", "Drop-off longitude", "number", -180, 180],
+] as const;
 
 function fmt(value: any, digits = 1) {
   const num = Number(value);
@@ -36,18 +49,42 @@ export default function DecisionsPage() {
   });
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState("");
+  const [runSummary, setRunSummary] = useState("");
+  const [failedStepIds, setFailedStepIds] = useState<string[]>([]);
+  const runningRef = React.useRef(false);
+  const decisionCacheRef = React.useRef(createDecisionRunCache());
+  const [orderInput, setOrderInput] = useState({ orderId: "", waitMinutes: "", distanceKm: "", requiredRangeKm: "", pickupLat: "", pickupLng: "", dropLat: "", dropLng: "" });
+
+  useEffect(() => {
+    setWaitResult(null); setOrderResult(null); setChargingResult(null);
+    setRunSummary("");
+    setFailedStepIds([]);
+  }, [selectedDriverId, orderInput]);
+
+  const loadHistory = React.useCallback(async () => {
+    const [waits, orders, charging, nudges] = await Promise.all([
+      api.intelligence.waits(20),
+      api.intelligence.orderAssignments(20),
+      api.intelligence.chargingDecisions(20),
+      api.intelligence.nudges(20),
+    ]);
+    setHistory({
+      waits: waits.success ? waits.data : [],
+      orders: orders.success ? orders.data : [],
+      charging: charging.success ? charging.data : [],
+      nudges: nudges.success ? nudges.data : [],
+    });
+    return waits.success && orders.success && charging.success && nudges.success;
+  }, []);
 
   useEffect(() => {
     async function load() {
-      const [driversResult, vehiclesResult, mapResult, fleetResult, waits, orders, charging, nudges] = await Promise.all([
+      const [driversResult, vehiclesResult, mapResult, fleetResult] = await Promise.all([
         api.drivers.list(),
         api.vehicles.list(),
         api.intelligence.liveMap(),
         api.intelligence.fleetLive(),
-        api.intelligence.waits(20),
-        api.intelligence.orderAssignments(20),
-        api.intelligence.chargingDecisions(20),
-        api.intelligence.nudges(20),
+        loadHistory(),
       ]);
       if (driversResult.success) {
         setDrivers(driversResult.data);
@@ -56,18 +93,12 @@ export default function DecisionsPage() {
       if (vehiclesResult.success) setVehicles(vehiclesResult.data);
       if (mapResult.success) setLiveMap(mapResult.data);
       if (fleetResult.success) setFleetLive(fleetResult.data);
-      setHistory({
-        waits: waits.success ? waits.data : [],
-        orders: orders.success ? orders.data : [],
-        charging: charging.success ? charging.data : [],
-        nudges: nudges.success ? nudges.data : [],
-      });
       if (!driversResult.success || !vehiclesResult.success) {
         setError(driversResult.error || vehiclesResult.error || "Unable to load decision context.");
       }
     }
     load();
-  }, []);
+  }, [loadHistory]);
 
   const selectedDriver = useMemo(() => drivers.find((driver) => driver.id === selectedDriverId), [drivers, selectedDriverId]);
   const selectedLiveDriver = useMemo(
@@ -75,74 +106,89 @@ export default function DecisionsPage() {
     [fleetLive, selectedDriverId]
   );
   const selectedVehicle = useMemo(() => {
-    return vehicles.find((vehicle) => (vehicle.latest_telemetry || vehicle.latest)?.driver_id === selectedDriverId) || vehicles[0];
+    return vehicles.find((vehicle) => ((vehicle.latest_telemetry || vehicle.latest)?.driver_id ?? vehicle.latest_driver?.id) === selectedDriverId);
   }, [selectedDriverId, vehicles]);
   const selectedPoint = useMemo(() => {
-    return (liveMap?.vehicle_points || []).find((point: any) => point.driver_id === selectedDriverId) || liveMap?.vehicle_points?.[0];
+    return (liveMap?.vehicle_points || []).find((point: any) => point.driver_id === selectedDriverId);
   }, [liveMap, selectedDriverId]);
 
   const runDecisionStack = async () => {
+    if (runningRef.current) return;
+    setError("");
+    setRunSummary("");
     if (!selectedDriver) {
       setError("Select a driver before running the decision stack.");
       return;
     }
+    const driverPayload = buildDriverContext(selectedDriver, selectedVehicle, selectedLiveDriver, selectedPoint);
+    const latest = selectedVehicle?.latest_telemetry ?? selectedVehicle?.latest;
+    if (!driverPayload || !latest || !Number.isFinite(latest.speed)) {
+      setError("The selected driver needs an assigned vehicle with battery, GPS, speed, and range telemetry. Restore telemetry or select another driver.");
+      return;
+    }
+    let orderPayload;
+    try { orderPayload = parseOrderInput(orderInput); }
+    catch (error) { setError(error instanceof Error ? error.message : "Enter valid order details."); return; }
+    const availableDrivers = drivers.map((driver) => {
+      const vehicle = vehicles.find((row) => ((row.latest_telemetry ?? row.latest)?.driver_id ?? row.latest_driver?.id) === driver.id);
+      const liveDriver = fleetLive?.drivers?.find((row: any) => row.driver_id === driver.id);
+      const point = liveMap?.vehicle_points?.find((row: any) => row.driver_id === driver.id);
+      return buildDriverContext(driver, vehicle, liveDriver, point);
+    }).filter(Boolean);
+    runningRef.current = true;
     setIsRunning(true);
-    setError("");
-    const point = selectedPoint || { lat: 21.1702, lng: 72.8311, soc: 45, speed: 12 };
-    const driverPayload = {
-      driver_id: selectedDriver.id,
-      driver_code: selectedDriver.driver_code,
-      vehicle_id: selectedVehicle?.id,
-      soc: Number(point.soc || (selectedVehicle?.latest_telemetry || selectedVehicle?.latest)?.soc || 45),
-      current_location: { lat: Number(point.lat || 21.1702), lng: Number(point.lng || 72.8311) },
-      available_range_km: Number(selectedLiveDriver?.range?.estimated_range_km || selectedVehicle?.latest_dynamic_range_km || 38),
-      archetype: selectedLiveDriver?.archetype,
-    };
-    const orderPayload = {
-      order_id: `OPS-${Date.now().toString().slice(-6)}`,
-      restaurant_wait_min: 14,
-      delivery_distance_km: 7.8,
-      required_range_km: 11.5,
-      pickup_location: { lat: 21.1862, lng: 72.8316 },
-      drop_location: { lat: 21.2131, lng: 72.8708 },
-    };
 
-    const [wait, order, charge] = await Promise.all([
-      api.intelligence.waitTime({
+    try {
+    const waitPayload = {
         driver_location: driverPayload.current_location,
         restaurant_location: orderPayload.pickup_location,
         prep_min: orderPayload.restaurant_wait_min,
-        current_speed_kmph: Number(point.speed || 0),
-        ignition_on: true,
-        charge_plug: false,
-        current_stop_duration_min: selectedLiveDriver?.wait?.current_stop_duration_min || 0,
-      }),
-      api.intelligence.assignOrder({
-        available_drivers: [
-          driverPayload,
-          ...drivers
-            .filter((driver) => driver.id !== selectedDriver.id)
-            .slice(0, 3)
-            .map((driver, index) => ({
-              driver_id: driver.id,
-              driver_code: driver.driver_code,
-              soc: 32 + index * 12,
-              available_range_km: 26 + index * 10,
-              current_location: { lat: 21.17 + index * 0.01, lng: 72.83 + index * 0.01 },
-            })),
-        ],
+        current_speed_kmph: latest.speed,
+        ignition_on: latest.ignition_on,
+        charge_plug: latest.charge_plug,
+        current_stop_duration_min: selectedLiveDriver?.wait?.current_stop_duration_min,
+      };
+    const assignmentPayload = {
+        available_drivers: availableDrivers,
         order: orderPayload,
-      }),
-      api.intelligence.chargingDecision({ driver: driverPayload, order: orderPayload }),
-    ]);
+      };
+    const chargingPayload = { driver: driverPayload, order: orderPayload };
+    const steps = [
+      { id: "wait", label: "Wait Decision", payload: waitPayload, run: () => api.intelligence.waitTime(waitPayload) },
+      { id: "order", label: "Order Assignment", payload: assignmentPayload, run: () => api.intelligence.assignOrder(assignmentPayload) },
+      { id: "charging", label: "Charging Decision", payload: chargingPayload, run: () => api.intelligence.chargingDecision(chargingPayload) },
+    ];
+    const outcomes = await runCachedDecisionSteps(decisionCacheRef.current, steps);
+    if (outcomes.wait.result?.success) setWaitResult(outcomes.wait.result.data);
+    if (outcomes.order.result?.success) setOrderResult(outcomes.order.result.data);
+    if (outcomes.charging.result?.success) setChargingResult(outcomes.charging.result.data);
 
-    if (wait.success) setWaitResult(wait.data);
-    if (order.success) setOrderResult(order.data);
-    if (charge.success) setChargingResult(charge.data);
-    if (!wait.success || !order.success || !charge.success) {
-      setError(wait.error || order.error || charge.error || "Decision run failed.");
+    const failedSteps = steps.filter((step) => !outcomes[step.id].result?.success);
+    const newSuccesses = steps.filter((step) => outcomes[step.id].result?.success && !outcomes[step.id].cached);
+    const historyRefreshed = newSuccesses.length ? await loadHistory() : true;
+    const successfulCount = steps.length - failedSteps.length;
+    setFailedStepIds(failedSteps.map((step) => step.id));
+
+    if (failedSteps.length) {
+      const names = failedSteps.map((step) => step.label).join(", ");
+      setRunSummary(`Partial result: ${successfulCount} of ${steps.length} decisions completed. Retry will run only ${names}.`);
+      setError(failedSteps.map((step) => `${step.label}: ${outcomes[step.id].result?.error || "request failed"}`).join(" "));
+    } else {
+      const cachedCount = steps.filter((step) => outcomes[step.id].cached).length;
+      setRunSummary(cachedCount
+        ? `All ${steps.length} decisions are available. ${cachedCount} previously successful ${cachedCount === 1 ? "result was" : "results were"} reused.`
+        : `All ${steps.length} decisions completed successfully.`);
     }
-    setIsRunning(false);
+    if (!historyRefreshed) {
+      setError((current) => `${current ? `${current} ` : ""}Decision history could not be refreshed.`);
+    }
+    } catch {
+      setError("Unable to complete the decision requests. Please try again.");
+      setRunSummary("No new decisions completed. Retry the decision requests.");
+    } finally {
+      runningRef.current = false;
+      setIsRunning(false);
+    }
   };
 
   return (
@@ -155,6 +201,8 @@ export default function DecisionsPage() {
           </div>
           <div className="flex flex-wrap gap-3">
             <select
+              aria-label="Decision driver"
+              disabled={isRunning}
               value={selectedDriverId}
               onChange={(event) => setSelectedDriverId(event.target.value)}
               className="h-10 min-w-[240px] rounded-lg border border-bg-border bg-bg-card px-3 text-sm text-text-primary outline-none focus:border-accent-teal"
@@ -163,14 +211,28 @@ export default function DecisionsPage() {
                 <option key={driver.id} value={driver.id}>{driver.driver_code} - {driver.full_name}</option>
               ))}
             </select>
-            <Button onClick={runDecisionStack} isLoading={isRunning} className="gap-2">
+            <Button type="submit" form="decision-order" isLoading={isRunning} className="gap-2">
               <Sparkles className="w-4 h-4" />
-              Run Decisions
+              {failedStepIds.length ? "Retry failed decisions" : "Run Decisions"}
             </Button>
           </div>
         </div>
 
         {error && <Card className="border-accent-red/30 bg-accent-red/5"><p className="text-sm text-accent-red">{error}</p></Card>}
+        {runSummary && <Card className="border-accent-teal/30 bg-accent-teal/5"><p className="text-sm text-text-primary">{runSummary}</p></Card>}
+
+        <Card>
+          <CardHeader><CardTitle>Order details</CardTitle></CardHeader>
+          <CardContent>
+            <p className="mb-4 text-sm text-text-dim">Enter the order to evaluate. Assignment candidates use only their own available vehicle telemetry. Drivers with missing telemetry are excluded.</p>
+            <form id="decision-order" onSubmit={(event) => { event.preventDefault(); void runDecisionStack(); }} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {orderFields.map(([key, label, type, min, max]) => <label key={key} className="space-y-2 text-xs text-text-dim">
+                <span>{label}</span>
+                <input type={type} min={min} max={max} step={type === "number" ? "any" : undefined} maxLength={key === "orderId" ? 100 : undefined} required value={orderInput[key]} disabled={isRunning} onChange={(event) => setOrderInput((current) => ({...current, [key]: event.target.value}))} className="h-10 w-full rounded-lg border border-bg-border bg-bg-primary px-3 text-sm text-text-primary focus-visible:outline-accent-teal" />
+              </label>)}
+            </form>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <Card>

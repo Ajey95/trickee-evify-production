@@ -2,33 +2,44 @@
   "name": "trickee-frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "test:backend-contract": "node tests/backend-contract.mjs",
+    "test:contracts": "node --test tests/backend-config.test.mjs tests/frontend-brand-map-contract.test.mjs tests/google-button-controller.test.mjs tests/gps-pilot-contract.test.mjs",
+    "test": "node --test tests/journey-motion.test.mjs tests/journey-navigation.test.mjs tests/theme-system.test.mjs tests/logo-motion.test.mjs tests/api-client.test.mjs tests/intro-sequence.test.mjs tests/operational-inputs.test.mjs tests/voice-intelligence.test.mjs tests/audio-lifecycle.test.mjs tests/google-identity.test.mjs tests/chat-lifecycle.test.mjs tests/decision-run-cache.test.mjs",
     "test:public-pages": "node --test tests/public-pages.test.mjs"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
     "clsx": "^2.1.1",
+    "framer-motion": "^13.2.0",
     "gsap": "^3.15.0",
     "leaflet": "^1.9.4",
     "lenis": "^1.3.23",
     "lucide-react": "^1.8.0",
-    "next": "14.2.35",
-    "react": "^18",
-    "react-dom": "^18",
+    "next": "^16.3.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "recharts": "^2.12.7",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.185.1",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.21",
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.3",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
