@@ -3,6 +3,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { resolveBrowserBackendUrl } from '../lib/backend-url.mjs';
 
 function client(handler, initial = { refresh_token: 'refresh-old' }) {
   let session = initial;
@@ -16,7 +17,11 @@ function client(handler, initial = { refresh_token: 'refresh-old' }) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   vm.runInNewContext(source, {
-    exports, require: () => storage, process: { env: {} },
+    exports,
+    require: (specifier) => specifier.includes('backend-url')
+      ? { resolveBrowserBackendUrl }
+      : storage,
+    process: { env: {} },
     window: { setTimeout, clearTimeout }, AbortController, Headers,
     fetch: handler, console,
   });
