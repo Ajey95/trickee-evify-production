@@ -8,6 +8,9 @@
 
 # testing
 /coverage
+/test-results/
+__pycache__/
+*.pyc
 
 # next.js
 /.next/
@@ -36,3 +39,6 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+.env
+.env.*
+!.env.example

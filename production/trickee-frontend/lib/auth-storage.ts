@@ -61,6 +61,8 @@ export function writeAuthSession(data?: {
       ACCESS_TOKEN_EXPIRES_AT_KEY,
       String(Date.now() + data.expires_in_seconds * 1000),
     );
+  } else {
+    window.localStorage.removeItem(ACCESS_TOKEN_EXPIRES_AT_KEY);
   }
   if (data.user) writeCachedProfile(data.user);
 }

@@ -89,7 +89,9 @@ export default function LiveMapPage() {
         timeoutMs: MAP_REQUEST_TIMEOUT_MS,
         cacheTtlMs: 8_000,
       }),
-      api.intelligence.fleetLive(),
+      user?.role === "driver"
+        ? Promise.resolve({ success: false, data: null })
+        : api.intelligence.fleetLive(),
     ]);
 
     if (mapResult.success) {
@@ -107,7 +109,7 @@ export default function LiveMapPage() {
       setFleetLive(fleetResult.data);
     }
     setIsLoading(false);
-  }, [selectedDriverId]);
+  }, [selectedDriverId, user?.role]);
 
   // Run once on mount (and when selectedDriverId changes) to populate the page
   // immediately, before the WebSocket delivers its first push.

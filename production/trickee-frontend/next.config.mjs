@@ -4,12 +4,17 @@ const defaultBackendUrl = isDevelopment
   ? "http://127.0.0.1:8000"
   : "https://trickee-backend-397358873357.asia-south1.run.app";
 const backendUrl = isDevelopment
-  ? process.env.BACKEND_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    defaultBackendUrl
+  ? process.env.BACKEND_URL || defaultBackendUrl
   : defaultBackendUrl;
 
 const nextConfig = {
+  // Keep builds reliable on shared developer machines and small CI runners.
+  experimental: { cpus: 2 },
+  env: {
+    NEXT_PUBLIC_WS_URL:
+      process.env.NEXT_PUBLIC_WS_URL ||
+      backendUrl.replace(/\/$/, "").replace(/\/api\/v1$/, "").replace(/^http/, "ws"),
+  },
   productionBrowserSourceMaps: false,
   async headers() {
     const securityHeaders = [
@@ -19,7 +24,7 @@ const nextConfig = {
       { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
       {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(self)",
+        value: "camera=(), microphone=(self), geolocation=(self)",
       },
       {
         key: "Content-Security-Policy",
@@ -43,7 +48,7 @@ const nextConfig = {
     return [
       {
         source: "/api/backend/:path*",
-        destination: `${backendUrl.replace(/\/api\/v1\/?$/, "")}/api/v1/:path*`,
+        destination: `${backendUrl.replace(/\/$/, "").replace(/\/api\/v1$/, "")}/api/v1/:path*`,
       },
     ];
   },

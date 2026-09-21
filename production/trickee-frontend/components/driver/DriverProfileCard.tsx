@@ -21,7 +21,7 @@ export const DriverProfileCard = ({ driver, currentVehicle }: DriverProfileCardP
         </div>
       </div>
 
-      <div className="flex-1 text-center md:text-left">
+      <div className="min-w-0 w-full flex-1 text-center md:text-left">
         <div className="flex flex-col md:flex-row md:items-center gap-3 mb-2">
           <h2 className="text-2xl font-bold text-text-primary">{driver.full_name}</h2>
           <div className="flex items-center gap-2 justify-center md:justify-start">
@@ -37,7 +37,7 @@ export const DriverProfileCard = ({ driver, currentVehicle }: DriverProfileCardP
             : "No active vehicle assignment found."}
         </p>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
           <div>
             <p className="kpi-label">Personal Factor</p>
             <p className="text-xl font-bold font-mono text-accent-magenta">

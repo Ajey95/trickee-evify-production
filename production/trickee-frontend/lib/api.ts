@@ -17,14 +17,12 @@ import {
   writeAuthSession,
 } from "@/lib/auth-storage";
 
-const DEFAULT_BACKEND_URL =
-  process.env.NODE_ENV === "production"
-    ? "https://trickee-backend-397358873357.asia-south1.run.app/api/v1"
-    : "http://localhost:8000/api/v1";
+// Browser requests stay same-origin so local development, Vercel previews, and
+// custom domains do not depend on the backend's CORS allow-list. Next.js
+// rewrites this path to the deployed /api/v1 service.
+const DEFAULT_BACKEND_URL = "/api/backend";
 const BASE_URL = (
-  process.env.NODE_ENV === "production"
-    ? DEFAULT_BACKEND_URL
-    : process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL
+  process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL
 ).replace(/\/$/, "");
 
 type ApiResult<T> = {
@@ -32,6 +30,7 @@ type ApiResult<T> = {
   data: T;
   message?: string;
   error?: string;
+  status?: number;
 };
 type FetcherOptions = RequestInit & {
   cacheTtlMs?: number;
@@ -55,11 +54,11 @@ const responseCache = new Map<
 >();
 const inflightRequests = new Map<string, Promise<ApiResult<any>>>();
 
-async function getAccessToken() {
+async function getAccessToken(forceRefresh = false) {
   const now = Date.now();
-  if (now < tokenExpiresAt) return cachedToken;
+  if (!forceRefresh && now < tokenExpiresAt && readAccessToken() === cachedToken) return cachedToken;
   const trickeeToken = readAccessToken();
-  if (trickeeToken) {
+  if (trickeeToken && !forceRefresh) {
     cachedToken = trickeeToken;
     tokenExpiresAt = Date.now() + SESSION_CACHE_MS;
     return trickeeToken;
@@ -91,7 +90,11 @@ async function getAccessToken() {
             tokenExpiresAt = Date.now() + SESSION_CACHE_MS;
             return result.data.access_token;
           }
-          writeAuthSession(undefined);
+          if (result.status === 401 || result.status === 403) {
+            writeAuthSession(undefined);
+            cachedToken = undefined;
+            tokenExpiresAt = 0;
+          }
           return undefined;
         })
         .finally(() => {
@@ -119,14 +122,14 @@ function cacheKey(url: string, method: string, token?: string) {
 function clearReadCache() {
   responseCache.clear();
   inflightRequests.clear();
-  cachedToken = undefined;
-  tokenExpiresAt = 0;
-  sessionGeneration += 1;
-  refreshPromise = null;
 }
 
 export function resetApiClientState() {
   clearReadCache();
+  cachedToken = undefined;
+  tokenExpiresAt = 0;
+  sessionGeneration += 1;
+  refreshPromise = null;
 }
 
 function refreshCacheInBackground<T>(
@@ -161,7 +164,25 @@ async function fetcher<T>(
   const url = `${BASE_URL}${endpoint}`;
   const { cacheTtlMs, timeoutMs, ...requestOptions } = options;
   const method = (requestOptions.method || "GET").toUpperCase();
-  const token = await getAccessToken();
+  const publicAuth = ['/auth/google-login', '/auth/refresh', '/auth/logout', '/auth/access-request', '/auth/signup-options'].includes(endpoint);
+  const generation = sessionGeneration;
+  const token = publicAuth ? undefined : await getAccessToken();
+  const requestWithRefresh = async () => {
+    let result = await runNetworkRequest<T>(url, requestOptions, method, token, timeoutMs);
+    if (result.status === 401 && !publicAuth && generation === sessionGeneration) {
+      // Another concurrent request may already have rotated this token.
+      const current = readAccessToken();
+      const freshToken = current && current !== token ? current : await getAccessToken(true);
+      if (freshToken && generation === sessionGeneration) {
+        result = await runNetworkRequest<T>(url, requestOptions, method, freshToken, timeoutMs);
+      }
+    }
+    if (generation !== sessionGeneration) {
+      return { success: false, data: null as T, error: 'Session changed. Please sign in again.' };
+    }
+    if (result.success && method !== 'GET') clearReadCache();
+    return result;
+  };
   const ttl = getCacheTtl(endpoint, method, cacheTtlMs);
   const key = cacheKey(url, method, token);
 
@@ -172,25 +193,13 @@ async function fetcher<T>(
     const inflight = inflightRequests.get(key);
     if (inflight) return inflight as Promise<ApiResult<T>>;
     if (cached && Date.now() < cached.staleUntil) {
-      const backgroundRequest = runNetworkRequest<T>(
-        url,
-        requestOptions,
-        method,
-        token,
-        timeoutMs,
-      );
+      const backgroundRequest = requestWithRefresh();
       refreshCacheInBackground(key, ttl, backgroundRequest);
       return cached.value as ApiResult<T>;
     }
   }
 
-  const request = runNetworkRequest<T>(
-    url,
-    requestOptions,
-    method,
-    token,
-    timeoutMs,
-  );
+  const request = requestWithRefresh();
 
   if (ttl > 0) {
     inflightRequests.set(key, request);
@@ -198,7 +207,7 @@ async function fetcher<T>(
 
   try {
     const result = await request;
-    if (ttl > 0 && result.success) {
+    if (ttl > 0 && result.success && generation === sessionGeneration) {
       responseCache.set(key, {
         expiresAt: Date.now() + ttl,
         staleUntil: Date.now() + STALE_GET_CACHE_MS,
@@ -249,16 +258,19 @@ async function runNetworkRequest<T>(
 
     const result = await response.json().catch(() => null);
     if (!response.ok) {
+      const detail = result?.detail ?? result?.error;
       return {
         success: false,
         data: null as T,
-        error:
-          result?.detail ||
-          result?.error ||
-          `Request failed with ${response.status}`,
+        status: response.status,
+        error: typeof detail === 'string' ? detail : Array.isArray(detail)
+          ? detail.map((item: { msg?: string }) => item.msg || 'Invalid input').join('; ')
+          : `Request failed with ${response.status}`,
       };
     }
-    if (method !== "GET") clearReadCache();
+    if (!result || typeof result.success !== 'boolean') {
+      return { success: false, data: null as T, error: 'The server returned an invalid response.', status: response.status };
+    }
     return result as ApiResult<T>;
   } catch (error) {
     return {

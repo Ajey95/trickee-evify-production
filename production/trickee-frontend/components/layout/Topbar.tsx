@@ -1,14 +1,16 @@
 "use client";
 
 import React from "react";
-import { usePathname } from "next/navigation";
-import { LogOut, User as UserIcon } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { LogOut, Radio, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/components/AuthProvider";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const Topbar = () => {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   // Get page title from pathname
   const getPageTitle = (path: string) => {
     if (path === "/fleet") return "Fleet Overview";
@@ -23,7 +25,6 @@ export const Topbar = () => {
     if (path === "/scorecards") return "Performance Scorecards";
     if (path === "/alerts") return "Alerts";
     if (path === "/observability") return "Operations Health";
-    if (path === "/gps-pilot") return "GPS Pilot Monitoring";
     if (path === "/data-quality") return "Data Quality";
     if (path === "/model-drift") return "Model Health";
     if (path === "/admin") return "Model Performance Metrics";
@@ -32,16 +33,18 @@ export const Topbar = () => {
 
   const handleSignOut = async () => {
     await signOut();
-    window.location.href = "/login";
+    router.replace("/login");
   };
 
   return (
-    <header className="fixed left-0 right-0 top-0 z-40 flex h-16 items-center justify-between border-b border-bg-border/70 bg-[#05070b]/78 px-4 backdrop-blur-xl md:left-[224px] md:px-8">
-      <h2 className="min-w-0 truncate text-[15px] font-semibold tracking-tight text-text-primary">
-        {getPageTitle(pathname)}
-      </h2>
+    <header className="fixed left-0 right-0 top-0 z-40 flex h-[68px] items-center justify-between border-b border-white/10 bg-[#050b10]/82 px-4 backdrop-blur-2xl md:left-[240px] md:px-7">
+      <div className="min-w-0">
+        <div className="mb-1 hidden items-center gap-2 text-[8px] font-bold uppercase tracking-[0.18em] text-[#ffe000] sm:flex"><Radio className="h-3 w-3" /> Operations live</div>
+        <h2 className="truncate text-[15px] font-semibold tracking-tight text-text-primary">{getPageTitle(pathname)}</h2>
+      </div>
 
       <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
+        <ThemeToggle />
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="hidden flex-col items-end sm:flex">
             <span className="text-sm font-medium text-text-primary">
@@ -51,7 +54,7 @@ export const Topbar = () => {
               {user?.role?.replace("_", " ") || "Guest"}
             </span>
           </div>
-          <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-bg-border bg-bg-border sm:h-10 sm:w-10">
+          <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-[#48dff4]/25 bg-[#48dff4]/10 sm:h-10 sm:w-10">
             <UserIcon className="w-5 h-5 text-text-dim" />
           </div>
         </div>

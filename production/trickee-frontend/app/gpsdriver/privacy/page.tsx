@@ -99,8 +99,8 @@ export default function GpsDriverPrivacyPage() {
           We may update this policy when the application, infrastructure, or legal requirements change. The revised date will be shown at the top of this page. Material changes may also be communicated through the application or fleet administrator.
         </p>
         <p>
-          Privacy requests: <a className="font-medium text-[#8af7d1] underline decoration-[#8af7d1]/35 underline-offset-4 hover:text-white" href="mailto:privacy@trickee.co.in">privacy@trickee.co.in</a><br />
-          General support: <a className="font-medium text-[#8af7d1] underline decoration-[#8af7d1]/35 underline-offset-4 hover:text-white" href="mailto:support@trickee.co.in">support@trickee.co.in</a>
+          Privacy requests: <a className="font-medium text-[#ffe000] underline decoration-[#ffe000]/35 underline-offset-4 hover:text-white" href="mailto:privacy@trickee.co.in">privacy@trickee.co.in</a><br />
+          General support: <a className="font-medium text-[#ffe000] underline decoration-[#ffe000]/35 underline-offset-4 hover:text-white" href="mailto:support@trickee.co.in">support@trickee.co.in</a>
         </p>
       </InfoSection>
     </GpsDriverInfoPage>

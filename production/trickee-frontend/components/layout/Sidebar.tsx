@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { 
@@ -58,13 +59,16 @@ export const Sidebar = () => {
   const sidebarItems = React.useMemo(() => routesForRole(role), [role]);
 
   return (
-    <aside className="fixed bottom-0 left-0 right-0 z-50 flex h-[calc(72px+env(safe-area-inset-bottom))] w-full flex-row border-t border-bg-border/70 bg-[#080b10]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:inset-y-0 md:right-auto md:h-auto md:w-[224px] md:flex-col md:border-r md:border-t-0 md:pb-0">
-      <div className="hidden h-16 items-center border-b border-bg-border/70 px-6 md:flex">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-accent-teal rounded-lg flex items-center justify-center shadow-lg shadow-accent-teal/20">
-            <span className="text-bg-primary font-bold text-lg">T</span>
+    <aside className="fixed bottom-0 left-0 right-0 z-50 flex h-[calc(72px+env(safe-area-inset-bottom))] w-full flex-row border-t border-white/10 bg-[#050b10]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-2xl md:inset-y-0 md:right-auto md:h-auto md:w-[240px] md:flex-col md:border-r md:border-t-0 md:pb-0">
+      <div className="hidden h-[68px] items-center border-b border-white/10 px-5 md:flex">
+        <div className="flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center overflow-hidden border border-[#ffe000]/25 bg-white">
+            <Image src="/trickee.png" width={36} height={36} alt="Trickee logo" className="h-9 w-9 object-contain" />
           </div>
-          <span className="font-bold text-text-primary tracking-tight">Trickee</span>
+          <div>
+            <span className="block text-sm font-bold tracking-[0.12em] text-text-primary">TRICKEE</span>
+            <span className="mt-0.5 block text-[8px] font-semibold uppercase tracking-[0.18em] text-text-dim">Fleet intelligence</span>
+          </div>
         </div>
       </div>
 
@@ -81,13 +85,13 @@ export const Sidebar = () => {
                 key={item.label}
                 href={href}
                 className={cn(
-                  "group flex min-w-[82px] flex-col items-center justify-center gap-1 rounded-lg px-2 py-2 text-center text-[11px] font-medium transition-colors duration-150 md:min-w-0 md:flex-row md:justify-start md:gap-3 md:px-3 md:py-2.5 md:text-left md:text-sm",
+                  "group relative flex min-w-[82px] flex-col items-center justify-center gap-1 px-2 py-2 text-center text-[11px] font-medium transition-all duration-200 md:min-w-0 md:flex-row md:justify-start md:gap-3 md:px-3 md:py-2.5 md:text-left md:text-[13px]",
                   isActive 
-                    ? "bg-white/[0.06] text-text-primary ring-1 ring-white/10"
-                    : "text-text-dim hover:bg-white/[0.04] hover:text-text-primary"
+                    ? "bg-[#ffe000]/[0.08] text-text-primary ring-1 ring-[#ffe000]/20 before:absolute before:bottom-0 before:left-3 before:right-3 before:h-px before:bg-[#ffe000] md:before:bottom-2 md:before:left-0 md:before:right-auto md:before:top-2 md:before:h-auto md:before:w-px"
+                    : "text-text-dim hover:bg-white/[0.035] hover:text-text-primary"
                 )}
               >
-                <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-accent-teal" : "text-text-dim group-hover:text-text-primary")} />
+                <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-[#ffe000]" : "text-text-dim group-hover:text-[#48dff4]")} />
                 <span className="leading-tight">{item.label}</span>
               </Link>
             );
@@ -95,13 +99,13 @@ export const Sidebar = () => {
       </nav>
 
       <div className="hidden border-t border-bg-border p-4 md:block">
-        <div className="bg-bg-primary/50 rounded-xl p-3 border border-bg-border/50">
+        <div className="border border-white/10 bg-white/[0.025] p-3">
           <div className="flex items-center gap-2 mb-2">
-            <ShieldCheck className="w-4 h-4 text-accent-green" />
-            <span className="text-[10px] font-bold text-accent-green uppercase tracking-wider">Enterprise</span>
+            <ShieldCheck className="h-4 w-4 text-[#ffe000]" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#ffe000]">System live</span>
           </div>
           <p className="text-[10px] text-text-dim leading-relaxed">
-            Connected fleet workspace.
+            Connected fleet workspace · secure telemetry
           </p>
         </div>
       </div>

@@ -95,7 +95,7 @@ export default function GpsDriverTermsPage() {
           We may update these terms to reflect changes in the service, law, or fleet operations. The revised date appears at the top of this page. Continued use after an applicable update means the updated terms govern future use, subject to mandatory legal rights.
         </p>
         <p>
-          Questions about these terms: <a className="font-medium text-[#8af7d1] underline decoration-[#8af7d1]/35 underline-offset-4 hover:text-white" href="mailto:support@trickee.co.in">support@trickee.co.in</a>
+          Questions about these terms: <a className="font-medium text-[#ffe000] underline decoration-[#ffe000]/35 underline-offset-4 hover:text-white" href="mailto:support@trickee.co.in">support@trickee.co.in</a>
         </p>
       </InfoSection>
     </GpsDriverInfoPage>

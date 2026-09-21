@@ -15,7 +15,7 @@ export const Card = ({ className, children, hover, ...props }: CardProps) => {
     <div
       className={cn(
         "glass-card transition-all duration-300",
-        hover && "hover:border-accent-teal/50 hover:shadow-accent-teal/5",
+        hover && "hover:-translate-y-0.5 hover:border-[#48dff4]/35 hover:shadow-[0_24px_70px_rgba(0,0,0,.25)]",
         className
       )}
       {...props}
