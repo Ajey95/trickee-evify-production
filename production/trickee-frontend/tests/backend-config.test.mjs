@@ -17,3 +17,24 @@ test("production frontend defaults to the live asia-south1 backend", () => {
 
   assert.match(read("lib/api.ts"), /DEFAULT_BACKEND_URL = "\/api\/backend"/);
 });
+
+test("production browser requests stay same-origin when Vercel has a stale backend URL", async () => {
+  let resolveBrowserBackendUrl;
+  try {
+    ({ resolveBrowserBackendUrl } = await import("../lib/backend-url.mjs"));
+  } catch (error) {
+    assert.fail(`browser backend resolver is missing: ${error.message}`);
+  }
+
+  assert.equal(
+    resolveBrowserBackendUrl(
+      "production",
+      "https://trickee-backend-397358873357.asia-southeast1.run.app",
+    ),
+    "/api/backend",
+  );
+  assert.equal(
+    resolveBrowserBackendUrl("development", "http://127.0.0.1:8000"),
+    "http://127.0.0.1:8000",
+  );
+});

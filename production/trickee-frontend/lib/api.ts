@@ -11,6 +11,7 @@ import {
   ModelMetrics,
 } from "@/types";
 import type { GpsPilotSnapshot } from "@/types/gps-pilot";
+import { resolveBrowserBackendUrl } from "@/lib/backend-url.mjs";
 import {
   readAccessToken,
   readRefreshToken,
@@ -21,9 +22,10 @@ import {
 // custom domains do not depend on the backend's CORS allow-list. Next.js
 // rewrites this path to the deployed /api/v1 service.
 const DEFAULT_BACKEND_URL = "/api/backend";
-const BASE_URL = (
-  process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL
-).replace(/\/$/, "");
+const BASE_URL = resolveBrowserBackendUrl(
+  process.env.NODE_ENV,
+  process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_BACKEND_URL,
+);
 
 type ApiResult<T> = {
   success: boolean;
