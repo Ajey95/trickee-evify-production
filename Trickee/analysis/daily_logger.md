@@ -397,6 +397,14 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 - ESLint: passed.
 - Next.js production build and TypeScript: passed.
 - New Alembic revision verified against a pre-migration SQLite user table; existing J Shah account state is converted idempotently.
+- Pull request `#5` merged to `main` as `ab29875501bd2b33d8e4c54317be52dce12b1bf2`; all GitHub and Vercel checks passed.
+- Vercel production deployments for both configured frontend projects completed successfully, and `https://www.trickee.co.in/` returned HTTP 200.
+- Cloud Run revision `trickee-backend-00007-jgj` is healthy and serves 100% of production backend traffic.
+- Deployed backend image digest: `sha256:8df06646d3984b5301aa14e17115977ed37a5083a2c5f99fa27951ff062e58d6`.
+- Live Cloud SQL migration version: `0015_account_access`.
+- Live account row confirmed for `jshah862@gmail.com`: `trickee_admin`, `read_only`, `capabilities=["mock_sos"]`, active, not deleted.
+- Production authorization probe confirmed admin/vehicle reads return HTTP 200 and an ordinary admin write returns HTTP 403.
+- Production mock SOS probe returned HTTP 200 and persisted an audit event with `simulated=true` and `command_sent=false`.
 
 ### Safety Boundary
 
