@@ -160,6 +160,39 @@ def test_google_login_restores_fixed_admin_role_for_active_user(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_google_login_auto_provisions_read_only_sos_admin(monkeypatch):
+    client, TestingSessionLocal = _client(monkeypatch)
+    monkeypatch.setattr(
+        "app.routers.auth.verify_google_id_token",
+        lambda token: {
+            "sub": "google-jshah-sub-1",
+            "email": "jshah862@gmail.com",
+            "email_verified": True,
+            "name": "J Shah",
+        },
+    )
+
+    try:
+        response = client.post("/api/v1/auth/google-login", json={"id_token": "valid-google-token"})
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["user"]["email"] == "jshah862@gmail.com"
+        assert data["user"]["role"] == "trickee_admin"
+        assert data["user"]["access_mode"] == "read_only"
+        assert data["user"]["capabilities"] == ["mock_sos"]
+
+        with TestingSessionLocal() as db:
+            user = db.query(User).filter(User.email == "jshah862@gmail.com").one()
+            assert user.role == "trickee_admin"
+            assert user.access_mode == "read_only"
+            assert user.capabilities == ["mock_sos"]
+            assert user.is_active is True
+    finally:
+        app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
 def test_refresh_rotates_refresh_session(monkeypatch):
     client, TestingSessionLocal = _client(monkeypatch)
     monkeypatch.setattr(

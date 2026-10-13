@@ -5,6 +5,8 @@ export interface User {
   email: string;
   full_name: string;
   role: UserRole;
+  access_mode?: 'full' | 'read_only';
+  capabilities?: string[];
   fleet_id?: string;
   driver_id?: string;
   is_active?: boolean;
