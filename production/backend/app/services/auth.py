@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.models import AccessRequest, RefreshSession, User
+from app.services.account_policy import has_capability
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -308,7 +309,11 @@ def record_supabase_access_request(db: Session, payload: dict[str, Any]) -> Acce
     return row
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+    request: Request = None,
+) -> User:
     settings = get_settings()
     credentials_error = _credentials_error()
 
@@ -319,9 +324,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         user = db.get(User, str(trickee_payload["sub"]))
         if not user or not user.is_active or user.deleted_at is not None:
             raise credentials_error
-        return user
+        current_user = user
+    else:
+        current_user = None
 
-    if (settings.auth_required_provider or "").lower() != "google":
+    if current_user is None and (settings.auth_required_provider or "").lower() != "google":
         supabase_payload = _decode_supabase_token(token, settings)
         if supabase_payload:
             user = _find_supabase_user(db, supabase_payload)
@@ -329,12 +336,24 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
                 if not user:
                     record_supabase_access_request(db, supabase_payload)
                 raise _workspace_access_error()
-            return user
+            current_user = user
 
-    if not settings.legacy_auth_enabled:
+    if current_user is None:
+        if not settings.legacy_auth_enabled:
+            raise credentials_error
         raise credentials_error
 
-    raise credentials_error
+    if request is not None and getattr(current_user, "access_mode", "full") == "read_only":
+        method = request.method.upper()
+        mock_sos_path = f"{settings.api_prefix}/admin/mock-sos"
+        mock_sos_allowed = request.url.path == mock_sos_path and has_capability(current_user, "mock_sos")
+        if method not in {"GET", "HEAD", "OPTIONS"} and not mock_sos_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has view-only access",
+            )
+
+    return current_user
 
 
 def require_roles(*roles: str):

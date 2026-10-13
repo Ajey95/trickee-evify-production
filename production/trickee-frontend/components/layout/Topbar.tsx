@@ -1,16 +1,24 @@
 "use client";
 
 import React from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Radio, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { canUseMockSos, isReadOnlyAccount } from "@/lib/account-access.mjs";
+
+const MockSosControl = dynamic(() => import("@/components/admin/MockSosControl"), {
+  ssr: false,
+});
 
 export const Topbar = () => {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const readOnly = isReadOnlyAccount(user);
+  const showMockSos = canUseMockSos(user);
   // Get page title from pathname
   const getPageTitle = (path: string) => {
     if (path === "/fleet") return "Fleet Overview";
@@ -44,6 +52,7 @@ export const Topbar = () => {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4 md:gap-6">
+        {showMockSos ? <MockSosControl /> : null}
         <ThemeToggle />
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="hidden flex-col items-end sm:flex">
@@ -51,7 +60,7 @@ export const Topbar = () => {
               {user?.full_name || "User"}
             </span>
             <span className="text-[10px] font-medium text-accent-teal uppercase tracking-widest">
-              {user?.role?.replace("_", " ") || "Guest"}
+              {readOnly ? "Admin · view only" : user?.role?.replace("_", " ") || "Guest"}
             </span>
           </div>
           <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-[#48dff4]/25 bg-[#48dff4]/10 sm:h-10 sm:w-10">

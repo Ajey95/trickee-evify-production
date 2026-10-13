@@ -38,6 +38,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False)
+    access_mode: Mapped[str] = mapped_column(String(30), nullable=False, default="full")
+    capabilities: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     fleet_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("fleets.id"), nullable=True)
     driver_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("drivers.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

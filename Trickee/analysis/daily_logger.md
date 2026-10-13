@@ -375,3 +375,30 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 - The next blocker after login was separate: native background GPS requires Google Play Services plus a valid background-geolocation package/license for `com.trickeeandroid`.
 - For this local emulator demo, native background GPS is disabled while foreground GPS pings and the offline queue code remain in place.
 - Re-enable native background GPS only on a Google Play Services emulator or physical Android device with the package/license configured.
+
+---
+
+## 2026-10-13 - Read-Only Admin And Mock SOS
+
+### Work Completed
+
+- Added persisted `access_mode` and account `capabilities` fields.
+- Provisioned `jshah862@gmail.com` as a `trickee_admin` with `read_only` access and only the `mock_sos` capability.
+- Enforced view-only access in the backend for all non-read API calls except the explicitly permitted mock SOS endpoint.
+- Added an account-only red SOS control that records an audited remote-shutdown simulation.
+- The simulation response and audit event always record `command_sent: false`; no vehicle-control integration is called.
+- Added a dashboard-wide view-only banner, hid the assistant/write workspace, and disabled admin mutation controls for the account.
+
+### Verification
+
+- Backend: `77 passed`.
+- Frontend existing suite: `43 passed`.
+- Account-policy tests: `2 passed`.
+- ESLint: passed.
+- Next.js production build and TypeScript: passed.
+- New Alembic revision verified against a pre-migration SQLite user table; existing J Shah account state is converted idempotently.
+
+### Safety Boundary
+
+- The SOS control is intentionally a demonstration. It does not contact or disable a vehicle.
+- Any future real immobilization feature requires a separate safety, authorization, hardware, and regulatory design review.

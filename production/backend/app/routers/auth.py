@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.models import AccessRequest, DevicePushToken, Fleet, User, Vehicle
 from app.schemas.api import ok
 from app.services.audit import record_security_event
+from app.services.account_policy import fixed_google_policy
 from app.services.auth import (
     create_access_token,
     create_refresh_session,
@@ -27,7 +28,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 LOGIN_WINDOW_MINUTES = 15
 LOGIN_MAX_FAILURES = 8
 WS_TICKET_TTL_MINUTES = 2
-FIXED_GOOGLE_ADMIN_EMAIL = "ajaybhargavajaswanthreddy@trickee.co.in"
 _login_failures: dict[str, list[datetime]] = {}
 
 
@@ -281,11 +281,12 @@ def google_login(
     user = db.query(User).filter(User.google_sub == str(google_sub)).first()
     if not user:
         user = db.query(User).filter(User.email == email).first()
-    if email == FIXED_GOOGLE_ADMIN_EMAIL:
+    account_policy = fixed_google_policy(email)
+    if account_policy:
         if user and user.email.lower() != email:
             record_security_event(
                 db,
-                event_type="google_fixed_admin_identity_conflict",
+                event_type="google_fixed_account_identity_conflict",
                 request=request,
                 user=user,
             )
@@ -297,8 +298,10 @@ def google_login(
         if not user:
             user = User(
                 email=email,
-                full_name=payload.full_name or decoded.get("name") or "Trickee Administrator",
-                role="trickee_admin",
+                full_name=payload.full_name or decoded.get("name") or account_policy.default_name or "Trickee User",
+                role=account_policy.role,
+                access_mode=account_policy.access_mode,
+                capabilities=list(account_policy.capabilities),
                 google_sub=str(google_sub),
                 auth_provider="google",
                 is_active=True,
@@ -307,18 +310,28 @@ def google_login(
             db.flush()
             record_security_event(
                 db,
-                event_type="google_fixed_admin_auto_provisioned",
+                event_type="google_fixed_account_auto_provisioned",
                 request=request,
                 user=user,
             )
-        elif user.is_active and user.deleted_at is None and user.role != "trickee_admin":
-            user.role = "trickee_admin"
-            record_security_event(
-                db,
-                event_type="google_fixed_admin_role_restored",
-                request=request,
-                user=user,
-            )
+        elif user.is_active and user.deleted_at is None:
+            expected_capabilities = list(account_policy.capabilities)
+            if (
+                user.role != account_policy.role
+                or user.access_mode != account_policy.access_mode
+                or (user.capabilities or []) != expected_capabilities
+            ):
+                user.role = account_policy.role
+                user.access_mode = account_policy.access_mode
+                user.capabilities = expected_capabilities
+                user.fleet_id = None if account_policy.role == "trickee_admin" else user.fleet_id
+                user.driver_id = None if account_policy.role == "trickee_admin" else user.driver_id
+                record_security_event(
+                    db,
+                    event_type="google_fixed_account_policy_restored",
+                    request=request,
+                    user=user,
+                )
     if not user:
         _record_google_access_request(db, decoded, request, payload)
         db.commit()

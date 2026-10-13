@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,7 @@ from app.models import (
 )
 from app.schemas.api import ok
 from app.services.ai_engine import FEATURE_COLS, SEQ_LEN, ai_engine
+from app.services.account_policy import fixed_google_policy, has_capability
 from app.services.audit import record_security_event
 from app.services.auth import require_roles
 from app.services.serializers import access_request_dict, driver_dict, user_dict
@@ -71,6 +73,14 @@ class UserMappingUpdate(BaseModel):
     requested_vehicle_id: str | None = Field(default=None, max_length=36)
     full_name: str | None = Field(default=None, max_length=255)
     is_active: bool = True
+
+
+class MockSosRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vehicle_id: str = Field(min_length=1, max_length=36)
+    confirmation: Literal["SIMULATE VEHICLE OFF"]
+    reason: str | None = Field(default=None, max_length=255)
 
 
 def _fleet_dict(fleet: Fleet) -> dict:
@@ -174,6 +184,53 @@ def users(db: Session = Depends(get_db), _: User = Depends(require_roles("tricke
     return ok([user_dict(user) for user in db.query(User).filter(User.deleted_at.is_(None)).order_by(User.email).all()])
 
 
+@router.post("/mock-sos")
+def mock_sos(
+    payload: MockSosRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("trickee_admin")),
+):
+    if not has_capability(current_user, "mock_sos"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Mock SOS is not enabled for this account",
+        )
+
+    vehicle = db.get(Vehicle, payload.vehicle_id)
+    if not vehicle or vehicle.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+
+    simulation_id = str(uuid.uuid4())
+    record_security_event(
+        db,
+        event_type="mock_sos_vehicle_disable_requested",
+        request=request,
+        user=current_user,
+        metadata={
+            "simulation_id": simulation_id,
+            "vehicle_id": vehicle.id,
+            "vehicle_code": vehicle.vehicle_code,
+            "requested_action": "remote_vehicle_shutdown",
+            "reason": payload.reason,
+            "simulated": True,
+            "command_sent": False,
+        },
+    )
+    db.commit()
+    return ok(
+        {
+            "simulation_id": simulation_id,
+            "simulated": True,
+            "command_sent": False,
+            "requested_action": "remote_vehicle_shutdown",
+            "status": "simulation_recorded",
+            "vehicle": {"id": vehicle.id, "vehicle_code": vehicle.vehicle_code},
+            "message": "Simulation recorded. No command was sent to the vehicle.",
+        }
+    )
+
+
 @router.patch("/users/{user_id}/mapping")
 def update_user_mapping(
     user_id: str,
@@ -201,6 +258,15 @@ def update_user_mapping(
     user.driver_id = payload.driver_id if payload.role == "driver" else None
     user.is_active = payload.is_active
     user.deleted_at = None
+
+    fixed_policy = fixed_google_policy(user.email)
+    if fixed_policy:
+        user.role = fixed_policy.role
+        user.access_mode = fixed_policy.access_mode
+        user.capabilities = list(fixed_policy.capabilities)
+        if fixed_policy.role == "trickee_admin":
+            user.fleet_id = None
+            user.driver_id = None
 
     record_security_event(
         db,

@@ -14,9 +14,11 @@ import type { GpsPilotSnapshot } from "@/types/gps-pilot";
 import { resolveBrowserBackendUrl } from "@/lib/backend-url.mjs";
 import {
   readAccessToken,
+  readCachedProfile,
   readRefreshToken,
   writeAuthSession,
 } from "@/lib/auth-storage";
+import { isReadOnlyAccount } from "@/lib/account-access.mjs";
 
 // Browser requests stay same-origin so local development, Vercel previews, and
 // custom domains do not depend on the backend's CORS allow-list. Next.js
@@ -167,6 +169,15 @@ async function fetcher<T>(
   const { cacheTtlMs, timeoutMs, ...requestOptions } = options;
   const method = (requestOptions.method || "GET").toUpperCase();
   const publicAuth = ['/auth/google-login', '/auth/refresh', '/auth/logout', '/auth/access-request', '/auth/signup-options'].includes(endpoint);
+  const mockSosRequest = endpoint === "/admin/mock-sos";
+  if (!publicAuth && !["GET", "HEAD", "OPTIONS"].includes(method) && isReadOnlyAccount(readCachedProfile()) && !mockSosRequest) {
+    return {
+      success: false,
+      data: null as T,
+      error: "This account has view-only access",
+      status: 403,
+    };
+  }
   const generation = sessionGeneration;
   const token = publicAuth ? undefined : await getAccessToken();
   const requestWithRefresh = async () => {
@@ -543,6 +554,20 @@ export const api = {
       fetcher<AccessRequest>(`/admin/access-requests/${id}/reject`, {
         method: "POST",
         body: JSON.stringify(data),
+        cacheTtlMs: 0,
+      }),
+    mockSos: (data: { vehicle_id: string; reason?: string }) =>
+      fetcher<{
+        simulation_id: string;
+        simulated: true;
+        command_sent: false;
+        requested_action: "remote_vehicle_shutdown";
+        status: "simulation_recorded";
+        vehicle: { id: string; vehicle_code: string };
+        message: string;
+      }>("/admin/mock-sos", {
+        method: "POST",
+        body: JSON.stringify({ ...data, confirmation: "SIMULATE VEHICLE OFF" }),
         cacheTtlMs: 0,
       }),
   },

@@ -10,6 +10,8 @@ import { AdminMetricCarousel } from "@/components/admin/AdminMetricCarousel";
 import { Activity, CheckCircle2, Cpu, Database, Layers, Settings, ShieldCheck, UserPlus, Users, XCircle, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import { AccessRequest, Driver, Fleet, ModelMetrics, User as TrickeeUser, UserRole, Vehicle } from "@/types";
+import { useAuth } from "@/components/AuthProvider";
+import { isReadOnlyAccount } from "@/lib/account-access.mjs";
 
 type Draft = {
   role: UserRole;
@@ -53,6 +55,8 @@ function vehicleOptionLabel(vehicle: Vehicle) {
 }
 
 export default function AdminPage() {
+  const { user: currentUser } = useAuth();
+  const readOnly = isReadOnlyAccount(currentUser);
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
   const [users, setUsers] = useState<TrickeeUser[]>([]);
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
@@ -315,7 +319,7 @@ export default function AdminPage() {
 
         <AdminMetricCarousel metrics={adminMetrics} />
 
-        <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_0.58fr]">
+        {!readOnly ? <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_0.58fr]">
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <div>
@@ -536,7 +540,7 @@ export default function AdminPage() {
               </form>
             </CardContent>
           </Card>
-        </div>
+        </div> : null}
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <Card>
@@ -610,15 +614,18 @@ export default function AdminPage() {
                         <TableCell>
                           <input
                             value={draft.full_name || ""}
+                            disabled={readOnly}
                             onChange={(event) => updateUserDraft(user.id, { full_name: event.target.value })}
                             className="mb-1 h-8 w-full min-w-[150px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs font-semibold text-text-primary outline-none"
                           />
                           <p className="text-xs text-text-dim">{user.email}</p>
+                          {user.access_mode === "read_only" ? <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-sky-300">View-only admin</p> : null}
                           {user.driver_id && <p className="mt-1 text-[10px] text-text-dim">Current: {driversById[user.driver_id]?.full_name || user.driver_id}</p>}
                         </TableCell>
                         <TableCell>
                           <select
                             value={draft.role}
+                            disabled={readOnly}
                             onChange={(event) => {
                               const role = event.target.value as UserRole;
                               updateUserDraft(user.id, {
@@ -639,7 +646,7 @@ export default function AdminPage() {
                         <TableCell>
                           <select
                             value={draft.fleet_id || ""}
-                            disabled={draft.role === "trickee_admin"}
+                            disabled={readOnly || draft.role === "trickee_admin"}
                             onChange={(event) => updateUserDraft(user.id, { fleet_id: event.target.value, driver_id: undefined })}
                             className="h-9 w-full min-w-[145px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none disabled:opacity-45"
                           >
@@ -656,6 +663,7 @@ export default function AdminPage() {
                           {draft.role === "driver" ? (
                             <select
                               value={draft.driver_id || ""}
+                              disabled={readOnly}
                               onChange={(event) => updateUserDraft(user.id, { driver_id: event.target.value })}
                               className="h-9 w-full min-w-[155px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
                             >
@@ -673,6 +681,7 @@ export default function AdminPage() {
                         <TableCell>
                           <select
                             value={draft.is_active ? "active" : "inactive"}
+                            disabled={readOnly}
                             onChange={(event) => updateUserDraft(user.id, { is_active: event.target.value === "active" })}
                             className="h-9 w-full min-w-[95px] rounded-lg border border-bg-border bg-bg-primary px-2 text-xs text-text-primary outline-none"
                           >
@@ -681,7 +690,7 @@ export default function AdminPage() {
                           </select>
                         </TableCell>
                         <TableCell>
-                          <div className="flex justify-end">
+                          {!readOnly ? <div className="flex justify-end">
                             <Button
                               size="sm"
                               onClick={() => saveUserMapping(user)}
@@ -692,7 +701,7 @@ export default function AdminPage() {
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               Update
                             </Button>
-                          </div>
+                          </div> : <span className="text-xs text-text-dim">View only</span>}
                         </TableCell>
                       </TableRow>
                     );

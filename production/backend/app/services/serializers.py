@@ -18,6 +18,8 @@ def user_dict(user) -> dict[str, Any]:
         "auth_provider": user.auth_provider,
         "full_name": user.full_name,
         "role": user.role,
+        "access_mode": getattr(user, "access_mode", "full") or "full",
+        "capabilities": getattr(user, "capabilities", None) or [],
         "fleet_id": user.fleet_id,
         "driver_id": user.driver_id,
         "is_active": user.is_active,
