@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import Lenis from "lenis";
 import { getTextMotionPlan } from "@/lib/intro-motion.mjs";
 import { getJourneyTargetId } from "@/lib/journey-navigation.mjs";
 import { formatJourneyMetric, getLayerFrame, getRideFrame, getSceneFrame } from "@/lib/journey-motion.mjs";
@@ -32,7 +31,6 @@ const layerReadouts = [
 
 export function AnimatedLanding() {
   const rootRef = useRef<HTMLElement | null>(null);
-  const lenisRef = useRef<Lenis | null>(null);
   const [introComplete, setIntroComplete] = useState(false);
   const [sceneEnabled, setSceneEnabled] = useState(false);
   const handleIntroComplete = useCallback(() => setIntroComplete(true), []);
@@ -42,14 +40,10 @@ export function AnimatedLanding() {
     if (!target) return false;
 
     window.history.pushState(null, "", href);
-    if (lenisRef.current) {
-      const scrollMargin = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop) || 0;
-      lenisRef.current.scrollTo(target, { offset: -72 - scrollMargin, duration: 1.18 });
-    } else {
-      const top = target.getBoundingClientRect().top + window.scrollY - 72;
-      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      window.scrollTo({ top, behavior: reducedMotion ? "auto" : "smooth" });
-    }
+    const scrollMargin = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop) || 0;
+    const top = target.getBoundingClientRect().top + window.scrollY - 72 - scrollMargin;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top, behavior: reducedMotion ? "instant" : "smooth" });
     return true;
   }, []);
 
@@ -66,6 +60,23 @@ export function AnimatedLanding() {
     };
   }, []);
 
+  useEffect(() => {
+    const reel = rootRef.current?.querySelector<HTMLElement>(".journey-reel");
+    if (!reel) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      reel.dataset.visible = String(entry.isIntersecting && !document.hidden);
+    }, { rootMargin: "200px" });
+    const onVisibility = () => {
+      reel.dataset.visible = String(!document.hidden && reel.getBoundingClientRect().top < window.innerHeight + 200 && reel.getBoundingClientRect().bottom > -200);
+    };
+    observer.observe(reel);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   useLayoutEffect(() => {
     if (!introComplete) return;
     const root = rootRef.current;
@@ -79,27 +90,28 @@ export function AnimatedLanding() {
     const textMotion = getTextMotionPlan(window.innerWidth);
     gsap.registerPlugin(ScrollTrigger);
     root.dataset.motion = "full";
-    const lenis = new Lenis({
-      duration: 1.18,
-      smoothWheel: true,
-      wheelMultiplier: 0.84,
-      touchMultiplier: 1.05,
-      anchors: { offset: -72 },
-      easing: (time) => Math.min(1, 1.001 - 2 ** (-10 * time)),
-    });
-    lenisRef.current = lenis;
-    let rafId = 0;
-    const raf = (time: number) => {
-      lenis.raf(time);
-      rafId = requestAnimationFrame(raf);
-    };
-    rafId = requestAnimationFrame(raf);
-    const unsubscribe = lenis.on("scroll", ScrollTrigger.update);
     const cleanups: Array<() => void> = [];
 
     let introTimeline: gsap.core.Timeline | null = null;
     const context = gsap.context(() => {
       const chapterSections = Array.from(root.querySelectorAll<HTMLElement>("[data-chapter]"));
+      const pageProgress = root.querySelector<HTMLElement>("[data-page-progress]");
+      let activeChapter = -1;
+      const chapterObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const chapter = chapterSections.indexOf(entry.target as HTMLElement);
+            if (chapter >= 0 && chapter !== activeChapter) {
+              activeChapter = chapter;
+              useJourneyStore.setState({ chapter });
+            }
+          }
+        },
+        { rootMargin: "-48% 0px -48% 0px" },
+      );
+      chapterSections.forEach((section) => chapterObserver.observe(section));
+      cleanups.push(() => chapterObserver.disconnect());
       ScrollTrigger.create({
         trigger: root,
         start: "top top",
@@ -114,13 +126,7 @@ export function AnimatedLanding() {
           root.style.setProperty("--telemetry-density", String(sceneFrame.telemetry));
           root.style.setProperty("--scroll-velocity", velocity.toFixed(3));
           useJourneyStore.getState().setProgress(self.progress);
-          const middle = window.innerHeight * 0.5;
-          const active = chapterSections.findIndex((section) => {
-            const box = section.getBoundingClientRect();
-            return box.top <= middle && box.bottom > middle;
-          });
-          if (active >= 0) useJourneyStore.setState({ chapter: active });
-          gsap.set("[data-page-progress]", { scaleX: self.progress });
+          if (pageProgress) pageProgress.style.transform = `scaleX(${self.progress})`;
         },
       });
 
@@ -131,9 +137,8 @@ export function AnimatedLanding() {
         rotateX: -64,
         rotateZ: (index) => (index % 2 ? 6 : -6),
         opacity: 0,
-        filter: "blur(5px)",
       }, {
-        yPercent: 0, rotateX: 0, rotateZ: 0, opacity: 1, filter: "blur(0px)",
+        yPercent: 0, rotateX: 0, rotateZ: 0, opacity: 1,
         duration: textMotion.duration,
         stagger: textMotion.stagger,
         ease: "power2.out",
@@ -142,7 +147,7 @@ export function AnimatedLanding() {
       }, 0.12);
       introTimeline.from("[data-hero-copy] > p, [data-hero-copy] .journey-hero-actions, .journey-live-readout", { y: 24, opacity: 0, duration: 0.9, stagger: 0.09, ease: "power3.out" }, 0.38);
       gsap.fromTo("[data-route-draw]", { strokeDashoffset: 1 }, { strokeDashoffset: 0, ease: "none", scrollTrigger: { trigger: "#ping", start: "top top", end: "bottom bottom", scrub: true } });
-      gsap.to(".journey-hero-image", { scale: 1.34, yPercent: 12, xPercent: -3, filter: "saturate(1.12) contrast(1.12)", ease: "none", scrollTrigger: { trigger: "#ping", start: "top top", end: "bottom bottom", scrub: 1 } });
+      gsap.to(".journey-hero-image", { scale: 1.34, yPercent: 12, xPercent: -3, ease: "none", scrollTrigger: { trigger: "#ping", start: "top top", end: "bottom bottom", scrub: 1 } });
       gsap.to("[data-hero-copy]", { yPercent: -22, opacity: 0.12, ease: "none", scrollTrigger: { trigger: "#ping", start: "top top", end: "bottom bottom", scrub: 0.8 } });
       gsap.to(".journey-live-readout", { yPercent: -85, xPercent: -18, ease: "none", scrollTrigger: { trigger: "#ping", start: "top top", end: "bottom bottom", scrub: 1 } });
 
@@ -151,8 +156,8 @@ export function AnimatedLanding() {
           const stage = section.querySelector<HTMLElement>(".journey-sticky");
           if (!stage) return;
           gsap.fromTo(stage,
-            { scale: 0.97, filter: "brightness(.68)" },
-            { scale: 1, filter: "brightness(1)", ease: "none", scrollTrigger: { trigger: section, start: "top bottom", end: "top top", scrub: 0.75 } },
+            { scale: 0.97, opacity: 0.8 },
+            { scale: 1, opacity: 1, ease: "none", scrollTrigger: { trigger: section, start: "top bottom", end: "top top", scrub: 0.75 } },
           );
         });
       }
@@ -189,7 +194,7 @@ export function AnimatedLanding() {
       });
 
       gsap.fromTo("[data-prie-console]", { scale: 0.94, rotateX: 4, yPercent: 4 }, { scale: 1, rotateX: 0, yPercent: 0, ease: "power2.inOut", scrollTrigger: { trigger: "#prie", start: "top top", end: "bottom bottom", scrub: 1 } });
-      gsap.to("[data-prie-console]", { rotateY: -5, xPercent: 4, boxShadow: "0 70px 150px rgba(0,0,0,.72)", ease: "none", scrollTrigger: { trigger: "#prie", start: "center center", end: "bottom bottom", scrub: 1 } });
+      gsap.to("[data-prie-console]", { rotateY: -5, xPercent: 4, ease: "none", scrollTrigger: { trigger: "#prie", start: "center center", end: "bottom bottom", scrub: 1 } });
       ScrollTrigger.create({
         trigger: "#prie",
         start: "top 35%",
@@ -214,9 +219,9 @@ export function AnimatedLanding() {
         },
       });
       gsap.fromTo("[data-phone-tilt]", { yPercent: 18, rotateZ: -7 }, { yPercent: -8, rotateZ: 2, ease: "none", scrollTrigger: { trigger: "#ride", start: "top bottom", end: "bottom top", scrub: 1 } });
-      gsap.to(".journey-city-grid", { backgroundPosition: "360px 620px", scale: 1.35, ease: "none", scrollTrigger: { trigger: "#ride", start: "top bottom", end: "bottom top", scrub: 1 } });
+      gsap.to(".journey-city-grid", { xPercent: 4, scale: 1.35, ease: "none", scrollTrigger: { trigger: "#ride", start: "top bottom", end: "bottom top", scrub: 1 } });
       gsap.to(".journey-proof-images img", { scale: 1.16, yPercent: 7, ease: "none", scrollTrigger: { trigger: "#trust", start: "top bottom", end: "bottom top", scrub: 1 } });
-      gsap.from(".journey-reel-item", { clipPath: "inset(0 100% 0 0)", stagger: 0.07, duration: 1.2, ease: "power4.inOut", scrollTrigger: { trigger: "#field-notes", start: "top 72%", once: true } });
+      gsap.from(".journey-reel-item", { x: 30, opacity: 0, stagger: 0.07, duration: 0.8, ease: "power3.out", scrollTrigger: { trigger: "#field-notes", start: "top 72%", once: true } });
       gsap.to(".journey-reel-image", { yPercent: 9, scale: 1.09, ease: "none", scrollTrigger: { trigger: "#field-notes", start: "top bottom", end: "bottom top", scrub: 1 } });
       gsap.to(".journey-reel-orbit", { rotate: 240, ease: "none", scrollTrigger: { trigger: "#field-notes", start: "top bottom", end: "bottom top", scrub: 1.4 } });
 
@@ -232,9 +237,8 @@ export function AnimatedLanding() {
             rotateX: -58,
             rotateZ: (index) => (index % 3 - 1) * 5,
             opacity: 0,
-            filter: "blur(4px)",
           }, {
-            yPercent: 0, rotateX: 0, rotateZ: 0, opacity: 1, filter: "blur(0px)",
+            yPercent: 0, rotateX: 0, rotateZ: 0, opacity: 1,
             paused: true,
             duration: textMotion.duration,
             stagger: textMotion.stagger,
@@ -284,13 +288,16 @@ export function AnimatedLanding() {
 
       const phone = root.querySelector<HTMLElement>("[data-phone-tilt]");
       if (phone) {
+        const rotateX = gsap.quickTo(phone, "rotateX", { duration: 0.5, ease: "power3.out" });
+        const rotateY = gsap.quickTo(phone, "rotateY", { duration: 0.5, ease: "power3.out" });
         const move = (event: PointerEvent) => {
           const box = phone.getBoundingClientRect();
           const x = (event.clientX - box.left) / box.width - 0.5;
           const y = (event.clientY - box.top) / box.height - 0.5;
-          gsap.to(phone, { rotateY: x * 8, rotateX: y * -7, duration: 0.5, ease: "power3.out", overwrite: "auto" });
+          rotateY(x * 8);
+          rotateX(y * -7);
         };
-        const leave = () => gsap.to(phone, { rotateX: 0, rotateY: 0, duration: 0.8, ease: "power3.out" });
+        const leave = () => { rotateX(0); rotateY(0); };
         phone.addEventListener("pointermove", move, { passive: true });
         phone.addEventListener("pointerleave", leave);
         cleanups.push(() => { phone.removeEventListener("pointermove", move); phone.removeEventListener("pointerleave", leave); });
@@ -306,14 +313,23 @@ export function AnimatedLanding() {
     const cursor = root.querySelector<HTMLElement>("[data-journey-cursor]");
     const cursorX = cursor ? gsap.quickTo(cursor, "x", { duration: 0.22, ease: "power3" }) : null;
     const cursorY = cursor ? gsap.quickTo(cursor, "y", { duration: 0.22, ease: "power3" }) : null;
+    let pointerFrame = 0;
+    let pointerX = 0;
+    let pointerY = 0;
     const pointerMove = (event: PointerEvent) => {
-      cursor?.classList.add("is-visible");
-      cursorX?.(event.clientX);
-      cursorY?.(event.clientY);
-      root.style.setProperty("--pointer-x", `${event.clientX}px`);
-      root.style.setProperty("--pointer-y", `${event.clientY}px`);
-      root.style.setProperty("--pointer-nx", String(event.clientX / window.innerWidth - 0.5));
-      root.style.setProperty("--pointer-ny", String(event.clientY / window.innerHeight - 0.5));
+      pointerX = event.clientX;
+      pointerY = event.clientY;
+      if (pointerFrame) return;
+      pointerFrame = requestAnimationFrame(() => {
+        pointerFrame = 0;
+        cursor?.classList.add("is-visible");
+        cursorX?.(pointerX);
+        cursorY?.(pointerY);
+        root.style.setProperty("--pointer-x", `${pointerX}px`);
+        root.style.setProperty("--pointer-y", `${pointerY}px`);
+        root.style.setProperty("--pointer-nx", String(pointerX / window.innerWidth - 0.5));
+        root.style.setProperty("--pointer-ny", String(pointerY / window.innerHeight - 0.5));
+      });
     };
     const pointerOver = (event: PointerEvent) => {
       if ((event.target as HTMLElement).closest("a, button")) cursor?.classList.add("is-active");
@@ -329,13 +345,10 @@ export function AnimatedLanding() {
       root.removeEventListener("pointermove", pointerMove);
       root.removeEventListener("pointerover", pointerOver);
       root.removeEventListener("pointerout", pointerOut);
+      if (pointerFrame) cancelAnimationFrame(pointerFrame);
       window.removeEventListener("trickee:intro-reveal", revealIntro);
       cleanups.forEach((cleanup) => cleanup());
       context.revert();
-      unsubscribe();
-      lenis.destroy();
-      if (lenisRef.current === lenis) lenisRef.current = null;
-      cancelAnimationFrame(rafId);
     };
   }, [introComplete]);
 

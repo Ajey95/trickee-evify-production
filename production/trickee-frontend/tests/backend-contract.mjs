@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { resolveBrowserBackendUrl } from '../lib/backend-url.mjs';
 
 const origin = (process.env.BACKEND_URL || 'https://trickee-backend-397358873357.asia-south1.run.app').replace(/\/$/, '').replace(/\/api\/v1$/, '');
 const res = await fetch(`${origin}/openapi.json`, { signal: AbortSignal.timeout(90_000) });
@@ -14,7 +15,11 @@ const source = ts.transpileModule(readFileSync(new URL('../lib/api.ts', import.m
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 vm.runInNewContext(source, {
-  exports, require: () => ({ readAccessToken: () => undefined, readRefreshToken: () => undefined, writeAuthSession: () => {} }),
+  exports, require: (id) => id.includes('backend-url')
+    ? { resolveBrowserBackendUrl }
+    : id.includes('account-access')
+      ? { isReadOnlyAccount: () => false }
+      : { readAccessToken: () => undefined, readCachedProfile: () => undefined, readRefreshToken: () => undefined, writeAuthSession: () => {} },
   process: { env: {} }, window: { setTimeout, clearTimeout }, AbortController, Headers,
   fetch: async (url, options) => {
     calls.push({ url, method: options.method || 'GET' });

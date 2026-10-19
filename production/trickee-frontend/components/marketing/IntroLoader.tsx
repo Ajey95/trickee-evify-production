@@ -57,6 +57,8 @@ export function IntroLoader({ onComplete }: { onComplete: () => void }) {
       timeline.call(() => { root.dataset.logoPhase = "exiting"; }, [], plan.revealAt);
       timeline.to(".intro-brand-stage", { y: -8, duration: plan.exitDuration, ease: "power2.inOut" }, plan.revealAt);
       timeline.to(root, { opacity: 0, scale: 1.012, duration: plan.exitDuration, ease: "power2.inOut" }, plan.revealAt);
+      // Keep the full logo sequence, but release the page sooner.
+      timeline.timeScale(1.8);
     }, root);
     return () => {
       window.clearTimeout(watchdog);

@@ -12,7 +12,7 @@ export const useJourneyStore = create<JourneyState>((set) => ({
   chapter: 0,
   setProgress: (progress) => {
     const frame = getChapterFrame(progress);
-    set({ progress: frame.progress, chapter: frame.chapter });
+    set({ progress: frame.progress });
   },
 }));
 
