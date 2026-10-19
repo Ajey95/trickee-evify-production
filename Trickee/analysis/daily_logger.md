@@ -417,4 +417,6 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 - Replaced Lenis's continuous frame loop with native scrolling, capped the 3D scene render budget, reduced repeated per-frame work, and paused the reel offscreen.
 - Local production build, TypeScript, targeted ESLint, 20 motion/API tests, and 9 browser journey tests passed. Desktop and mobile visual smoke checks had no page errors.
 - The local same-origin proxy returned HTTP 200 for signup options and expected HTTP 401 for an unauthenticated account read; 60 API methods matched deployed OpenAPI paths.
-- Deployment and physical-device performance checks remain pending review.
+- PR #7 passed CI and merged as `4a19aad10c1d7f4a8f873ded5938959aaebb7780`. Both Vercel production projects are READY at this revision, including the `www.trickee.co.in` alias.
+- Live desktop and mobile landing pages returned HTTP 200 without page errors or horizontal overflow. The live same-origin backend proxy returned HTTP 200 for signup options and expected HTTP 401 for unauthenticated account access.
+- Physical-device scrolling remains to be profiled; headless frame timings are not a universal no-lag guarantee.
