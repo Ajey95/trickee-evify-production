@@ -1495,3 +1495,11 @@ Remaining production requirement:
 - Re-enable and validate `react-native-background-geolocation` on a real Google Play Services Android target.
 - Configure the valid package/license path for `com.trickeeandroid`.
 - Re-run Android build and device test after that native GPS configuration is ready.
+
+## 2026-10-20 - Landing animation performance
+
+The frontend performance changes are on `codex/landing-performance` from `origin/main` at `c12eeb6`. The animated intro, scroll chapters, Three.js route scene, magnetic controls, and moving field reel remain in place. Native browser scrolling replaces the perpetual Lenis frame loop. The scene now renders on a 30 fps demand schedule at a capped device pixel ratio, reuses sampled route points, and pauses when the tab is hidden. Scroll effects avoid animated blur, brightness, background position, and box shadow; the reel pauses outside the viewport. The intro sequence runs 1.8 times faster.
+
+Verification: Next.js production build and TypeScript passed; targeted ESLint passed; 20 motion/API unit tests and 9 landing browser tests passed. Desktop and mobile rendered without page errors. The local same-origin backend proxy returned HTTP 200 for public signup options and expected HTTP 401 for unauthenticated account access. Sixty frontend API methods matched the deployed OpenAPI paths and methods after repairing the contract test harness. Backend routes and configuration were not changed.
+
+Remaining: review the frontend pull request, then verify the deployed revision and profile scrolling on representative physical devices. Headless software-rendered frame timings are diagnostic only and cannot establish a universal no-lag guarantee.

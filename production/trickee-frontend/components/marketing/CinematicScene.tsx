@@ -1,8 +1,8 @@
 "use client";
 
 import { Line } from "@react-three/drei";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { getSceneFrame } from "@/lib/journey-motion.mjs";
 import { useJourneyStore } from "./journey-store";
@@ -26,6 +26,31 @@ const TOWER_POSITIONS = [
   [-3.4, -1.62, 0.3, 0.8], [-2.8, -1.45, -1.5, 1.4], [-2.05, -1.35, -2.9, 0.95],
   [2.8, -1.5, -0.5, 1.25], [3.45, -1.3, -2.4, 1.8], [2.65, -1.4, -4.25, 1.05],
 ] as const;
+
+function SceneFrameScheduler() {
+  const invalidate = useThree((state) => state.invalidate);
+
+  useEffect(() => {
+    let timer = 0;
+    const update = () => {
+      if (document.hidden) {
+        window.clearInterval(timer);
+        timer = 0;
+      } else if (!timer) {
+        invalidate();
+        timer = window.setInterval(invalidate, 33);
+      }
+    };
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      document.removeEventListener("visibilitychange", update);
+      window.clearInterval(timer);
+    };
+  }, [invalidate]);
+
+  return null;
+}
 
 function createTelemetryPositions(count: number) {
   const positions = new Float32Array(count * 3);
@@ -52,6 +77,8 @@ function LivingRouteWorld() {
   const cyanLight = useRef<THREE.PointLight>(null);
   const yellowLight = useRef<THREE.PointLight>(null);
   const cameraTarget = useRef(new THREE.Vector3(0, -0.2, -1.3));
+  const routePosition = useRef(new THREE.Vector3());
+  const routeTangent = useRef(new THREE.Vector3());
   const telemetryPositions = useMemo(() => createTelemetryPositions(480), []);
   const photonPositions = useMemo(() => new Float32Array(96 * 3), []);
   const photonPhases = useMemo(() => Array.from({ length: 96 }, (_, index) => index / 96), []);
@@ -59,21 +86,30 @@ function LivingRouteWorld() {
     () => new THREE.CatmullRomCurve3(ROUTE_POINTS.map(([x, y, z]) => new THREE.Vector3(x, y, z))),
     [],
   );
+  const routeSamples = useMemo(() => {
+    const samples = new Float32Array(512 * 3);
+    const point = new THREE.Vector3();
+    for (let index = 0; index < 512; index += 1) {
+      curve.getPoint(index / 511, point);
+      samples.set([point.x, point.y, point.z], index * 3);
+    }
+    return samples;
+  }, [curve]);
 
   useFrame(({ camera, clock, scene }) => {
     const progress = useJourneyStore.getState().progress;
     const frame = getSceneFrame(progress);
     const elapsed = clock.getElapsedTime();
     const routeT = Math.min(0.985, 0.025 + progress * 0.95);
-    const routePosition = curve.getPoint(routeT);
-    const routeTangent = curve.getTangent(routeT);
+    curve.getPoint(routeT, routePosition.current);
+    curve.getTangent(routeT, routeTangent.current);
     const ease = frame.local * frame.local * (3 - 2 * frame.local);
     const currentCamera = CAMERA_FRAMES[frame.chapter];
     const nextCamera = CAMERA_FRAMES[Math.min(frame.chapter + 1, CAMERA_FRAMES.length - 1)];
 
     if (vehicle.current) {
-      vehicle.current.position.copy(routePosition);
-      vehicle.current.rotation.y = Math.atan2(routeTangent.x, routeTangent.z);
+      vehicle.current.position.copy(routePosition.current);
+      vehicle.current.rotation.y = Math.atan2(routeTangent.current.x, routeTangent.current.z);
       vehicle.current.position.y += Math.sin(elapsed * 3.1) * 0.035;
       const vehicleScale = 1.08 + frame.routeEnergy * 0.28;
       vehicle.current.scale.setScalar(vehicleScale);
@@ -81,7 +117,7 @@ function LivingRouteWorld() {
 
     if (vehicleHalo.current) {
       const pulsePhase = (elapsed * 0.55) % 1;
-      vehicleHalo.current.position.copy(routePosition);
+      vehicleHalo.current.position.copy(routePosition.current);
       vehicleHalo.current.rotation.x = -Math.PI / 2;
       vehicleHalo.current.scale.setScalar(1 + pulsePhase * 2.4);
       const haloMaterial = vehicleHalo.current.material as THREE.MeshBasicMaterial;
@@ -92,9 +128,17 @@ function LivingRouteWorld() {
       const positionAttribute = photons.current.geometry.attributes.position as THREE.BufferAttribute;
       photonPhases.forEach((phase, index) => {
         const t = (phase * 0.34 + elapsed * (0.075 + frame.routeEnergy * 0.08) + progress * 0.9) % 1;
-        const point = curve.getPoint(t);
+        const sample = t * 511;
+        const first = Math.floor(sample) * 3;
+        const next = Math.min(511, Math.floor(sample) + 1) * 3;
+        const fraction = sample - Math.floor(sample);
         const spread = Math.sin(index * 12.31 + elapsed * 2) * 0.035;
-        positionAttribute.setXYZ(index, point.x + spread, point.y + spread * 0.6, point.z);
+        positionAttribute.setXYZ(
+          index,
+          routeSamples[first] + (routeSamples[next] - routeSamples[first]) * fraction + spread,
+          routeSamples[first + 1] + (routeSamples[next + 1] - routeSamples[first + 1]) * fraction + spread * 0.6,
+          routeSamples[first + 2] + (routeSamples[next + 2] - routeSamples[first + 2]) * fraction,
+        );
       });
       positionAttribute.needsUpdate = true;
       const material = photons.current.material as THREE.PointsMaterial;
@@ -209,9 +253,10 @@ export default function CinematicScene() {
   return (
     <div className="journey-canvas" aria-hidden="true">
       <div className="journey-canvas-fallback" />
-      <Canvas camera={{ position: [0, 1.05, 6.4], fov: 46, near: 0.1, far: 60 }} dpr={[1, 1.5]} frameloop="always" gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}>
+      <Canvas camera={{ position: [0, 1.05, 6.4], fov: 46, near: 0.1, far: 60 }} dpr={[0.75, 1]} frameloop="demand" gl={{ alpha: true, antialias: false, powerPreference: "high-performance" }}>
         <fog attach="fog" args={["#020609", 5, 17]} />
         <LivingRouteWorld />
+        <SceneFrameScheduler />
       </Canvas>
     </div>
   );

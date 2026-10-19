@@ -2484,6 +2484,10 @@ html[data-theme="light"] .marketing-theme-toggle .theme-toggle-orb {
 .intro-caption { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 14px; margin-top: -8%; color: rgba(235,244,247,.75); font-family: var(--font-technical); font-size: clamp(7px,1.6vw,9px); letter-spacing: .15em; line-height: 1.8; text-align: center; }
 .intro-caption span:last-child { color: #ffe000; }
 .custom-logo-intro .journey-loader-bar i { animation: none; }
+
+/* The reel keeps moving while it is near the viewport and rests offscreen. */
+.journey-reel-track { animation-play-state: paused; }
+.journey-reel[data-visible="true"] .journey-reel-track { animation-play-state: running; }
 @media (prefers-reduced-motion: reduce) {
   .intro-brand-image { opacity: 1; }
   .intro-route, .intro-pulse, .intro-brand-shine, .intro-orbits, .intro-halo, .intro-ripples { display: none; }

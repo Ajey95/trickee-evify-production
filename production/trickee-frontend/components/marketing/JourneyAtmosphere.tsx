@@ -12,7 +12,7 @@ export function JourneyAtmosphere() {
   return (
     <div className="journey-atmosphere" aria-hidden="true">
       <div className="journey-speed-field">
-        {Array.from({ length: 28 }, (_, index) => {
+        {Array.from({ length: 14 }, (_, index) => {
           const style: StreakStyle = {
             "--streak-index": index,
             "--streak-x": `${(index * 37) % 103}%`,

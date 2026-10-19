@@ -410,3 +410,11 @@ Purpose: daily engineering log for implementation, deployed verification, pilot-
 
 - The SOS control is intentionally a demonstration. It does not contact or disable a vehicle.
 - Any future real immobilization feature requires a separate safety, authorization, hardware, and regulatory design review.
+
+## 2026-10-20 - Website animation performance
+
+- Optimized the animated production frontend on a branch from current `origin/main`; retained the intro, 3D route, scroll chapters, and field reel.
+- Replaced Lenis's continuous frame loop with native scrolling, capped the 3D scene render budget, reduced repeated per-frame work, and paused the reel offscreen.
+- Local production build, TypeScript, targeted ESLint, 20 motion/API tests, and 9 browser journey tests passed. Desktop and mobile visual smoke checks had no page errors.
+- The local same-origin proxy returned HTTP 200 for signup options and expected HTTP 401 for an unauthenticated account read; 60 API methods matched deployed OpenAPI paths.
+- Deployment and physical-device performance checks remain pending review.
